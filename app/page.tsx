@@ -3,6 +3,7 @@
 import {
   FormEvent,
   KeyboardEvent,
+  MouseEvent,
   useEffect,
   useRef,
   useState,
@@ -202,6 +203,37 @@ export default function Page() {
     }
   }
 
+  // Apagar conversa com confirmação
+  function handleDeleteConversation(
+    e: MouseEvent<HTMLButtonElement>,
+    convId: string
+  ) {
+    e.stopPropagation(); // não selecionar a conversa ao clicar no X
+
+    const confirmed = window.confirm(
+      "Tem certeza que deseja excluir esta conversa?"
+    );
+    if (!confirmed) return;
+
+    setConversations((prev) => {
+      const updated = prev.filter((c) => c.id !== convId);
+
+      // se apagou a conversa atual
+      if (convId === current.id) {
+        if (updated.length > 0) {
+          setCurrentId(updated[0].id);
+        } else {
+          // se era a última, cria uma nova
+          const fresh = createNewConversation();
+          setCurrentId(fresh.id);
+          return [fresh];
+        }
+      }
+
+      return updated;
+    });
+  }
+
   return (
     <div className="h-screen w-screen flex bg-[#050509] text-gray-100">
       {/* Sidebar */}
@@ -225,7 +257,7 @@ export default function Page() {
             </p>
             <p className="mt-1">
               O modo padrão é{" "}
-              <span className="font-semibold">CONSULTA</span>. Para entrar em
+                <span className="font-semibold">CONSULTA</span>. Para entrar em
               modo criativo, basta escrever algo contendo
               &quot;modo criativo&quot; na conversa. Para voltar, mencione
               &quot;modo consulta&quot;.
@@ -239,26 +271,28 @@ export default function Page() {
             <div className="space-y-1">
               {conversations.map((conv) => {
                 const isActive = conv.id === current.id;
+
                 return (
-                  <button
+                  <div
                     key={conv.id}
                     onClick={() => handleSelectConversation(conv.id)}
                     className={
-                      "w-full text-left rounded-md px-2 py-2 text-[11px] leading-snug border transition " +
+                      "w-full cursor-pointer rounded-md px-2 py-2 text-[11px] leading-snug border transition flex items-center justify-between gap-2 " +
                       (isActive
                         ? "border-white/30 bg-white/5"
                         : "border-transparent hover:border-white/20 hover:bg-white/5")
                     }
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate">
-                        {conv.title === "Nova conversa"
-                          ? "Nova conversa"
-                          : conv.title}
-                      </span>
+                    <span className="truncate">
+                      {conv.title === "Nova conversa"
+                        ? "Nova conversa"
+                        : conv.title}
+                    </span>
+
+                    <div className="flex items-center gap-1">
                       <span
                         className={
-                          "ml-1 inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold border " +
+                          "inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold border " +
                           (conv.mode === "consulta"
                             ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
                             : "bg-purple-500/10 text-purple-300 border-purple-500/40")
@@ -266,8 +300,18 @@ export default function Page() {
                       >
                         {conv.mode === "consulta" ? "CONSULTA" : "CRIATIVO"}
                       </span>
+
+                      <button
+                        onClick={(e) =>
+                          handleDeleteConversation(e, conv.id)
+                        }
+                        className="text-gray-500 hover:text-red-400 ml-1 px-1"
+                        title="Apagar conversa"
+                      >
+                        ×
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
