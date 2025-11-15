@@ -2,12 +2,11 @@
 
 import {
   FormEvent,
+  KeyboardEvent,
   useEffect,
   useRef,
   useState,
-  KeyboardEvent,
 } from "react";
-import { clsx } from "clsx";
 
 type ChatMessage = {
   id: string;
@@ -25,15 +24,13 @@ type Conversation = {
   messages: ChatMessage[];
 };
 
-const STORAGE_KEY = "av_lore_conversations_v1";
-
-// Helper seguro para gerar IDs sem depender 100% de crypto.randomUUID
 function safeId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    // @ts-ignore
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return (
+    "id-" +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2)
+  );
 }
 
 function createIntroMessage(): ChatMessage {
@@ -56,55 +53,18 @@ function createNewConversation(): Conversation {
 }
 
 export default function Page() {
-  const [conversations, setConversations] = useState<Conversation[] | null>(
-    null
+  const [conversations, setConversations] = useState<Conversation[]>(() => [
+    createNewConversation(),
+  ]);
+  const [currentId, setCurrentId] = useState<string>(
+    () => conversations[0]?.id
   );
-  const [currentId, setCurrentId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // Carregar histórico do localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Conversation[];
-        if (parsed.length > 0) {
-          setConversations(parsed);
-          setCurrentId(parsed[0].id);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn("Erro ao ler conversas do localStorage:", e);
-    }
-
-    const first = createNewConversation();
-    setConversations([first]);
-    setCurrentId(first.id);
-  }, []);
-
-  // Salvar no localStorage sempre que as conversas mudarem
-  useEffect(() => {
-    if (!conversations || typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-    } catch (e) {
-      console.warn("Erro ao salvar conversas no localStorage:", e);
-    }
-  }, [conversations]);
-
-  if (!conversations || !currentId) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#050509] text-gray-200">
-        Carregando Or…
-      </div>
-    );
-  }
-
-  const current = conversations.find((c) => c.id === currentId)!;
+  const current =
+    conversations.find((c) => c.id === currentId) ?? conversations[0];
   const messages = current.messages;
   const mode = current.mode;
 
@@ -119,13 +79,13 @@ export default function Page() {
     updater: (conv: Conversation) => Conversation
   ) {
     setConversations((prev) =>
-      (prev ?? []).map((c) => (c.id === currentId ? updater(c) : c))
+      prev.map((c) => (c.id === current.id ? updater(c) : c))
     );
   }
 
   function handleNewChat() {
     const conv = createNewConversation();
-    setConversations((prev) => [conv, ...(prev ?? [])]);
+    setConversations((prev) => [conv, ...prev]);
     setCurrentId(conv.id);
     setInput("");
   }
@@ -137,7 +97,6 @@ export default function Page() {
 
   async function onSubmit(e?: FormEvent) {
     if (e) e.preventDefault();
-    if (!current) return;
 
     const value = input.trim();
     if (!value || loading) return;
@@ -157,7 +116,6 @@ export default function Page() {
       newMode = "consulta";
     }
 
-    // Atualizar conversa atual com a nova mensagem + modo
     updateCurrentConversation((conv) => {
       const newMessages = [...conv.messages, userMsg];
       const newTitle =
@@ -177,7 +135,6 @@ export default function Page() {
     setLoading(true);
 
     try {
-      // Mensagem de sistema descrevendo o modo atual para o modelo
       const modeSystemMessage: ChatMessage = {
         id: safeId(),
         role: "system",
@@ -209,6 +166,7 @@ export default function Page() {
       }
 
       const data = await res.json();
+
       const answer: ChatMessage = {
         id: safeId(),
         role: "assistant",
@@ -238,7 +196,6 @@ export default function Page() {
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter = enviar / Shift+Enter = quebra de linha
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -277,37 +234,42 @@ export default function Page() {
 
           <div className="pt-2 border-t border-white/10">
             <p className="font-semibold text-gray-200 text-[11px] uppercase tracking-wide mb-2">
-              Histórico de conversas
+              Histórico de conversas (sessão atual)
             </p>
             <div className="space-y-1">
-              {conversations.map((conv) => (
-                <button
-                  key={conv.id}
-                  onClick={() => handleSelectConversation(conv.id)}
-                  className={clsx(
-                    "w-full text-left rounded-md px-2 py-2 text-[11px] leading-snug border border-transparent hover:border-white/20 hover:bg-white/5 transition",
-                    conv.id === currentId && "border-white/30 bg-white/5"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">
-                      {conv.title === "Nova conversa"
-                        ? "Nova conversa"
-                        : conv.title}
-                    </span>
-                    <span
-                      className={clsx(
-                        "ml-1 inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold",
-                        conv.mode === "consulta"
-                          ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/40"
-                          : "bg-purple-500/10 text-purple-300 border border-purple-500/40"
-                      )}
-                    >
-                      {conv.mode === "consulta" ? "CONSULTA" : "CRIATIVO"}
-                    </span>
-                  </div>
-                </button>
-              ))}
+              {conversations.map((conv) => {
+                const isActive = conv.id === current.id;
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => handleSelectConversation(conv.id)}
+                    className={
+                      "w-full text-left rounded-md px-2 py-2 text-[11px] leading-snug border transition " +
+                      (isActive
+                        ? "border-white/30 bg-white/5"
+                        : "border-transparent hover:border-white/20 hover:bg-white/5")
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {conv.title === "Nova conversa"
+                          ? "Nova conversa"
+                          : conv.title}
+                      </span>
+                      <span
+                        className={
+                          "ml-1 inline-flex items-center rounded-full px-2 py-[1px] text-[10px] font-semibold border " +
+                          (conv.mode === "consulta"
+                            ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
+                            : "bg-purple-500/10 text-purple-300 border-purple-500/40")
+                        }
+                      >
+                        {conv.mode === "consulta" ? "CONSULTA" : "CRIATIVO"}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -340,27 +302,23 @@ export default function Page() {
           {messages.map((m) => {
             const isUser = m.role === "user";
             const name = isUser ? "Ivan" : "Or";
+            const bubbleClasses =
+              "max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed " +
+              (isUser
+                ? "bg-[#1f2933] text-gray-100 rounded-br-none"
+                : "bg-[#111827] text-gray-100 border border-white/10 rounded-bl-none");
+            const rowClasses =
+              "flex w-full gap-3 " +
+              (isUser ? "justify-end" : "justify-start");
+
             return (
-              <div
-                key={m.id}
-                className={clsx(
-                  "flex w-full gap-3",
-                  isUser ? "justify-end" : "justify-start"
-                )}
-              >
+              <div key={m.id} className={rowClasses}>
                 {!isUser && (
                   <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-red-600 via-purple-500 to-cyan-400 flex items-center justify-center text-xs font-bold">
                     O
                   </div>
                 )}
-                <div
-                  className={clsx(
-                    "max-w-[80%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
-                    isUser
-                      ? "bg-[#1f2933] text-gray-100 rounded-br-none"
-                      : "bg-[#111827] text-gray-100 border border-white/10 rounded-bl-none"
-                  )}
-                >
+                <div className={bubbleClasses}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
                     {name}
                   </div>
