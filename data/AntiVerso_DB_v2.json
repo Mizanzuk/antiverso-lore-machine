@@ -1,0 +1,314 @@
+{
+  "schema": {
+    "characters": {
+      "fields": {
+        "id": "string (slug único)",
+        "nome": "string",
+        "apelidos": "lista de strings",
+        "tipo": "string (ex: humano, entidade, organização, lugar)",
+        "primeira_aparicao": "string (obra / caso / ano)",
+        "descricao": "string longa",
+        "relacoes": "lista de {tipo, alvo_id, descricao}",
+        "tags": "lista de strings"
+      }
+    },
+    "entities": {
+      "fields": {
+        "id": "string",
+        "nome": "string",
+        "categoria": "string (ex: primordial, dimensional, memética, institucional)",
+        "descricao": "string",
+        "manifestações": "lista de strings (obras, casos, eventos)",
+        "conceitos_relacionados": "lista de ids de conceitos",
+        "sinais_associados": "lista de strings (códigos, sons, símbolos)"
+      }
+    },
+    "concepts": {
+      "fields": {
+        "id": "string",
+        "nome": "string",
+        "origem": "string (ex: Thacker, Ligotti, interno)",
+        "descricao": "string",
+        "aplicacoes": "lista de descrições de uso em obras/casos",
+        "tags": "lista de strings"
+      }
+    },
+    "projects": {
+      "fields": {
+        "id": "string",
+        "titulo": "string",
+        "tipo": "string (podcast, livro, ARG, EP, filme, etc.)",
+        "descricao": "string",
+        "status": "string (conceito, desenvolvimento, lançado)",
+        "periodo_diegético": "string (anos / era dentro do AntiVerso)",
+        "entidades_relacionadas": "lista de ids",
+        "conceitos_chave": "lista de ids de conceitos"
+      }
+    },
+    "locations": {
+      "fields": {
+        "id": "string",
+        "nome": "string",
+        "tipo": "string (cidade, prédio, sala, rodovia, floresta etc.)",
+        "descricao": "string",
+        "coordenadas_ficcionais": "string ou objeto",
+        "eventos_relacionados": "lista de descrições ou ids de casos"
+      }
+    }
+  },
+  "starter_data": {
+    "entities": [
+      {
+        "id": "or",
+        "nome": "Or",
+        "categoria": "primordial",
+        "descricao": "Som Primordial; ontologia negativa que antecede o ser e se manifesta como ruído de fundo do AntiVerso.",
+        "manifestações": [
+          "Evangelho de Or",
+          "Culto de Or",
+          "Sinais captados pela ARIS",
+          "Salas de ressonância"
+        ],
+        "conceitos_relacionados": [
+          "mundo_sem_nos",
+          "ontologia_negativa",
+          "horror_especulativo"
+        ],
+        "sinais_associados": [
+          "padrões de ruído não-humanos",
+          "frequências impossíveis",
+          "silêncios anômalos"
+        ]
+      },
+      {
+        "id": "a_sala",
+        "nome": "A Sala",
+        "categoria": "dimensional",
+        "descricao": "Estrutura espacial anômala, não-euclidiana, que atua como interface entre mundo-para-nós, mundo-em-si e mundo-sem-nós.",
+        "manifestações": [
+          "Caso da Sala 9",
+          "Arquivos da ARIS",
+          "relatos dispersos em várias épocas"
+        ],
+        "conceitos_relacionados": [
+          "limite_ontologico",
+          "colapso_do_olhar"
+        ],
+        "sinais_associados": [
+          "variações de temperatura local",
+          "falhas em gravações de vídeo",
+          "ecos sonoros sem fonte"
+        ]
+      },
+      {
+        "id": "aris",
+        "nome": "ARIS",
+        "categoria": "institucional",
+        "descricao": "Agência de Registro e Investigação de Sinais; organização responsável por catalogar, investigar e, em tese, conter fenômenos anômalos ligados ao Som e às Salas.",
+        "manifestações": [
+          "Arquivos ARIS-042, ARIS-047, ARIS-055, ARIS-095, ARIS-213, etc.",
+          "relatórios internos",
+          "desaparecimento de agentes"
+        ],
+        "conceitos_relacionados": [
+          "fracasso_humano",
+          "tentativa_de_controle"
+        ],
+        "sinais_associados": [
+          "protocolos de classificação",
+          "codificação de fitas",
+          "dossiês sigilosos"
+        ]
+      },
+      {
+        "id": "a_voz",
+        "nome": "A Voz",
+        "categoria": "memética",
+        "descricao": "Entidade/força de contágio sonoro-linguístico, que se manifesta como padrões de fala, sussurros e mensagens que reescrevem a percepção humana.",
+        "manifestações": [
+          "relatos de possesão vocal",
+          "gravações com fala sobreposta",
+          "cultos clandestinos"
+        ],
+        "conceitos_relacionados": [
+          "linguagem_como_virus",
+          "contagio_memetico"
+        ],
+        "sinais_associados": [
+          "frases recorrentes",
+          "idiomas inexistentes",
+          "sobreposição de vozes"
+        ]
+      }
+    ],
+    "concepts": [
+      {
+        "id": "mundo_para_nos",
+        "nome": "Mundo-para-nós",
+        "origem": "Eugene Thacker",
+        "descricao": "Camada da realidade filtrada pela experiência humana: linguagem, cultura, história, narrativa.",
+        "aplicacoes": [
+          "relatórios da ARIS",
+          "testemunhos em Arquivos Vermelhos",
+          "percepção cotidiana dos habitantes de Vera Cruz"
+        ],
+        "tags": [
+          "horror_especulativo",
+          "epistemologia"
+        ]
+      },
+      {
+        "id": "mundo_em_si",
+        "nome": "Mundo-em-si",
+        "origem": "Eugene Thacker",
+        "descricao": "Domínio da realidade indiferente, mas ainda pensável, onde se estruturam as leis esotéricas do AntiVerso.",
+        "aplicacoes": [
+          "arquitetura interna das Salas",
+          "equações sonoras",
+          "cabala musical da ARIS"
+        ],
+        "tags": [
+          "ontologia",
+          "estruturas_ocultas"
+        ]
+      },
+      {
+        "id": "mundo_sem_nos",
+        "nome": "Mundo-sem-nós",
+        "origem": "Eugene Thacker",
+        "descricao": "Esfera da existência totalmente alheia ao humano; coração do horror especulativo no AntiVerso.",
+        "aplicacoes": [
+          "manifestação de Or",
+          "Seres do Evangelho de Or",
+          "intervalos entre frames das fitas ARIS"
+        ],
+        "tags": [
+          "horror_cosmico",
+          "indiferenca"
+        ]
+      },
+      {
+        "id": "colapso_do_olhar",
+        "nome": "Colapso do olhar",
+        "origem": "Thomas Ligotti",
+        "descricao": "Momento em que o olhar humano deixa de organizar o mundo e passa a ser apenas mais um objeto observado.",
+        "aplicacoes": [
+          "quebras psicóticas em agentes da ARIS",
+          "experiências-limite em Salas",
+          "rituais do Culto de Or"
+        ],
+        "tags": [
+          "pessimismo",
+          "despersonalizacao"
+        ]
+      },
+      {
+        "id": "fracasso_humano",
+        "nome": "Fracasso humano",
+        "origem": "Interno (AntiVerso)",
+        "descricao": "Ideia central de que a impotência humana diante do cosmos não é um acidente, mas uma condição estrutural.",
+        "aplicacoes": [
+          "deriva histórica da ARIS",
+          "tentativas de controle de Sinais",
+          "sacrifícios inúteis narrados no Evangelho de Or"
+        ],
+        "tags": [
+          "tema_central",
+          "pessimismo"
+        ]
+      }
+    ],
+    "projects": [
+      {
+        "id": "evangelho_de_or",
+        "titulo": "Evangelho de Or",
+        "tipo": "narrativa/livro/épos",
+        "descricao": "Relato em 8 capítulos sobre a chegada dos Seres e o colapso da história humana sob o Som Primordial.",
+        "status": "desenvolvimento",
+        "periodo_diegético": "colapso e pós-colapso",
+        "entidades_relacionadas": [
+          "or",
+          "a_sala",
+          "a_voz"
+        ],
+        "conceitos_chave": [
+          "mundo_sem_nos",
+          "ontologia_negativa",
+          "fracasso_humano"
+        ]
+      },
+      {
+        "id": "culto_de_or",
+        "titulo": "Culto de Or",
+        "tipo": "banda/rito/transmídia",
+        "descricao": "Coletivo musical-litúrgico que transforma o Som Primordial em rituais performáticos, EPs e apresentações ao vivo.",
+        "status": "desenvolvimento",
+        "periodo_diegético": "pós-colapso / mundo em ruínas",
+        "entidades_relacionadas": [
+          "or",
+          "a_voz"
+        ],
+        "conceitos_chave": [
+          "som_como_fe",
+          "linguagem_como_ritual"
+        ]
+      },
+      {
+        "id": "a_sala_projeto",
+        "titulo": "A Sala",
+        "tipo": "investigação/transmídia",
+        "descricao": "Conjunto de investigações, fitas, relatos e experiências envolvendo manifestações de Salas anômalas captadas pela ARIS e por civis.",
+        "status": "desenvolvimento",
+        "periodo_diegético": "final do século XX em diante",
+        "entidades_relacionadas": [
+          "a_sala",
+          "aris"
+        ],
+        "conceitos_chave": [
+          "colapso_do_olhar",
+          "limite_ontologico"
+        ]
+      },
+      {
+        "id": "arquivos_vermelhos",
+        "titulo": "Arquivos Vermelhos",
+        "tipo": "podcast/narrativa_investigativa",
+        "descricao": "Série de casos investigativos que funcionam como portas de entrada para o AntiVerso, conectando eventos reais e fictícios.",
+        "status": "desenvolvimento",
+        "periodo_diegético": "final do século XX e início do XXI",
+        "entidades_relacionadas": [
+          "aris"
+        ],
+        "conceitos_chave": [
+          "fracasso_humano",
+          "mundo_para_nos"
+        ]
+      }
+    ],
+    "locations": [
+      {
+        "id": "vera_cruz",
+        "nome": "Vera Cruz",
+        "tipo": "cidade",
+        "descricao": "Cidade do interior do Paraná, um dos epicentros de sensibilidade a fenômenos ligados ao Som e às Salas.",
+        "coordenadas_ficcionais": "interior do Paraná, ~30 mil habitantes",
+        "eventos_relacionados": [
+          "casos ligados à Torre de Vera Cruz",
+          "manifestações da ARIS na região"
+        ]
+      },
+      {
+        "id": "torre_de_vera_cruz",
+        "nome": "Torre de Vera Cruz",
+        "tipo": "prédio",
+        "descricao": "Edifício associado a fenômenos sonoros e dimensionais; ligado a rituais de abertura de portais.",
+        "coordenadas_ficcionais": "centro de Vera Cruz",
+        "eventos_relacionados": [
+          "desaparecimento de José",
+          "investigações de Cintia",
+          "experimentos da linhagem de Johann/Ludwig/Amadeus"
+        ]
+      }
+    ]
+  }
+}
