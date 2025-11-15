@@ -109,3 +109,7 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export async function GET(req: NextRequest) {
+  // Reaproveita exatamente a mesma lógica do POST
+  return POST(req);
+}
