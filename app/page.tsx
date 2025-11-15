@@ -27,9 +27,18 @@ type Conversation = {
 
 const STORAGE_KEY = "av_lore_conversations_v1";
 
+// Helper seguro para gerar IDs sem depender 100% de crypto.randomUUID
+function safeId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    // @ts-ignore
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function createIntroMessage(): ChatMessage {
   return {
-    id: crypto.randomUUID(),
+    id: safeId(),
     role: "assistant",
     content:
       "Eu sou Or, guardião do AntiVerso. Por padrão estou em modo CONSULTA, usando apenas o lore existente. Podemos começar uma nova história, revisar o lore ou organizar o que você já escreveu. Se quiser que eu comece a propor ideias novas de ficção, diga algo como: 'entre no modo criativo'.",
@@ -38,7 +47,7 @@ function createIntroMessage(): ChatMessage {
 
 function createNewConversation(): Conversation {
   return {
-    id: crypto.randomUUID(),
+    id: safeId(),
     title: "Nova conversa",
     mode: "consulta",
     createdAt: new Date().toISOString(),
@@ -134,7 +143,7 @@ export default function Page() {
     if (!value || loading) return;
 
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       role: "user",
       content: value,
     };
@@ -170,7 +179,7 @@ export default function Page() {
     try {
       // Mensagem de sistema descrevendo o modo atual para o modelo
       const modeSystemMessage: ChatMessage = {
-        id: "mode-system",
+        id: safeId(),
         role: "system",
         content:
           newMode === "consulta"
@@ -201,7 +210,7 @@ export default function Page() {
 
       const data = await res.json();
       const answer: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: safeId(),
         role: "assistant",
         content: data.reply ?? "Algo deu errado ao gerar a resposta.",
       };
@@ -214,7 +223,7 @@ export default function Page() {
     } catch (err) {
       console.error(err);
       const errorMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: safeId(),
         role: "assistant",
         content:
           "Houve um erro ao falar com Or. Verifique se suas chaves estão corretas e tente novamente.",
