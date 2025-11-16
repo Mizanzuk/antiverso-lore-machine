@@ -6,12 +6,10 @@ import bibleChunks from "@/data/BibleChunks_v1.json";
 
 export const dynamic = "force-dynamic";
 
-// POST → executa a seed
-export async function POST(req: NextRequest) {
-  return await runSeed();
-}
-
-// GET → mostra instruções
+/**
+ * GET /api/seed
+ * Apenas mostra instruções de uso.
+ */
 export async function GET() {
   return NextResponse.json({
     message:
@@ -19,13 +17,18 @@ export async function GET() {
     usage: {
       method: "POST",
       endpoint: "/api/seed",
-      example: "curl -X POST https://antiverso-lore-machine.vercel.app/api/seed",
+      example:
+        "curl -X POST https://antiverso-lore-machine.vercel.app/api/seed",
     },
   });
 }
 
-// --- função interna que roda a seed
-async function runSeed() {
+/**
+ * POST /api/seed
+ * Executa a seed: lê o AntiVerso_DB_v2.json + BibleChunks_v1.json
+ * e popula a tabela lore_chunks no Supabase.
+ */
+export async function POST(req: NextRequest) {
   try {
     if (!supabaseAdmin) {
       return NextResponse.json(
@@ -44,76 +47,127 @@ async function runSeed() {
       content: string;
     }[] = [];
 
-    // Entities
-    if (Array.isArray((db as any).starter_data?.entities)) {
-      for (const e of (db as any).starter_data.entities) {
+    const anyDb: any = db as any;
+
+    // --------- ENTITIES ---------
+    if (Array.isArray(anyDb.starter_data?.entities)) {
+      for (const e of anyDb.starter_data.entities) {
+        const descricao = e.descricao ?? "";
+        const manif = Array.isArray(e.manifestações)
+          ? e.manifestações.join(", ")
+          : "";
+        const conceitos = Array.isArray(e.conceitos_relacionados)
+          ? e.conceitos_relacionados.join(", ")
+          : "";
+        const sinais = Array.isArray(e.sinais_associados)
+          ? e.sinais_associados.join(", ")
+          : "";
+
+        const contentParts = [
+          descricao,
+          manif && `Manifestações conhecidas: ${manif}.`,
+          conceitos && `Conceitos relacionados: ${conceitos}.`,
+          sinais && `Sinais associados: ${sinais}.`,
+        ].filter(Boolean);
+
         chunks.push({
           source: "AntiVerso_DB_v2.json",
           source_type: "entity",
           title: e.nome ?? e.id,
-          content: `${e.descricao ?? ""}\n\nManifestações: ${
-            (e.manifestações || []).join(", ")
-          }\nConceitos relacionados: ${(e.conceitos_relacionados || []).join(
-            ", "
-          )}`,
+          content: contentParts.join("\n\n"),
         });
       }
     }
 
-    // Concepts
-    if (Array.isArray((db as any).starter_data?.concepts)) {
-      for (const c of (db as any).starter_data.concepts) {
+    // --------- CONCEPTS ---------
+    if (Array.isArray(anyDb.starter_data?.concepts)) {
+      for (const c of anyDb.starter_data.concepts) {
+        const descricao = c.descricao ?? "";
+        const aplicacoes = Array.isArray(c.aplicacoes)
+          ? c.aplicacoes.join("; ")
+          : "";
+
+        const contentParts = [
+          descricao,
+          aplicacoes &&
+            `Possíveis aplicações ou desdobramentos: ${aplicacoes}.`,
+        ].filter(Boolean);
+
         chunks.push({
           source: "AntiVerso_DB_v2.json",
           source_type: "concept",
           title: c.nome ?? c.id,
-          content: `${c.descricao ?? ""}\n\nAplicações: ${
-            (c.aplicacoes || []).join("; ")
-          }`,
+          content: contentParts.join("\n\n"),
         });
       }
     }
 
-    // Projects
-    if (Array.isArray((db as any).starter_data?.projects)) {
-      for (const p of (db as any).starter_data.projects) {
+    // --------- PROJECTS ---------
+    if (Array.isArray(anyDb.starter_data?.projects)) {
+      for (const p of anyDb.starter_data.projects) {
+        const descricao = p.descricao ?? "";
+        const periodo = p.periodo_diegético ?? p.periodo ?? "";
+        const ligacoes = Array.isArray(p.ligacoes)
+          ? p.ligacoes.join(", ")
+          : "";
+
+        const contentParts = [
+          descricao,
+          periodo && `Período diegético: ${periodo}.`,
+          ligacoes &&
+            `Ligações com outros elementos do AntiVerso: ${ligacoes}.`,
+        ].filter(Boolean);
+
         chunks.push({
           source: "AntiVerso_DB_v2.json",
           source_type: "project",
-          title: p.titulo ?? p.id,
-          content: `${p.descricao ?? ""}\n\nPeríodo diegético: ${
-            p.periodo_diegético ?? ""
-          }`,
+          title: p.titulo ?? p.nome ?? p.id,
+          content: contentParts.join("\n\n"),
         });
       }
     }
 
-    // Locations
-    if (Array.isArray((db as any).starter_data?.locations)) {
-      for (const l of (db as any).starter_data.locations) {
+    // --------- LOCATIONS ---------
+    if (Array.isArray(anyDb.starter_data?.locations)) {
+      for (const l of anyDb.starter_data.locations) {
+        const descricao = l.descricao ?? "";
+        const endereco = l.endereco ?? "";
+        const eventos = Array.isArray(l.eventos_relacionados)
+          ? l.eventos_relacionados.join("; ")
+          : "";
+
+        const contentParts = [
+          descricao,
+          endereco && `Endereço / localização aproximada: ${endereco}.`,
+          eventos && `Eventos relacionados: ${eventos}.`,
+        ].filter(Boolean);
+
         chunks.push({
           source: "AntiVerso_DB_v2.json",
           source_type: "location",
           title: l.nome ?? l.id,
-          content: `${l.descricao ?? ""}\n\nEventos relacionados: ${
-            (l.eventos_relacionados || []).join("; ")
-          }`,
+          content: contentParts.join("\n\n"),
         });
       }
     }
 
-    // Bíblia do AntiVerso (chunks textuais)
+    // --------- BÍBLIA DO ANTIVERSO (CHUNKS TEXTUAIS) ---------
     if (Array.isArray(bibleChunks)) {
       for (const b of bibleChunks as any[]) {
+        const section = b.section || b.id || "Trecho da Bíblia do AntiVerso";
+        const content = (b.content || "").trim();
+        if (!content) continue;
+
         chunks.push({
           source: "BibleChunks_v1.json",
           source_type: "bible",
-          title: b.section || b.id || "Trecho da Bíblia do AntiVerso",
-          content: b.content || "",
+          title: section,
+          content,
         });
       }
     }
 
+    // --------- INSERÇÃO NO SUPABASE ---------
     let inserted = 0;
 
     for (const chunk of chunks) {
@@ -136,6 +190,7 @@ async function runSeed() {
         console.error("Erro ao inserir chunk:", error);
         continue;
       }
+
       inserted++;
     }
 
