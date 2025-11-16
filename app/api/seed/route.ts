@@ -1,8 +1,8 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { embedText } from "@/lib/rag";
 import db from "@/data/AntiVerso_DB_v2.json";
+import bibleChunks from "@/data/BibleChunks_v1.json";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,11 @@ export async function POST(req: NextRequest) {
           source: "AntiVerso_DB_v2.json",
           source_type: "entity",
           title: e.nome ?? e.id,
-          content: `${e.descricao ?? ""}\n\nManifestações: ${(e.manifestações || []).join(", ")}\nConceitos relacionados: ${(e.conceitos_relacionados || []).join(", ")}`,
+          content: `${e.descricao ?? ""}\n\nManifestações: ${
+            (e.manifestações || []).join(", ")
+          }\nConceitos relacionados: ${(e.conceitos_relacionados || []).join(
+            ", "
+          )}`,
         });
       }
     }
@@ -45,7 +49,9 @@ export async function POST(req: NextRequest) {
           source: "AntiVerso_DB_v2.json",
           source_type: "concept",
           title: c.nome ?? c.id,
-          content: `${c.descricao ?? ""}\n\nAplicações: ${(c.aplicacoes || []).join("; ")}`,
+          content: `${c.descricao ?? ""}\n\nAplicações: ${
+            (c.aplicacoes || []).join("; ")
+          }`,
         });
       }
     }
@@ -57,7 +63,9 @@ export async function POST(req: NextRequest) {
           source: "AntiVerso_DB_v2.json",
           source_type: "project",
           title: p.titulo ?? p.id,
-          content: `${p.descricao ?? ""}\n\nPeríodo diegético: ${p.periodo_diegético ?? ""}`,
+          content: `${p.descricao ?? ""}\n\nPeríodo diegético: ${
+            p.periodo_diegético ?? ""
+          }`,
         });
       }
     }
@@ -69,7 +77,21 @@ export async function POST(req: NextRequest) {
           source: "AntiVerso_DB_v2.json",
           source_type: "location",
           title: l.nome ?? l.id,
-          content: `${l.descricao ?? ""}\n\nEventos relacionados: ${(l.eventos_relacionados || []).join("; ")}`,
+          content: `${l.descricao ?? ""}\n\nEventos relacionados: ${
+            (l.eventos_relacionados || []).join("; ")
+          }`,
+        });
+      }
+    }
+
+    // Bíblia do AntiVerso (chunks textuais)
+    if (Array.isArray(bibleChunks)) {
+      for (const b of bibleChunks as any[]) {
+        chunks.push({
+          source: "BibleChunks_v1.json",
+          source_type: "bible",
+          title: b.section || b.id || "Trecho da Bíblia do AntiVerso",
+          content: b.content || "",
         });
       }
     }
@@ -77,6 +99,8 @@ export async function POST(req: NextRequest) {
     let inserted = 0;
 
     for (const chunk of chunks) {
+      if (!chunk.content || !chunk.content.trim()) continue;
+
       const embedding = await embedText(chunk.content);
       if (!embedding) continue;
 
@@ -108,8 +132,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-export async function GET(req: NextRequest) {
-  // Reaproveita exatamente a mesma lógica do POST
-  return POST(req);
 }
