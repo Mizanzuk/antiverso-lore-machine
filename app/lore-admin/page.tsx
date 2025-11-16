@@ -70,7 +70,6 @@ export default function LoreAdminPage() {
     aparece_em: "",
   });
 
-
   // ---- Formulário de Código -------------------------------------------------
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
@@ -113,6 +112,7 @@ export default function LoreAdminPage() {
     };
 
     checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
@@ -307,7 +307,6 @@ export default function LoreAdminPage() {
   async function handleDeleteWorld(worldId: string) {
     setError(null);
 
-    // Sim, podemos colocar um confirm básico aqui
     const ok = window.confirm(
       "Tem certeza que deseja deletar este Mundo? Essa ação não pode ser desfeita.",
     );
@@ -355,42 +354,43 @@ export default function LoreAdminPage() {
       tags: "",
       ano_diegese: "",
       ordem_cronologica: "",
+      aparece_em: "",
     });
   }
 
-function startEditFicha(ficha: any) {
-  setFichaFormMode("edit");
-  setFichaForm({
-    id: ficha.id ?? "",
-    titulo: ficha.titulo ?? "",
-    slug: ficha.slug ?? "",
-    tipo: ficha.tipo ?? "",
-    resumo: ficha.resumo ?? "",
-    conteudo: ficha.conteudo ?? "",
-    tags: ficha.tags ?? "",
-    ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
-    ordem_cronologica: ficha.ordem_cronologica
-      ? String(ficha.ordem_cronologica)
+  function startEditFicha(ficha: any) {
+    setFichaFormMode("edit");
+    setFichaForm({
+      id: ficha.id ?? "",
+      titulo: ficha.titulo ?? "",
+      slug: ficha.slug ?? "",
+      tipo: ficha.tipo ?? "",
+      resumo: ficha.resumo ?? "",
+      conteudo: ficha.conteudo ?? "",
+      tags: ficha.tags ?? "",
+      ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
+      ordem_cronologica: ficha.ordem_cronologica
+        ? String(ficha.ordem_cronologica)
         : "",
       aparece_em: ficha.aparece_em ?? "",
     });
   }
 
   function cancelFichaForm() {
-  setFichaFormMode("idle");
-  setFichaForm({
-    id: "",
-    titulo: "",
-    slug: "",
-    tipo: "",
-    resumo: "",
-    conteudo: "",
-    tags: "",
-    ano_diegese: "",
-    ordem_cronologica: "",
-    aparece_em: "",
-  });
-}
+    setFichaFormMode("idle");
+    setFichaForm({
+      id: "",
+      titulo: "",
+      slug: "",
+      tipo: "",
+      resumo: "",
+      conteudo: "",
+      tags: "",
+      ano_diegese: "",
+      ordem_cronologica: "",
+      aparece_em: "",
+    });
+  }
 
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
@@ -426,6 +426,7 @@ function startEditFicha(ficha: any) {
           ? fichaForm.ordem_cronologica.trim()
           : Number(fichaForm.ordem_cronologica.trim())
         : null,
+      aparece_em: fichaForm.aparece_em.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -729,8 +730,8 @@ function startEditFicha(ficha: any) {
                     : "border-neutral-800 hover:border-neutral-500"
                 }`}
                 onClick={() => {
-                  setSelectedWorldId(world.id);
-                  fetchFichas(world.id);
+                  setSelectedWorldId(world.id as string);
+                  fetchFichas(world.id as string);
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -753,7 +754,7 @@ function startEditFicha(ficha: any) {
                       className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteWorld(world.id);
+                        handleDeleteWorld(world.id as string);
                       }}
                     >
                       Del
@@ -850,6 +851,7 @@ function startEditFicha(ficha: any) {
                   type="button"
                   onClick={cancelWorldForm}
                   className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+                  disabled={isSavingWorld}
                 >
                   Cancelar
                 </button>
@@ -909,8 +911,8 @@ function startEditFicha(ficha: any) {
                     : "border-neutral-800 hover:border-neutral-500"
                 }`}
                 onClick={() => {
-                  setSelectedFichaId(ficha.id);
-                  fetchCodes(ficha.id);
+                  setSelectedFichaId(ficha.id as string);
+                  fetchCodes(ficha.id as string);
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -938,7 +940,7 @@ function startEditFicha(ficha: any) {
                       className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteFicha(ficha.id);
+                        handleDeleteFicha(ficha.id as string);
                       }}
                     >
                       Del
@@ -1066,6 +1068,23 @@ function startEditFicha(ficha: any) {
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Aparece em
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.aparece_em}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      aparece_em: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: AV Ep.1; A Sala – Experimento 3…"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[11px] text-neutral-500">
@@ -1184,7 +1203,7 @@ function startEditFicha(ficha: any) {
                     <button
                       type="button"
                       className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
-                      onClick={() => handleDeleteCode(code.id)}
+                      onClick={() => handleDeleteCode(code.id as string)}
                     >
                       Del
                     </button>
@@ -1219,7 +1238,7 @@ function startEditFicha(ficha: any) {
                       code: e.target.value,
                     }))
                   }
-                  placeholder="ex: ARIS-042, PH-S04-E01…"
+                  placeholder="ex: AV1-PS1, SAL1-PS3…"
                 />
               </div>
 
