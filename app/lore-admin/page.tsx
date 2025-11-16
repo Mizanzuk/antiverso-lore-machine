@@ -358,20 +358,21 @@ export default function LoreAdminPage() {
     });
   }
 
-  function startEditFicha(ficha: any) {
-    setFichaFormMode("edit");
-    setFichaForm({
-      id: ficha.id ?? "",
-      titulo: ficha.titulo ?? "",
-      slug: ficha.slug ?? "",
-      tipo: ficha.tipo ?? "",
-      resumo: ficha.resumo ?? "",
-      conteudo: ficha.conteudo ?? "",
-      tags: ficha.tags ?? "",
-      ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
-      ordem_cronologica: ficha.ordem_cronologica
-        ? String(ficha.ordem_cronologica)
+function startEditFicha(ficha: any) {
+  setFichaFormMode("edit");
+  setFichaForm({
+    id: ficha.id ?? "",
+    titulo: ficha.titulo ?? "",
+    slug: ficha.slug ?? "",
+    tipo: ficha.tipo ?? "",
+    resumo: ficha.resumo ?? "",
+    conteudo: ficha.conteudo ?? "",
+    tags: ficha.tags ?? "",
+    ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
+    ordem_cronologica: ficha.ordem_cronologica
+      ? String(ficha.ordem_cronologica)
         : "",
+      aparece_em: ficha.aparece_em ?? "",
     });
   }
 
