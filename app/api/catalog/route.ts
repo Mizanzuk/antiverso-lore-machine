@@ -5,7 +5,19 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const { data: worlds, error: worldsError } = await supabaseAdmin
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        {
+          error:
+            "Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const client = supabaseAdmin;
+
+    const { data: worlds, error: worldsError } = await client
       .from("worlds")
       .select("id, nome, descricao, tipo, ordem")
       .order("ordem", { ascending: true });
@@ -14,7 +26,7 @@ export async function GET() {
       console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
-    const { data: entities, error: entitiesError } = await supabaseAdmin
+    const { data: entities, error: entitiesError } = await client
       .from("lore_entities")
       .select(
         "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags"
