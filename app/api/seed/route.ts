@@ -6,8 +6,26 @@ import bibleChunks from "@/data/BibleChunks_v1.json";
 
 export const dynamic = "force-dynamic";
 
-// Rota administrativa simples para popular a tabela lore_chunks no Supabase
+// POST → executa a seed
 export async function POST(req: NextRequest) {
+  return await runSeed();
+}
+
+// GET → mostra instruções
+export async function GET() {
+  return NextResponse.json({
+    message:
+      "Esta rota popula o banco de dados com os dados do AntiVerso. Para executar, faça uma requisição POST para este endpoint.",
+    usage: {
+      method: "POST",
+      endpoint: "/api/seed",
+      example: "curl -X POST https://antiverso-lore-machine.vercel.app/api/seed",
+    },
+  });
+}
+
+// --- função interna que roda a seed
+async function runSeed() {
   try {
     if (!supabaseAdmin) {
       return NextResponse.json(
