@@ -35,25 +35,28 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default async function LoreLabPage() {
+  // Buscar mundos
   const { data: worlds } = await supabase
-    .from<World>("worlds")
+    .from("worlds")
     .select("*")
     .order("ordem", { ascending: true });
 
+  // Buscar fichas
   const { data: fichas } = await supabase
-    .from<Ficha>("fichas")
+    .from("fichas")
     .select("*");
 
+  // Buscar códigos
   const { data: codes } = await supabase
-    .from<Code>("codes")
+    .from("codes")
     .select("*");
 
   return (
     <div className="h-screen bg-black text-neutral-100">
       <LoreMachineShell
-        worlds={worlds ?? []}
-        fichas={fichas ?? []}
-        codes={codes ?? []}
+        worlds={(worlds ?? []) as World[]}
+        fichas={(fichas ?? []) as Ficha[]}
+        codes={(codes ?? []) as Code[]}
       />
     </div>
   );
