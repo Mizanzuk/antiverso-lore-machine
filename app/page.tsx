@@ -1,6 +1,12 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { clsx } from "clsx";
 
 type ChatMessage = {
@@ -10,6 +16,7 @@ type ChatMessage = {
 };
 
 type ChatMode = "consulta" | "criativo";
+type ViewMode = "chat" | "catalog";
 
 type ChatSession = {
   id: string;
@@ -37,6 +44,7 @@ type LoreEntity = {
   ano_diegese?: number | null;
   ordem_cronologica?: number | null;
   tags?: string[] | null;
+  codes?: string[] | null;
 };
 
 type CatalogResponse = {
@@ -72,12 +80,19 @@ export default function Page() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [viewMode, setViewMode] = useState<ViewMode>("chat");
+
   const [worlds, setWorlds] = useState<World[]>([]);
   const [entities, setEntities] = useState<LoreEntity[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 20;
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
@@ -93,8 +108,10 @@ export default function Page() {
   const mode: ChatMode = activeSession?.mode ?? "consulta";
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length]);
+    if (viewMode === "chat") {
+      scrollToBottom();
+    }
+  }, [messages.length, viewMode]);
 
   useEffect(() => {
     async function loadCatalog() {
@@ -121,6 +138,18 @@ export default function Page() {
     loadCatalog();
   }, []);
 
+  // Se o usuário aplicar filtro de mundo/tipo/busca, automaticamente focamos no catálogo
+  useEffect(() => {
+    if (
+      selectedWorldId !== "all" ||
+      selectedType !== "all" ||
+      searchTerm.trim().length > 0
+    ) {
+      setViewMode("catalog");
+      setCurrentPage(1);
+    }
+  }, [selectedWorldId, selectedType, searchTerm]);
+
   async function onSubmit(e?: FormEvent) {
     if (e) {
       e.preventDefault();
@@ -139,7 +168,6 @@ export default function Page() {
 
     setInput("");
 
-    // atualiza sessão ativa com a nova mensagem do usuário
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSession.id) return s;
@@ -203,6 +231,7 @@ export default function Page() {
             : s
         )
       );
+      setViewMode("chat");
     } catch (err) {
       console.error(err);
       const errorMsg: ChatMessage = {
@@ -245,18 +274,14 @@ export default function Page() {
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(id);
     setInput("");
+    setViewMode("chat");
   }
 
   function handleModeChange(newMode: ChatMode) {
     if (!activeSession) return;
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === activeSession.id
-          ? {
-              ...s,
-              mode: newMode,
-            }
-          : s
+        s.id === activeSession.id ? { ...s, mode: newMode } : s
       )
     );
   }
@@ -311,21 +336,81 @@ export default function Page() {
     { id: "objeto", label: "Objetos" },
   ];
 
-  const filteredEntities = entities.filter((e) => {
+  function normalize(str: string | null | undefined) {
+    return (str ?? "").toLowerCase();
+  }
+
+  const filteredEntitiesAll = entities.filter((e) => {
     if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) {
       return false;
     }
     if (selectedType !== "all" && e.tipo !== selectedType) {
       return false;
     }
+    if (searchTerm.trim().length > 0) {
+      const q = normalize(searchTerm);
+      const inTitle = normalize(e.titulo).includes(q);
+      const inResumo = normalize(e.resumo).includes(q);
+      const inSlug = normalize(e.slug).includes(q);
+      const inTags = (e.tags ?? [])
+        .map((t) => t.toLowerCase())
+        .some((t) => t.includes(q));
+      const inCodes = (e.codes ?? [])
+        .map((c) => c.toLowerCase())
+        .some((c) => c.includes(q));
+      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) {
+        return false;
+      }
+    }
     return true;
   });
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredEntitiesAll.length / itemsPerPage)
+  );
+  const safePage =
+    currentPage > totalPages ? totalPages : Math.max(1, currentPage);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const pageEntities = filteredEntitiesAll.slice(
+    startIndex,
+    startIndex + itemsPerPage
+  );
+
+  function getWorldName(worldId?: string | null): string | null {
+    if (!worldId) return null;
+    const w = worlds.find((w) => w.id === worldId);
+    return w ? w.nome : worldId;
+  }
 
   function handleCatalogClick(entity: LoreEntity) {
     const titulo = entity.titulo;
     const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
-
     setInput(prompt);
+    setViewMode("chat");
+  }
+
+  function CatalogPagination() {
+    if (totalPages <= 1) return null;
+    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-1 text-xs text-gray-300 my-2">
+        {pages.map((p) => (
+          <button
+            key={p}
+            onClick={() => setCurrentPage(p)}
+            className={clsx(
+              "px-2 py-1 rounded-md border",
+              p === safePage
+                ? "bg-white/20 border-white text-white"
+                : "bg-transparent border-white/20 hover:bg-white/10"
+            )}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -376,7 +461,10 @@ export default function Page() {
                 >
                   <button
                     className="flex-1 text-left"
-                    onClick={() => setActiveSessionId(session.id)}
+                    onClick={() => {
+                      setActiveSessionId(session.id);
+                      setViewMode("chat");
+                    }}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-gray-100">
@@ -472,19 +560,28 @@ export default function Page() {
                 ))}
               </select>
 
+              <input
+                className="mt-2 w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200"
+                placeholder="Buscar por título, código, tag..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+
               <div className="mt-2 space-y-1 max-h-40 overflow-y-auto pr-1">
-                {filteredEntities.length === 0 && (
+                {filteredEntitiesAll.length === 0 && (
                   <p className="text-[11px] text-gray-500">
-                    Nenhum item encontrado para este filtro.
+                    Nenhum item encontrado para estes filtros.
                   </p>
                 )}
-                {filteredEntities.slice(0, 30).map((entity) => (
+                {filteredEntitiesAll.slice(0, 30).map((entity) => (
                   <button
                     key={entity.id}
                     onClick={() => handleCatalogClick(entity)}
                     className="w-full text-left rounded-md px-2 py-1 text-[11px] bg-white/5 hover:bg-white/10 text-gray-100"
                   >
-                    <div className="font-medium truncate">{entity.titulo}</div>
+                    <div className="font-medium truncate">
+                      {entity.titulo}
+                    </div>
                     {entity.resumo && (
                       <div className="text-[10px] text-gray-400 line-clamp-2">
                         {entity.resumo}
@@ -502,7 +599,7 @@ export default function Page() {
         </div>
       </aside>
 
-      {/* Main chat */}
+      {/* Main */}
       <main className="flex-1 flex flex-col">
         {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
@@ -517,66 +614,208 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className="text-gray-400 mr-1">Modo:</span>
-            <button
-              onClick={() => handleModeChange("consulta")}
-              className={clsx(
-                "px-2 py-1 rounded-full border text-xs",
-                mode === "consulta"
-                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
-                  : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
-              )}
-            >
-              Consulta
-            </button>
-            <button
-              onClick={() => handleModeChange("criativo")}
-              className={clsx(
-                "px-2 py-1 rounded-full border text-xs",
-                mode === "criativo"
-                  ? "bg-purple-600/30 border-purple-400 text-purple-100"
-                  : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
-              )}
-            >
-              Criativo
-            </button>
+          <div className="flex items-center gap-4 text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400">Modo:</span>
+              <button
+                onClick={() => handleModeChange("consulta")}
+                className={clsx(
+                  "px-2 py-1 rounded-full border text-xs",
+                  mode === "consulta"
+                    ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Consulta
+              </button>
+              <button
+                onClick={() => handleModeChange("criativo")}
+                className={clsx(
+                  "px-2 py-1 rounded-full border text-xs",
+                  mode === "criativo"
+                    ? "bg-purple-600/30 border-purple-400 text-purple-100"
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Criativo
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
+              <button
+                onClick={() => setViewMode("chat")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "chat"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setViewMode("catalog")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "catalog"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Catálogo
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* Messages */}
+        {/* Conteúdo principal */}
         <section className="flex-1 overflow-y-auto px-4 py-4" ref={viewportRef}>
-          <div className="max-w-2xl mx-auto space-y-4">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={clsx(
-                  "flex",
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                )}
-              >
-                <div
-                  className={clsx(
-                    "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed whitespace-pre-wrap",
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-white/5 text-gray-100 border border-white/10"
-                  )}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
+          <div className="max-w-4xl mx-auto">
+            {viewMode === "chat" && (
+              <div className="space-y-4 max-w-2xl mx-auto">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={clsx(
+                      "flex",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    <div
+                      className={clsx(
+                        "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed whitespace-pre-wrap",
+                        msg.role === "user"
+                          ? "bg-blue-600 text-white"
+                          : "bg-white/5 text-gray-100 border border-white/10"
+                      )}
+                    >
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
 
-            {messages.length === 0 && (
-              <p className="text-center text-gray-500 text-sm mt-8">
-                Comece uma conversa com Or escrevendo abaixo.
-              </p>
+                {messages.length === 0 && (
+                  <p className="text-center text-gray-500 text-sm mt-8">
+                    Comece uma conversa com Or escrevendo abaixo.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {viewMode === "catalog" && (
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Catálogo do AntiVerso
+                </h2>
+                <p className="text-xs text-gray-400 mb-1">
+                  {filteredEntitiesAll.length} entrada
+                  {filteredEntitiesAll.length === 1 ? "" : "s"} encontrada
+                  {selectedWorldId !== "all" && (
+                    <>
+                      {" "}
+                      · Mundo:{" "}
+                      <span className="text-gray-200">
+                        {getWorldName(selectedWorldId) ?? selectedWorldId}
+                      </span>
+                    </>
+                  )}
+                  {selectedType !== "all" && (
+                    <>
+                      {" "}
+                      · Tipo:{" "}
+                      <span className="text-gray-200">
+                        {
+                          catalogTypes.find((t) => t.id === selectedType)
+                            ?.label
+                        }
+                      </span>
+                    </>
+                  )}
+                  {searchTerm.trim().length > 0 && (
+                    <>
+                      {" "}
+                      · Busca:{" "}
+                      <span className="text-gray-200">
+                        “{searchTerm.trim()}”
+                      </span>
+                    </>
+                  )}
+                </p>
+
+                <CatalogPagination />
+
+                {pageEntities.length === 0 && (
+                  <p className="text-sm text-gray-500 mt-4">
+                    Nenhuma entrada para esses filtros. Tente limpar a busca ou
+                    escolher outro mundo/tipo.
+                  </p>
+                )}
+
+                {pageEntities.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {pageEntities.map((entity) => (
+                      <button
+                        key={entity.id}
+                        onClick={() => handleCatalogClick(entity)}
+                        className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-50 truncate">
+                            {entity.titulo}
+                          </h3>
+                          {entity.tipo && (
+                            <span className="text-[10px] uppercase tracking-wide px-2 py-[2px] rounded-full border border-white/20 text-gray-200">
+                              {entity.tipo}
+                            </span>
+                          )}
+                        </div>
+
+                        {entity.resumo && (
+                          <p className="text-xs text-gray-300 line-clamp-3 mb-2">
+                            {entity.resumo}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400">
+                          {getWorldName(entity.world_id) && (
+                            <span className="px-2 py-[1px] rounded-full bg-white/5">
+                              {getWorldName(entity.world_id)}
+                            </span>
+                          )}
+                          {(entity.codes ?? []).map((code) => (
+                            <span
+                              key={code}
+                              className="px-2 py-[1px] rounded-full bg-black/40 border border-white/20 text-[10px]"
+                            >
+                              {code}
+                            </span>
+                          ))}
+                          {(entity.tags ?? []).map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-2 py-[1px] rounded-full bg-black/30 border border-white/10"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                          {entity.ano_diegese && (
+                            <span className="ml-auto text-[10px] text-gray-400">
+                              Ano diegético: {entity.ano_diegese}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <CatalogPagination />
+              </div>
             )}
           </div>
         </section>
 
-        {/* Input */}
+        {/* Input de chat */}
         <footer className="border-t border-white/10 px-4 py-3 bg-black/40">
           <form
             onSubmit={(e) => {
@@ -601,10 +840,10 @@ export default function Page() {
             </button>
           </form>
           <p className="mt-2 text-[11px] text-center text-gray-500">
-            Enter envia. Use Shift+Enter para quebrar linha. Or pode criar novas
-            ideias ficcionais. Para consultar lore já definido, use o modo
-            consulta ou peça explicitamente: &quot;Em modo consulta, sem
-            inventar nada, me diga…&quot;
+            Enter envia. Use Shift+Enter para quebrar linha. Use o modo
+            Catálogo para navegar pelos mundos, personagens, arquivos ARIS,
+            episódios e conceitos. Clique em um card para trazer o assunto para
+            o chat.
           </p>
         </footer>
       </main>
