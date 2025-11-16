@@ -56,6 +56,7 @@ export default function LoreAdminPage() {
     tags: string;
     ano_diegese: string;
     ordem_cronologica: string;
+    aparece_em: string;
   }>({
     id: "",
     titulo: "",
@@ -66,7 +67,9 @@ export default function LoreAdminPage() {
     tags: "",
     ano_diegese: "",
     ordem_cronologica: "",
+    aparece_em: "",
   });
+
 
   // ---- Formulário de Código -------------------------------------------------
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
