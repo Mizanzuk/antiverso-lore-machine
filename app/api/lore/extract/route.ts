@@ -15,6 +15,17 @@ type ExtractResponsePayload = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Garante em tempo de execução e satisfaz o TypeScript:
+    if (!openai) {
+      return NextResponse.json(
+        {
+          error:
+            "OPENAI_API_KEY não configurada. Defina a chave no painel de variáveis de ambiente da Vercel.",
+        },
+        { status: 500 },
+      );
+    }
+
     const body = await req.json();
     const worldId = String(body.worldId ?? "").trim();
     const documentName = String(body.documentName ?? "").trim();
@@ -23,7 +34,7 @@ export async function POST(req: NextRequest) {
     if (!text) {
       return NextResponse.json(
         { error: "Texto vazio. Envie um texto para análise." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -69,15 +80,15 @@ Texto a analisar (em português):
 """${text}"""
 `;
 
-    const completion = await openai.chat.completions.create({
+    const completion = await openai!.chat.completions.create({
       model: "gpt-4.1-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemInstructions },
-        { role: "user", content: userPrompt }
+        { role: "user", content: userPrompt },
       ],
       temperature: 0.2,
-      max_tokens: 1400
+      max_tokens: 1400,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "";
@@ -90,9 +101,9 @@ Texto a analisar (em português):
       return NextResponse.json(
         {
           error:
-            "A resposta da IA não veio em JSON válido. Tente novamente com um texto menor ou revise o conteúdo."
+            "A resposta da IA não veio em JSON válido. Tente novamente com um texto menor ou revise o conteúdo.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -105,7 +116,7 @@ Texto a analisar (em português):
       locais: Array.isArray(parsed?.locais) ? parsed.locais : [],
       empresas: Array.isArray(parsed?.empresas) ? parsed.empresas : [],
       agencias: Array.isArray(parsed?.agencias) ? parsed.agencias : [],
-      midias: Array.isArray(parsed?.midias) ? parsed.midias : []
+      midias: Array.isArray(parsed?.midias) ? parsed.midias : [],
     };
 
     return NextResponse.json(payload);
@@ -113,7 +124,7 @@ Texto a analisar (em português):
     console.error("Erro inesperado em /api/lore/extract:", err);
     return NextResponse.json(
       { error: "Erro inesperado ao processar a extração de lore." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
