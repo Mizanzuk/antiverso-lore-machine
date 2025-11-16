@@ -1,0 +1,29 @@
+{
+  "worlds": [
+    {
+      "id": "antiverso",
+      "nome": "AntiVerso",
+      "descricao": "Camada meta que unifica todas as linhas narrativas e projetos de mídia.",
+      "tipo": "meta_universo",
+      "ordem": 0
+    },
+    {
+      "id": "arquivos_vermelhos",
+      "nome": "Arquivos Vermelhos",
+      "descricao": "Série de relatos em podcast e vídeo que documenta casos ligados ao AntiVerso.",
+      "tipo": "projeto_midia",
+      "ordem": 1
+    }
+  ],
+  "tipos": [
+    { "id": "personagem", "label": "Personagens" },
+    { "id": "local", "label": "Locais" },
+    { "id": "organizacao", "label": "Empresas e Agências" },
+    { "id": "midia", "label": "Mídias" },
+    { "id": "arquivo_aris", "label": "Arquivos ARIS" },
+    { "id": "episodio", "label": "Episódios" },
+    { "id": "evento", "label": "Eventos" },
+    { "id": "conceito", "label": "Conceitos" },
+    { "id": "objeto", "label": "Objetos" }
+  ]
+}
