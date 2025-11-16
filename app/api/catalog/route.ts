@@ -29,10 +29,10 @@ export async function GET() {
     const { data: entities, error: entitiesError } = await client
       .from("lore_entities")
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags"
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codes"
       )
       .order("ano_diegese", { ascending: true })
-      .limit(200);
+      .limit(500);
 
     if (entitiesError) {
       console.error("Erro ao buscar lore_entities:", entitiesError.message);
