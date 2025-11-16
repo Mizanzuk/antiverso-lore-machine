@@ -446,7 +446,7 @@ export default function LoreAdminPage() {
     }
 
     cancelFichaForm();
-    await fetchFichas(selectedWorldId);
+    await fetchFichas(selectedWorldId as string);
   }
 
   async function handleDeleteFicha(fichaId: string) {
@@ -472,7 +472,7 @@ export default function LoreAdminPage() {
       setCodes([]);
     }
 
-    await fetchFichas(selectedWorldId);
+    await fetchFichas(selectedWorldId as string);
   }
 
   // ===========================================================================
