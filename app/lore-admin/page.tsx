@@ -15,20 +15,16 @@ export default function LoreAdminPage() {
   const [view, setView] = useState<ViewState>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ---- Estado de dados (Mundos, Fichas, Códigos) ---------------------------
-  const [isLoadingData, setIsLoadingData] = useState(false);
-
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
-
   const [fichas, setFichas] = useState<any[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
-
   const [codes, setCodes] = useState<any[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
   // ---- Formulário de Mundo --------------------------------------------------
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
@@ -58,6 +54,8 @@ export default function LoreAdminPage() {
     resumo: string;
     conteudo: string;
     tags: string;
+    ano_diegese: string;
+    ordem_cronologica: string;
   }>({
     id: "",
     titulo: "",
@@ -66,13 +64,15 @@ export default function LoreAdminPage() {
     resumo: "",
     conteudo: "",
     tags: "",
+    ano_diegese: "",
+    ordem_cronologica: "",
   });
 
   // ---- Formulário de Código -------------------------------------------------
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
-    id: string; // só para edição
+    id: string;
     code: string;
     label: string;
     description: string;
@@ -84,123 +84,44 @@ export default function LoreAdminPage() {
   });
 
   // ===========================================================================
-  // FUNÇÕES DE CARREGAMENTO
-  // ===========================================================================
-
-  async function fetchWorlds() {
-    setIsLoadingData(true);
-    setError(null);
-
-    const { data, error: worldsError } = await supabaseBrowser
-      .from("worlds")
-      .select("*")
-      .order("ordem", { ascending: true });
-
-    if (worldsError) {
-      console.error(worldsError);
-      setError("Erro ao carregar mundos.");
-      setIsLoadingData(false);
-      return;
-    }
-
-    setWorlds(data || []);
-
-    // se não houver um mundo selecionado, seleciona o primeiro
-    if (!selectedWorldId && data && data.length > 0) {
-      const firstId = data[0].id as string;
-      setSelectedWorldId(firstId);
-      fetchFichas(firstId);
-    }
-
-    setIsLoadingData(false);
-  }
-
-  async function fetchFichas(worldId: string) {
-    setIsLoadingData(true);
-    setError(null);
-
-    const { data, error: fichasError } = await supabaseBrowser
-      .from("fichas")
-      .select("*")
-      .eq("world_id", worldId)
-      .order("created_at", { ascending: true });
-
-    if (fichasError) {
-      console.error(fichasError);
-      setError("Erro ao carregar fichas.");
-      setIsLoadingData(false);
-      return;
-    }
-
-    setFichas(data || []);
-    setSelectedFichaId(null);
-    setCodes([]);
-
-    if (data && data.length > 0) {
-      const firstFichaId = data[0].id as string;
-      setSelectedFichaId(firstFichaId);
-      fetchCodes(firstFichaId);
-    }
-
-    setIsLoadingData(false);
-  }
-
-  async function fetchCodes(fichaId: string) {
-    setIsLoadingData(true);
-    setError(null);
-
-    const { data, error: codesError } = await supabaseBrowser
-      .from("codes")
-      .select("*")
-      .eq("ficha_id", fichaId)
-      .order("created_at", { ascending: true });
-
-    if (codesError) {
-      console.error(codesError);
-      setError("Erro ao carregar códigos.");
-      setIsLoadingData(false);
-      return;
-    }
-
-    setCodes(data || []);
-    setIsLoadingData(false);
-  }
-
-  // ===========================================================================
-  // CHECK DE SESSÃO AO ABRIR A PÁGINA
+  // Autenticação básica
   // ===========================================================================
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data, error: userError } = await supabaseBrowser.auth.getUser();
+      setView("loading");
+      const {
+        data: { session },
+        error,
+      } = await supabaseBrowser.auth.getSession();
 
-      if (userError || !data?.user) {
+      if (error) {
+        console.error(error);
         setView("loggedOut");
         return;
       }
 
-      setUserEmail(data.user.email ?? null);
-      await fetchWorlds();
-      setView("loggedIn");
+      if (session) {
+        setView("loggedIn");
+        await fetchAllData();
+      } else {
+        setView("loggedOut");
+      }
     };
 
     checkSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ===========================================================================
-  // LOGIN / LOGOUT
-  // ===========================================================================
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     setIsSubmitting(true);
+    setError(null);
 
-    const { data, error: loginError } = await supabaseBrowser.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error: loginError } =
+      await supabaseBrowser.auth.signInWithPassword({
+        email,
+        password,
+      });
 
     setIsSubmitting(false);
 
@@ -209,15 +130,94 @@ export default function LoreAdminPage() {
       return;
     }
 
-    setUserEmail(data.user?.email ?? null);
-    await fetchWorlds();
-    setView("loggedIn");
+    if (data.session) {
+      setView("loggedIn");
+      await fetchAllData();
+    }
   }
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
-    setUserEmail(null);
     setView("loggedOut");
+    setEmail("");
+    setPassword("");
+  }
+
+  // ===========================================================================
+  // Carregamento inicial
+  // ===========================================================================
+
+  async function fetchAllData() {
+    try {
+      setIsLoadingData(true);
+      setError(null);
+
+      // Carrega Mundos
+      const { data, error: worldsError } = await supabaseBrowser
+        .from("worlds")
+        .select("*")
+        .order("ordem", { ascending: true });
+
+      if (worldsError) {
+        console.error(worldsError);
+        setError("Erro ao carregar mundos.");
+        setIsLoadingData(false);
+        return;
+      }
+
+      setWorlds(data || []);
+
+      // se não houver um mundo selecionado, seleciona o primeiro
+      if (!selectedWorldId && data && data.length > 0) {
+        const firstId = data[0].id as string;
+        setSelectedWorldId(firstId);
+        await fetchFichas(firstId);
+      } else if (selectedWorldId) {
+        await fetchFichas(selectedWorldId);
+      }
+
+      setIsLoadingData(false);
+    } catch (err: any) {
+      console.error(err);
+      setError("Erro inesperado ao carregar dados.");
+      setIsLoadingData(false);
+    }
+  }
+
+  async function fetchFichas(worldId: string) {
+    setError(null);
+    const { data, error: fichasError } = await supabaseBrowser
+      .from("fichas")
+      .select("*")
+      .eq("world_id", worldId)
+      .order("titulo", { ascending: true });
+
+    if (fichasError) {
+      console.error(fichasError);
+      setError("Erro ao carregar fichas.");
+      return;
+    }
+
+    setFichas(data || []);
+    setSelectedFichaId(null);
+    setCodes([]);
+  }
+
+  async function fetchCodes(fichaId: string) {
+    setError(null);
+    const { data, error: codesError } = await supabaseBrowser
+      .from("codes")
+      .select("*")
+      .eq("ficha_id", fichaId)
+      .order("code", { ascending: true });
+
+    if (codesError) {
+      console.error(codesError);
+      setError("Erro ao carregar códigos.");
+      return;
+    }
+
+    setCodes(data || []);
   }
 
   // ===========================================================================
@@ -242,7 +242,7 @@ export default function LoreAdminPage() {
       nome: world.nome ?? "",
       descricao: world.descricao ?? "",
       tipo: world.tipo ?? "",
-      ordem: world.ordem != null ? String(world.ordem) : "",
+      ordem: world.ordem ? String(world.ordem) : "",
     });
   }
 
@@ -259,22 +259,21 @@ export default function LoreAdminPage() {
 
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
-    if (worldFormMode === "idle") return;
-
-    if (!worldForm.id.trim() || !worldForm.nome.trim()) {
-      setError("Mundo precisa de ID e Nome.");
-      return;
-    }
-
     setIsSavingWorld(true);
     setError(null);
 
+    if (!worldForm.nome.trim()) {
+      setError("Mundo precisa de um nome.");
+      setIsSavingWorld(false);
+      return;
+    }
+
     const payload: any = {
-      id: worldForm.id.trim(),
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
       tipo: worldForm.tipo.trim() || null,
       ordem: worldForm.ordem ? Number(worldForm.ordem) : null,
+      updated_at: new Date().toISOString(),
     };
 
     let saveError = null;
@@ -298,14 +297,18 @@ export default function LoreAdminPage() {
       return;
     }
 
-    await fetchWorlds();
-    setWorldFormMode("idle");
+    cancelWorldForm();
+    await fetchAllData();
   }
 
   async function handleDeleteWorld(worldId: string) {
-    if (!window.confirm("Tem certeza que deseja deletar este Mundo?")) return;
-
     setError(null);
+
+    // Sim, podemos colocar um confirm básico aqui
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar este Mundo? Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
 
     const { error: deleteError } = await supabaseBrowser
       .from("worlds")
@@ -314,18 +317,19 @@ export default function LoreAdminPage() {
 
     if (deleteError) {
       console.error(deleteError);
-      setError("Erro ao deletar Mundo. Verifique se não há Fichas ligadas a ele.");
+      setError(
+        "Erro ao deletar Mundo. Verifique se não há Fichas ligadas a ele.",
+      );
       return;
     }
 
     if (selectedWorldId === worldId) {
       setSelectedWorldId(null);
       setFichas([]);
-      setSelectedFichaId(null);
       setCodes([]);
     }
 
-    await fetchWorlds();
+    await fetchAllData();
   }
 
   // ===========================================================================
@@ -346,6 +350,8 @@ export default function LoreAdminPage() {
       resumo: "",
       conteudo: "",
       tags: "",
+      ano_diegese: "",
+      ordem_cronologica: "",
     });
   }
 
@@ -359,6 +365,10 @@ export default function LoreAdminPage() {
       resumo: ficha.resumo ?? "",
       conteudo: ficha.conteudo ?? "",
       tags: ficha.tags ?? "",
+      ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
+      ordem_cronologica: ficha.ordem_cronologica
+        ? String(ficha.ordem_cronologica)
+        : "",
     });
   }
 
@@ -372,6 +382,8 @@ export default function LoreAdminPage() {
       resumo: "",
       conteudo: "",
       tags: "",
+      ano_diegese: "",
+      ordem_cronologica: "",
     });
   }
 
@@ -399,6 +411,16 @@ export default function LoreAdminPage() {
       resumo: fichaForm.resumo.trim() || null,
       conteudo: fichaForm.conteudo.trim() || null,
       tags: fichaForm.tags.trim() || null,
+      ano_diegese: fichaForm.ano_diegese.trim()
+        ? Number.isNaN(Number(fichaForm.ano_diegese.trim()))
+          ? fichaForm.ano_diegese.trim()
+          : Number(fichaForm.ano_diegese.trim())
+        : null,
+      ordem_cronologica: fichaForm.ordem_cronologica.trim()
+        ? Number.isNaN(Number(fichaForm.ordem_cronologica.trim()))
+          ? fichaForm.ordem_cronologica.trim()
+          : Number(fichaForm.ordem_cronologica.trim())
+        : null,
       updated_at: new Date().toISOString(),
     };
 
@@ -423,16 +445,16 @@ export default function LoreAdminPage() {
       return;
     }
 
+    cancelFichaForm();
     await fetchFichas(selectedWorldId);
-    setFichaFormMode("idle");
   }
 
   async function handleDeleteFicha(fichaId: string) {
-    if (!window.confirm("Tem certeza que deseja deletar esta Ficha?")) return;
-
-    if (!selectedWorldId) return;
-
     setError(null);
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar esta Ficha? Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
 
     const { error: deleteError } = await supabaseBrowser
       .from("fichas")
@@ -500,7 +522,7 @@ export default function LoreAdminPage() {
     if (codeFormMode === "idle") return;
 
     if (!codeForm.code.trim()) {
-      setError("O campo 'Código' é obrigatório.");
+      setError("Código precisa de um valor.");
       return;
     }
 
@@ -536,15 +558,18 @@ export default function LoreAdminPage() {
       return;
     }
 
-    await fetchCodes(selectedFichaId);
-    setCodeFormMode("idle");
+    cancelCodeForm();
+    if (selectedFichaId) {
+      await fetchCodes(selectedFichaId);
+    }
   }
 
   async function handleDeleteCode(codeId: string) {
-    if (!window.confirm("Tem certeza que deseja deletar este Código?")) return;
-    if (!selectedFichaId) return;
-
     setError(null);
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar este Código? Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
 
     const { error: deleteError } = await supabaseBrowser
       .from("codes")
@@ -557,135 +582,116 @@ export default function LoreAdminPage() {
       return;
     }
 
-    await fetchCodes(selectedFichaId);
+    if (selectedFichaId) {
+      await fetchCodes(selectedFichaId);
+    }
   }
 
   // ===========================================================================
-  // TELAS – LOADING / LOGIN / PAINEL
+  // Renderização
   // ===========================================================================
 
   if (view === "loading") {
     return (
-      <div className="h-screen flex items-center justify-center bg-black text-neutral-200">
-        <div className="text-sm text-neutral-500">
-          Carregando AntiVerso Admin…
-        </div>
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="text-xs text-neutral-500">Carregando…</div>
       </div>
     );
   }
 
   if (view === "loggedOut") {
     return (
-      <div className="h-screen flex items-center justify-center bg-black text-neutral-100">
-        <div className="w-full max-w-sm border border-neutral-800 rounded-2xl p-6 bg-neutral-950/80 shadow-lg">
-          <div className="text-xs uppercase tracking-[0.2em] text-neutral-500 mb-1">
-            AntiVerso Lore Machine
-          </div>
-          <h1 className="text-lg font-semibold mb-1">Acesso ao painel admin</h1>
-          <p className="text-[13px] text-neutral-400 mb-4">
-            Faça login com o usuário configurado no Supabase para editar Mundos,
-            Fichas e Códigos.
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <form
+          onSubmit={handleLogin}
+          className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80"
+        >
+          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">
+            /lore-admin – Mundos, Fichas e Códigos
+          </h1>
+          <p className="text-[11px] text-neutral-500 mb-4">
+            Acesse com seu e-mail e senha de admin.
           </p>
 
-          <form className="space-y-3" onSubmit={handleLogin}>
-            <div className="space-y-1">
-              <label className="text-[11px] uppercase tracking-[0.16em] text-neutral-500">
+          {error && (
+            <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-2 mb-3">
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
                 E-mail
               </label>
               <input
                 type="email"
-                required
-                className="w-full rounded-lg border border-neutral-800 bg-black/60 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@antiverso.com"
+                autoComplete="email"
               />
             </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] uppercase tracking-[0.16em] text-neutral-500">
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
                 Senha
               </label>
               <input
                 type="password"
-                required
-                className="w-full rounded-lg border border-neutral-800 bg-black/60 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Sua senha do Supabase"
+                autoComplete="current-password"
               />
             </div>
+          </div>
 
-            {error && (
-              <div className="text-[12px] text-red-400 bg-red-500/10 border border-red-500/40 rounded-lg px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full mt-2 rounded-lg bg-emerald-500 text-black text-sm font-medium py-2.5 hover:bg-emerald-400 disabled:opacity-60 disabled:hover:bg-emerald-500 transition-colors"
-            >
-              {isSubmitting ? "Entrando…" : "Entrar"}
-            </button>
-
-            <p className="text-[11px] text-neutral-500 mt-2">
-              Esta tela usa Supabase Auth (email + senha). Depois podemos
-              afinar as regras de acesso com Row Level Security (RLS).
-            </p>
-          </form>
-        </div>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full mt-1 text-[11px] px-3 py-1.5 rounded-full border border-emerald-500 text-emerald-200 hover:bg-emerald-500 hover:text-black transition-colors disabled:opacity-60"
+          >
+            {isSubmitting ? "Entrando…" : "Entrar"}
+          </button>
+        </form>
       </div>
     );
   }
 
-  // ---- Tela logada – painel Admin ------------------------------------------
   return (
-    <div className="h-screen flex flex-col bg-black text-neutral-100">
-      {/* Top bar */}
-      <header className="h-12 border-b border-neutral-800 flex items-center justify-between px-4">
+    <div className="min-h-screen bg-black text-neutral-100 flex flex-col">
+      <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-neutral-500">
-            AntiVerso Lore Machine — Admin
+          <div className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+            AntiVerso Lore Machine
           </div>
-          <div className="text-[11px] text-neutral-500">
+          <div className="text-[11px] text-neutral-600">
             /lore-admin – Mundos, Fichas e Códigos
           </div>
         </div>
-
-        <div className="flex items-center gap-3 text-[12px]">
-          {userEmail && (
-            <span className="text-neutral-400">
-              Logado como{" "}
-              <span className="text-neutral-200 font-medium">{userEmail}</span>
-            </span>
-          )}
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 rounded-full border border-neutral-700 text-[11px] text-neutral-200 hover:border-red-500 hover:text-red-300 transition-colors"
-          >
-            Sair
-          </button>
-        </div>
+        <button
+          onClick={handleLogout}
+          className="text-[11px] px-3 py-1 rounded-full border border-neutral-800 text-neutral-400 hover:text-emerald-300 hover:border-emerald-500 transition-colors"
+        >
+          Sair
+        </button>
       </header>
 
-      {/* Avisos globais */}
       {error && (
-        <div className="border-b border-red-800/60 bg-red-950/40 text-red-200 text-xs px-4 py-2">
+        <div className="px-4 py-2 text-[11px] text-red-400 bg-red-950/40 border-b border-red-900">
           {error}
         </div>
       )}
+
       {isLoadingData && (
-        <div className="border-b border-neutral-800 bg-neutral-950/40 text-neutral-400 text-xs px-4 py-1">
+        <div className="px-4 py-1 text-[11px] text-neutral-500 border-b border-neutral-900">
           Carregando dados…
         </div>
       )}
 
-      {/* Conteúdo principal */}
-      <main className="flex-1 flex overflow-hidden text-sm">
+      <main className="flex flex-1 overflow-hidden">
         {/* Coluna 1: Mundos */}
-        <aside className="w-72 border-r border-neutral-800 p-4 flex flex-col">
+        <section className="w-72 border-r border-neutral-800 p-4 flex flex-col">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Mundos
@@ -698,20 +704,24 @@ export default function LoreAdminPage() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-auto space-y-1">
+          <div className="text-[11px] text-neutral-500 mb-2">
+            Selecione um Mundo para ver suas Fichas e Códigos.
+          </div>
+
+          <div className="flex-1 overflow-auto space-y-1 pr-1">
             {worlds.length === 0 && (
-              <div className="text-[12px] text-neutral-500">
-                Nenhum mundo cadastrado ainda.
+              <div className="text-[11px] text-neutral-600">
+                Nenhum Mundo cadastrado ainda.
               </div>
             )}
 
             {worlds.map((world) => (
               <div
                 key={world.id}
-                className={`group border border-neutral-800 rounded-lg px-2 py-1.5 cursor-pointer text-xs ${
+                className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
                   selectedWorldId === world.id
-                    ? "bg-neutral-900/80 border-emerald-500/60"
-                    : "bg-neutral-950/40 hover:bg-neutral-900/40"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-neutral-800 hover:border-neutral-500"
                 }`}
                 onClick={() => {
                   setSelectedWorldId(world.id);
@@ -745,36 +755,22 @@ export default function LoreAdminPage() {
                     </button>
                   </div>
                 </div>
-                <div className="text-[11px] text-neutral-500 truncate">
-                  id: {world.id}
-                </div>
+                {world.descricao && (
+                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                    {world.descricao}
+                  </div>
+                )}
               </div>
             ))}
           </div>
 
-          {/* Form de Mundo */}
           {worldFormMode !== "idle" && (
             <form
               onSubmit={handleSaveWorld}
-              className="mt-3 border border-neutral-800 rounded-lg p-2 bg-neutral-950/60 space-y-2"
+              className="mt-3 border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
             >
               <div className="text-[11px] text-neutral-400 mb-1">
-                {worldFormMode === "create"
-                  ? "Novo Mundo"
-                  : "Editar Mundo"}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">ID</label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={worldForm.id}
-                  onChange={(e) =>
-                    setWorldForm((prev) => ({ ...prev, id: e.target.value }))
-                  }
-                  placeholder="ex: aris, a_sala, arquivos_vermelhos"
-                  disabled={worldFormMode === "edit"}
-                />
+                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
               </div>
 
               <div className="space-y-1">
@@ -783,16 +779,21 @@ export default function LoreAdminPage() {
                   className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                   value={worldForm.nome}
                   onChange={(e) =>
-                    setWorldForm((prev) => ({ ...prev, nome: e.target.value }))
+                    setWorldForm((prev) => ({
+                      ...prev,
+                      nome: e.target.value,
+                    }))
                   }
+                  placeholder="Ex: Arquivos Vermelhos"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Descrição</label>
+                <label className="text-[11px] text-neutral-500">
+                  Descrição
+                </label>
                 <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  rows={2}
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
                   value={worldForm.descricao}
                   onChange={(e) =>
                     setWorldForm((prev) => ({
@@ -800,12 +801,15 @@ export default function LoreAdminPage() {
                       descricao: e.target.value,
                     }))
                   }
+                  placeholder="Resumo do Mundo…"
                 />
               </div>
 
               <div className="flex gap-2">
                 <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-neutral-500">Tipo</label>
+                  <label className="text-[11px] text-neutral-500">
+                    Tipo (opcional)
+                  </label>
                   <input
                     className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                     value={worldForm.tipo}
@@ -815,10 +819,10 @@ export default function LoreAdminPage() {
                         tipo: e.target.value,
                       }))
                     }
-                    placeholder="meta_universo, projeto_mid..."
+                    placeholder="ex: universo, saga…"
                   />
                 </div>
-                <div className="w-20 space-y-1">
+                <div className="w-24 space-y-1">
                   <label className="text-[11px] text-neutral-500">
                     Ordem
                   </label>
@@ -831,7 +835,7 @@ export default function LoreAdminPage() {
                         ordem: e.target.value,
                       }))
                     }
-                    placeholder="0"
+                    placeholder="ex: 10, 20…"
                   />
                 </div>
               </div>
@@ -840,21 +844,21 @@ export default function LoreAdminPage() {
                 <button
                   type="button"
                   onClick={cancelWorldForm}
-                  className="px-2 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-900/60"
+                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingWorld}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-600 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
+                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
                 >
                   {isSavingWorld ? "Salvando…" : "Salvar"}
                 </button>
               </div>
             </form>
           )}
-        </aside>
+        </section>
 
         {/* Coluna 2: Fichas */}
         <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col">
@@ -872,32 +876,32 @@ export default function LoreAdminPage() {
 
           <div className="text-[11px] text-neutral-500 mb-1">
             Mundo selecionado:{" "}
-            <span className="text-neutral-200 font-medium">
-              {worlds.find((w) => w.id === selectedWorldId)?.nome ||
-                "(nenhum)"}
+            <span className="text-neutral-300">
+              {worlds.find((w) => w.id === selectedWorldId)?.nome ??
+                "nenhum selecionado"}
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto space-y-1 mb-3">
+          <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
             {selectedWorldId == null && (
-              <div className="text-[12px] text-neutral-500">
-                Escolha um Mundo na coluna da esquerda.
+              <div className="text-[11px] text-neutral-600">
+                Selecione um Mundo na coluna da esquerda.
               </div>
             )}
 
             {selectedWorldId != null && fichas.length === 0 && (
-              <div className="text-[12px] text-neutral-500">
-                Nenhuma ficha cadastrada para este Mundo.
+              <div className="text-[11px] text-neutral-600">
+                Nenhuma Ficha cadastrada para este Mundo ainda.
               </div>
             )}
 
             {fichas.map((ficha) => (
               <div
                 key={ficha.id}
-                className={`group border border-neutral-800 rounded-lg px-3 py-2 cursor-pointer text-xs ${
+                className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
                   selectedFichaId === ficha.id
-                    ? "bg-neutral-900/80 border-emerald-500/60"
-                    : "bg-neutral-950/40 hover:bg-neutral-900/40"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-neutral-800 hover:border-neutral-500"
                 }`}
                 onClick={() => {
                   setSelectedFichaId(ficha.id);
@@ -905,8 +909,13 @@ export default function LoreAdminPage() {
                 }}
               >
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-neutral-100">
-                    {ficha.titulo}
+                  <div>
+                    <div className="font-medium text-neutral-100">
+                      {ficha.titulo}
+                    </div>
+                    <div className="text-[10px] text-neutral-500">
+                      {ficha.tipo || "sem tipo definido"}
+                    </div>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
@@ -931,11 +940,8 @@ export default function LoreAdminPage() {
                     </button>
                   </div>
                 </div>
-                <div className="text-[11px] text-neutral-500 truncate">
-                  slug: {ficha.slug || "(sem slug)"}
-                </div>
                 {ficha.resumo && (
-                  <div className="text-[11px] text-neutral-400 mt-1 line-clamp-2">
+                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
                     {ficha.resumo}
                   </div>
                 )}
@@ -943,16 +949,13 @@ export default function LoreAdminPage() {
             ))}
           </div>
 
-          {/* Form de Ficha */}
           {fichaFormMode !== "idle" && (
             <form
               onSubmit={handleSaveFicha}
               className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
             >
               <div className="text-[11px] text-neutral-400 mb-1">
-                {fichaFormMode === "create"
-                  ? "Nova Ficha"
-                  : "Editar Ficha"}
+                {fichaFormMode === "create" ? "Nova Ficha" : "Editar Ficha"}
               </div>
 
               <div className="space-y-1">
@@ -966,12 +969,15 @@ export default function LoreAdminPage() {
                       titulo: e.target.value,
                     }))
                   }
+                  placeholder="Ex: Delegada Cíntia"
                 />
               </div>
 
               <div className="flex gap-2">
                 <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-neutral-500">Slug</label>
+                  <label className="text-[11px] text-neutral-500">
+                    Slug (opcional)
+                  </label>
                   <input
                     className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                     value={fichaForm.slug}
@@ -981,14 +987,14 @@ export default function LoreAdminPage() {
                         slug: e.target.value,
                       }))
                     }
-                    placeholder="ex: aris-042-corredor"
+                    placeholder="delegada-cintia, aris-042-corredor"
                   />
                 </div>
                 <div className="w-32 space-y-1">
                   <label className="text-[11px] text-neutral-500">
                     Tipo
                   </label>
-                  <input
+                  <select
                     className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                     value={fichaForm.tipo}
                     onChange={(e) =>
@@ -997,16 +1003,21 @@ export default function LoreAdminPage() {
                         tipo: e.target.value,
                       }))
                     }
-                    placeholder="registro_anomalo…"
-                  />
+                  >
+                    <option value="">Selecione…</option>
+                    <option value="personagem">Personagem</option>
+                    <option value="local">Local</option>
+                    <option value="empresa">Empresa</option>
+                    <option value="agencia">Agência</option>
+                    <option value="midia">Mídia</option>
+                  </select>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-[11px] text-neutral-500">Resumo</label>
                 <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  rows={2}
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
                   value={fichaForm.resumo}
                   onChange={(e) =>
                     setFichaForm((prev) => ({
@@ -1014,6 +1025,7 @@ export default function LoreAdminPage() {
                       resumo: e.target.value,
                     }))
                   }
+                  placeholder="Resumo curto da ficha…"
                 />
               </div>
 
@@ -1022,8 +1034,7 @@ export default function LoreAdminPage() {
                   Conteúdo
                 </label>
                 <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  rows={3}
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[100px]"
                   value={fichaForm.conteudo}
                   onChange={(e) =>
                     setFichaForm((prev) => ({
@@ -1050,18 +1061,54 @@ export default function LoreAdminPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Ano da diegese
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.ano_diegese}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        ano_diegese: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: 1993"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Ordem cronológica
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.ordem_cronologica}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        ordem_cronologica: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: 10, 20, 30…"
+                  />
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   type="button"
                   onClick={cancelFichaForm}
-                  className="px-2 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-900/60"
+                  disabled={isSavingFicha}
+                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingFicha}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-600 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
+                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
                 >
                   {isSavingFicha ? "Salvando…" : "Salvar"}
                 </button>
@@ -1086,83 +1133,80 @@ export default function LoreAdminPage() {
 
           <div className="text-[11px] text-neutral-500 mb-1">
             Ficha selecionada:{" "}
-            <span className="text-neutral-200 font-medium">
+            <span className="text-neutral-300">
               {fichas.find((f) => f.id === selectedFichaId)?.titulo ||
-                "(nenhuma)"}
+                "nenhuma selecionada"}
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto space-y-1 mb-3">
+          <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
             {selectedFichaId == null && (
-              <div className="text-[12px] text-neutral-500">
+              <div className="text-[11px] text-neutral-600">
                 Escolha uma Ficha na coluna do meio.
               </div>
             )}
 
             {selectedFichaId != null && codes.length === 0 && (
-              <div className="text-[12px] text-neutral-500">
+              <div className="text-[11px] text-neutral-600">
                 Nenhum código cadastrado para esta Ficha.
               </div>
             )}
 
-            {codes.map((c) => (
+            {codes.map((code) => (
               <div
-                key={c.id}
-                className="group border border-neutral-800 rounded-lg px-3 py-2 text-xs bg-neutral-950/40 hover:bg-neutral-900/40"
+                key={code.id}
+                className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px] mb-1"
               >
                 <div className="flex items-center justify-between">
-                  <div className="font-mono text-xs text-emerald-300">
-                    {c.code}
+                  <div>
+                    <div className="font-medium text-neutral-100">
+                      {code.code}
+                    </div>
+                    {code.label && (
+                      <div className="text-[10px] text-neutral-500">
+                        {code.label}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
                       className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
-                      onClick={() => startEditCode(c)}
+                      onClick={() => startEditCode(code)}
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
-                      onClick={() => handleDeleteCode(c.id)}
+                      onClick={() => handleDeleteCode(code.id)}
                     >
                       Del
                     </button>
                   </div>
                 </div>
-                {c.label && (
-                  <div className="text-[11px] text-neutral-200 mt-1">
-                    {c.label}
-                  </div>
-                )}
-                {c.description && (
-                  <div className="text-[11px] text-neutral-400 mt-1 line-clamp-2">
-                    {c.description}
+                {code.description && (
+                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                    {code.description}
                   </div>
                 )}
               </div>
             ))}
           </div>
 
-          {/* Form de Código */}
           {codeFormMode !== "idle" && (
             <form
               onSubmit={handleSaveCode}
               className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
             >
               <div className="text-[11px] text-neutral-400 mb-1">
-                {codeFormMode === "create"
-                  ? "Novo Código"
-                  : "Editar Código"}
+                {codeFormMode === "create" ? "Novo Código" : "Editar Código"}
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Código (string)
-                </label>
+                <label className="text-[11px] text-neutral-500">Código</label>
                 <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs font-mono"
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                   value={codeForm.code}
                   onChange={(e) =>
                     setCodeForm((prev) => ({
@@ -1170,13 +1214,13 @@ export default function LoreAdminPage() {
                       code: e.target.value,
                     }))
                   }
-                  placeholder="ex: TONO, LORE01, ARIS-SEGREDO…"
+                  placeholder="ex: ARIS-042, PH-S04-E01…"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-[11px] text-neutral-500">
-                  Rótulo (label)
+                  Rótulo (opcional)
                 </label>
                 <input
                   className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
@@ -1187,17 +1231,16 @@ export default function LoreAdminPage() {
                       label: e.target.value,
                     }))
                   }
-                  placeholder="Ex: Primeiro Sinal, Chave da ARIS…"
+                  placeholder="Corredor – VHS 1993…"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-[11px] text-neutral-500">
-                  Descrição
+                  Descrição (opcional)
                 </label>
                 <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  rows={3}
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
                   value={codeForm.description}
                   onChange={(e) =>
                     setCodeForm((prev) => ({
@@ -1205,7 +1248,7 @@ export default function LoreAdminPage() {
                       description: e.target.value,
                     }))
                   }
-                  placeholder="Explique rapidamente o que este código desbloqueia / faz."
+                  placeholder="Mais detalhes sobre onde esse código aparece…"
                 />
               </div>
 
@@ -1213,14 +1256,15 @@ export default function LoreAdminPage() {
                 <button
                   type="button"
                   onClick={cancelCodeForm}
-                  className="px-2 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-900/60"
+                  disabled={isSavingCode}
+                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingCode}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-600 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
+                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
                 >
                   {isSavingCode ? "Salvando…" : "Salvar"}
                 </button>
