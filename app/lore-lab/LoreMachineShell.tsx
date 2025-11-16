@@ -211,4 +211,97 @@ export function LoreMachineShell({
               Ficha
             </button>
           </div>
-        <
+        </header>
+
+        {/* conteúdo do painel */}
+        <section className="flex-1 overflow-y-auto">
+          {panelMode === "chat" && (
+            <div className="h-full flex items-center justify-center text-center text-sm text-neutral-500 px-8">
+              <div>
+                Aqui entraria o{" "}
+                <span className="text-neutral-300 font-medium">chat</span> da
+                AntiVerso Lore Machine, usando o mesmo componente que você já
+                tem hoje.
+                <br />
+                <br />
+                Nesta rota <code>/lore-lab</code> estamos só testando o fluxo de{" "}
+                <span className="text-neutral-300">
+                  Sidebar → Fichas → Tela de Ficha
+                </span>
+                .
+              </div>
+            </div>
+          )}
+
+          {panelMode === "ficha" && !selectedFicha && (
+            <div className="h-full flex items-center justify-center text-center text-sm text-neutral-500 px-8">
+              Selecione uma ficha no catálogo à esquerda para ver os detalhes
+              aqui.
+            </div>
+          )}
+
+          {panelMode === "ficha" && selectedFicha && (
+            <div className="h-full flex flex-col px-8 py-6 gap-4">
+              {/* header da ficha */}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-neutral-500 mb-1">
+                    {selectedFicha.tipo} · {selectedFicha.slug}
+                  </div>
+                  <h1 className="text-xl font-semibold text-neutral-50">
+                    {selectedFicha.titulo}
+                  </h1>
+                  {selectedFicha.resumo && (
+                    <p className="mt-2 text-sm text-neutral-300 max-w-2xl">
+                      {selectedFicha.resumo}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-end gap-2">
+                  {fichaCodes.length > 0 && (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {fichaCodes.map((code) => (
+                        <div
+                          key={code.id}
+                          className="px-2.5 py-1 rounded-full border border-emerald-500/60 bg-emerald-900/30 text-[11px] font-mono text-emerald-200"
+                        >
+                          {code.code}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setPanelMode("chat")}
+                    className="mt-1 px-3 py-1 rounded-full border border-neutral-700 text-[11px] text-neutral-300 hover:border-neutral-500 transition-colors"
+                  >
+                    Voltar ao chat
+                  </button>
+                </div>
+              </div>
+
+              {/* tags */}
+              {fichaTags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {fichaTags.map((tag, idx) => (
+                    <span
+                      key={`${tag}-${idx}`}
+                      className="px-2 py-[2px] rounded-full bg-neutral-900 text-[11px] text-neutral-400 border border-neutral-800"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* conteúdo */}
+              <div className="mt-4 border-t border-neutral-800 pt-4 text-sm text-neutral-200 whitespace-pre-wrap leading-relaxed max-w-3xl">
+                {selectedFicha.conteudo}
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
+  );
+}
