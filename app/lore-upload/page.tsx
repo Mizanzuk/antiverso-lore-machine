@@ -96,7 +96,7 @@ export default function LoreUploadPage() {
       return;
     }
 
-    try:
+    try {
       setIsProcessing(true);
 
       const response = await fetch("/api/lore/extract", {
@@ -112,7 +112,8 @@ export default function LoreUploadPage() {
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         throw new Error(
-          data?.error || "Erro ao processar texto com a Lore Machine.",
+          (data as any)?.error ||
+            "Erro ao processar texto com a Lore Machine.",
         );
       }
 
@@ -208,15 +209,12 @@ export default function LoreUploadPage() {
                 {worlds.length === 0 && (
                   <option value="">Nenhum Mundo cadastrado</option>
                 )}
-                {worlds.length > 0 && (
-                  <>
-                    {worlds.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.nome}
-                      </option>
-                    ))}
-                  </>
-                )}
+                {worlds.length > 0 &&
+                  worlds.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.nome}
+                    </option>
+                  ))}
               </select>
               <p className="text-[10px] text-neutral-500">
                 Ex: Arquivos Vermelhos, A Sala, Evangelho de Or…
