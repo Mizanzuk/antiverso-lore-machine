@@ -377,19 +377,20 @@ function startEditFicha(ficha: any) {
   }
 
   function cancelFichaForm() {
-    setFichaFormMode("idle");
-    setFichaForm({
-      id: "",
-      titulo: "",
-      slug: "",
-      tipo: "",
-      resumo: "",
-      conteudo: "",
-      tags: "",
-      ano_diegese: "",
-      ordem_cronologica: "",
-    });
-  }
+  setFichaFormMode("idle");
+  setFichaForm({
+    id: "",
+    titulo: "",
+    slug: "",
+    tipo: "",
+    resumo: "",
+    conteudo: "",
+    tags: "",
+    ano_diegese: "",
+    ordem_cronologica: "",
+    aparece_em: "",
+  });
+}
 
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
