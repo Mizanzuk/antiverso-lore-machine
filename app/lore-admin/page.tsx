@@ -1030,7 +1030,7 @@ export default function LoreAdminPage() {
           </div>
 
           <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
-
+            {filteredFichas.map((ficha) => (
               <div
                 key={ficha.id}
                 className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
