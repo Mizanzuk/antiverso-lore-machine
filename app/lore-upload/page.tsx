@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -47,6 +48,10 @@ export default function LoreUploadPage() {
     null,
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Estado para edição em modal
+  const [editingFicha, setEditingFicha] = useState<ExtractedFicha | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Carrega mundos do Supabase (igual ao admin)
   useEffect(() => {
@@ -207,30 +212,90 @@ export default function LoreUploadPage() {
     }
   };
 
+  const openEditModal = (ficha: ExtractedFicha) => {
+    setEditingFicha(ficha);
+    setIsEditModalOpen(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    setEditingFicha(null);
+  };
+
+  const handleEditField = (field: keyof ExtractedFicha, value: any) => {
+    setEditingFicha((prev) => {
+      if (!prev) return prev;
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleSaveEditedFicha = () => {
+    if (!editingFicha || !extractResult) {
+      closeEditModal();
+      return;
+    }
+
+    const updateArray = (arr: ExtractedFicha[]) =>
+      arr.map((item) =>
+        item.id_temp === editingFicha.id_temp ? editingFicha : item,
+      );
+
+    setExtractResult((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        fichas: updateArray(prev.fichas),
+        personagens: updateArray(prev.personagens),
+        locais: updateArray(prev.locais),
+        empresas: updateArray(prev.empresas),
+        agencias: updateArray(prev.agencias),
+        midias: updateArray(prev.midias),
+      };
+    });
+
+    closeEditModal();
+  };
+
   const renderFichaCard = (f: ExtractedFicha) => {
     const checked = selectedIds.has(f.id_temp);
     return (
       <div
         key={f.id_temp}
-        className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm mb-2"
+        className="mb-2 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm"
       >
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <div className="font-semibold text-neutral-100">{f.titulo}</div>
-          <label className="flex items-center gap-1 text-xs text-neutral-300">
-            <input
-              type="checkbox"
-              className="h-3 w-3"
-              checked={checked}
-              onChange={() => handleToggleFicha(f.id_temp)}
-            />
-            salvar
-          </label>
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <div>
+            <div className="font-semibold text-neutral-100">{f.titulo}</div>
+            {f.tipo && (
+              <p className="text-[11px] uppercase text-neutral-400">
+                {f.tipo}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-[10px] font-semibold text-neutral-100 hover:bg-neutral-800"
+              onClick={() => openEditModal(f)}
+            >
+              Editar
+            </button>
+            <label className="flex items-center gap-1 text-xs text-neutral-300">
+              <input
+                type="checkbox"
+                className="h-3 w-3"
+                checked={checked}
+                onChange={() => handleToggleFicha(f.id_temp)}
+              />
+              salvar
+            </label>
+          </div>
         </div>
         {f.resumo && (
-          <p className="text-neutral-200 text-xs mb-1">{f.resumo}</p>
+          <p className="mb-1 text-xs text-neutral-200">{f.resumo}</p>
         )}
         {f.aparece_em && (
-          <p className="text-[11px] text-neutral-300 mb-1">
+          <p className="mb-1 text-[11px] text-neutral-300">
             <span className="font-semibold">Aparece em:</span> {f.aparece_em}
           </p>
         )}
@@ -261,11 +326,11 @@ export default function LoreUploadPage() {
   return (
     <div className="flex min-h-screen bg-black text-neutral-100">
       {/* COLUNA ESQUERDA – FORM */}
-      <div className="w-full max-w-md border-r border-neutral-900 p-6 space-y-4">
-        <h1 className="text-lg font-semibold tracking-tight mb-2">
+      <div className="w-full max-w-md space-y-4 border-r border-neutral-900 p-6">
+        <h1 className="mb-2 text-lg font-semibold tracking-tight">
           AntiVerso Lore Machine — Upload de texto
         </h1>
-        <p className="text-xs text-neutral-300 mb-4">
+        <p className="mb-4 text-xs text-neutral-300">
           Selecione o mundo, informe (se quiser) o episódio/capítulo/vídeo
           e cole um texto. Or vai sugerir fichas para o catálogo do AntiVerso.
         </p>
@@ -366,7 +431,7 @@ export default function LoreUploadPage() {
           </button>
         </div>
 
-        <p className="text-[11px] text-neutral-500 pt-1">
+        <p className="pt-1 text-[11px] text-neutral-500">
           Use a coluna da direita para revisar as fichas. Marque ou desmarque
           “salvar” em cada uma antes de clicar em{" "}
           <span className="font-semibold">Salvar fichas aprovadas</span>.
@@ -374,8 +439,8 @@ export default function LoreUploadPage() {
       </div>
 
       {/* COLUNA DIREITA – PRÉVIA DAS FICHAS */}
-      <div className="flex-1 p-6 overflow-y-auto">
-        <h2 className="text-sm font-semibold tracking-wide mb-4 text-neutral-200">
+      <div className="flex-1 overflow-y-auto p-6">
+        <h2 className="mb-4 text-sm font-semibold tracking-wide text-neutral-200">
           PRÉVIA DAS FICHAS SUGERIDAS
         </h2>
 
@@ -391,7 +456,7 @@ export default function LoreUploadPage() {
             {/* Personagens */}
             {extractResult.personagens.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-400">
                     PERSONAGENS
                   </h3>
@@ -406,7 +471,7 @@ export default function LoreUploadPage() {
             {/* Locais */}
             {extractResult.locais.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-400">
                     LOCAIS
                   </h3>
@@ -421,7 +486,7 @@ export default function LoreUploadPage() {
             {/* Empresas */}
             {extractResult.empresas.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-400">
                     EMPRESAS
                   </h3>
@@ -436,7 +501,7 @@ export default function LoreUploadPage() {
             {/* Agências */}
             {extractResult.agencias.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-purple-400">
                     AGÊNCIAS
                   </h3>
@@ -451,7 +516,7 @@ export default function LoreUploadPage() {
             {/* Mídias */}
             {extractResult.midias.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-400">
                     MÍDIAS
                   </h3>
@@ -466,7 +531,7 @@ export default function LoreUploadPage() {
             {/* Outros tipos (conceitos, regras de mundo, eventos, etc.) */}
             {outros.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-300">
                     OUTROS TIPOS
                   </h3>
@@ -476,7 +541,7 @@ export default function LoreUploadPage() {
                 </div>
                 {outros.map((f) => (
                   <div key={f.id_temp} className="mb-2">
-                    <div className="text-[10px] uppercase text-neutral-400 mb-1">
+                    <div className="mb-1 text-[10px] uppercase text-neutral-400">
                       Tipo: {f.tipo}
                     </div>
                     {renderFichaCard(f)}
@@ -487,6 +552,145 @@ export default function LoreUploadPage() {
           </div>
         )}
       </div>
+
+      {/* MODAL DE EDIÇÃO DE FICHA */}
+      {isEditModalOpen && editingFicha && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-xl rounded-xl border border-neutral-700 bg-neutral-950 p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-neutral-100">
+                Editar ficha sugerida
+              </h2>
+              <button
+                type="button"
+                className="text-xs text-neutral-400 hover:text-neutral-200"
+                onClick={closeEditModal}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Tipo
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.tipo}
+                  onChange={(e) => handleEditField("tipo", e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Título
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.titulo}
+                  onChange={(e) => handleEditField("titulo", e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Resumo
+                </label>
+                <textarea
+                  className="h-20 w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.resumo}
+                  onChange={(e) => handleEditField("resumo", e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Conteúdo
+                </label>
+                <textarea
+                  className="h-32 w-full resize-none rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.conteudo}
+                  onChange={(e) =>
+                    handleEditField("conteudo", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Tags (separe por vírgula)
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.tags?.join(", ") ?? ""}
+                  onChange={(e) =>
+                    handleEditField(
+                      "tags",
+                      e.target.value
+                        .split(",")
+                        .map((t) => t.trim())
+                        .filter((t) => t.length > 0),
+                    )
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Aparece em
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.aparece_em}
+                  onChange={(e) =>
+                    handleEditField("aparece_em", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300">
+                  Ano diegese (opcional)
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs outline-none focus:border-emerald-500"
+                  value={editingFicha.ano_diegese ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    handleEditField(
+                      "ano_diegese",
+                      v === "" ? null : Number(v),
+                    );
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-800"
+                onClick={closeEditModal}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-black hover:bg-emerald-500"
+                onClick={handleSaveEditedFicha}
+              >
+                Salvar alterações
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
