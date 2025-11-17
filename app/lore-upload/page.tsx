@@ -1,6 +1,12 @@
 
 "use client";
 
+<header className="h-10 border-b border-white/10 flex items-center px-4 bg-black/40">
+  <a href="/" className="text-xs text-gray-300 hover:text-white">
+    ← Voltar à Home
+  </a>
+</header>
+
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
