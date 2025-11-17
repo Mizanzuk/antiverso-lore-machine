@@ -29,10 +29,11 @@ type WorldRow = {
   id: string;
   nome: string | null;
   descricao: string | null;
-  tipo: string | null;
+  tipo: string | null;   // ex: "AV", "TR", "SL", "EO", "CO"
   ordem: number | null;
 };
 
+// MAPA DE PREFIXOS POR TIPO DE FICHA
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
   local: "LO",
@@ -60,10 +61,11 @@ function getTypePrefix(tipo: string): string {
   return cleaned.slice(0, 2).toUpperCase();
 }
 
+// PREFIXO DO MUNDO (AV, TR, SL, EO, CO...)
+// Regra: usa world.tipo se você preencher no banco; se não, deduz das iniciais do nome
 function getWorldPrefix(world: WorldRow): string {
   const rawTipo = (world.tipo || "").trim();
   if (rawTipo && /^[A-Za-z]{2,5}$/.test(rawTipo)) {
-    // Se você já preencher "AV", "OR" etc em world.tipo, ele usa isso
     return rawTipo.toUpperCase();
   }
 
@@ -81,6 +83,8 @@ function getWorldPrefix(world: WorldRow): string {
   return initials.toUpperCase();
 }
 
+// Opcionalmente ainda usamos ordem em alguns cenários futuros, mas
+// pra códigos, o "episódio" é SEMPRE o unitNumber enviado pela UI.
 function getWorldIndex(world: WorldRow): number {
   if (typeof world.ordem === "number" && !Number.isNaN(world.ordem)) {
     return world.ordem;
@@ -88,40 +92,74 @@ function getWorldIndex(world: WorldRow): number {
   return 1;
 }
 
+/**
+ * Gera código de catalogação no formato:
+ *   AV7-PS3 = Mundo "AV" (Arquivos Vermelhos), Episódio 7, Personagem 3
+ *
+ * Regras:
+ * - UMA ficha pode ter VÁRIOS códigos (ficha global no AntiVerso).
+ * - Para cada combinação (mundo + episódio + tipo) para aquela ficha,
+ *   geramos no máximo UM código.
+ * - O número final (3 em AV7-PS3) é global praquele prefixo
+ *   (worldPrefix + episodeNumber + typePrefix), compartilhado
+ *   entre todas as fichas.
+ */
 async function ensureCodeForFicha({
   fichaId,
   world,
   tipo,
+  unitNumber,
 }: {
   fichaId: string;
-  world: WorldRow;
+  world: WorldRow | null;
   tipo: string;
+  unitNumber: number | null;
 }) {
-  // 1) Verifica se a ficha já possui algum código
-  const { data: existingCodes, error: existingCodesError } = await supabaseAdmin
-    .from("codes")
-    .select("id, code")
-    .eq("ficha_id", fichaId);
-
-  if (existingCodesError) {
-    console.error("Erro ao verificar códigos existentes da ficha:", existingCodesError);
+  // Se não tiver mundo carregado ou não tiver episódio, não gera código
+  if (!world) {
     return;
   }
 
-  if (existingCodes && existingCodes.length > 0) {
-    // Já existe pelo menos um código vinculado → não gera automaticamente
+  const episodeNumber =
+    unitNumber && !Number.isNaN(unitNumber) && unitNumber > 0
+      ? unitNumber
+      : null;
+
+  if (!episodeNumber) {
+    // Sem episódio definido, não gera código automático
     return;
   }
 
-  // 2) Monta prefixos
+  // 1) Monta prefixos
   const worldPrefix = getWorldPrefix(world); // ex: "AV"
-  const worldIndex = getWorldIndex(world);   // ex: 1
-  const typePrefix = getTypePrefix(tipo);    // ex: "PS"
+  const typePrefix = getTypePrefix(tipo);     // ex: "PS"
 
-  const worldSegment = `${worldPrefix}${worldIndex}`; // "AV1"
-  const prefix = `${worldSegment}-${typePrefix}`;     // "AV1-PS"
+  const worldSegment = `${worldPrefix}${episodeNumber}`; // "AV7"
+  const prefix = `${worldSegment}-${typePrefix}`;        // "AV7-PS"
 
-  // 3) Busca o último código existente começando por esse prefixo
+  // 2) Verifica se ESSA ficha já tem um código para esse mundo+episódio+tipo
+  const { data: existingForFicha, error: existingForFichaError } =
+    await supabaseAdmin
+      .from("codes")
+      .select("id, code")
+      .eq("ficha_id", fichaId)
+      .ilike("code", `${prefix}%`)
+      .limit(1);
+
+  if (existingForFichaError) {
+    console.error(
+      "Erro ao verificar códigos existentes da ficha (por prefixo):",
+      existingForFichaError,
+    );
+    return;
+  }
+
+  if (existingForFicha && existingForFicha.length > 0) {
+    // Já existe um código tipo "AV7-PSX" para essa ficha → não gera duplicado
+    return;
+  }
+
+  // 3) Busca o último código já existente para esse prefixo (em QUALQUER ficha)
   const { data: latestCodeRows, error: latestCodeError } = await supabaseAdmin
     .from("codes")
     .select("code")
@@ -144,9 +182,9 @@ async function ensureCodeForFicha({
     }
   }
 
-  const finalCode = `${prefix}${nextNumber}`; // ex: "AV1-PS3"
+  const finalCode = `${prefix}${nextNumber}`; // ex: "AV7-PS3"
 
-  // 4) Cria o registro em "codes"
+  // 4) Cria o registro em "codes" para ESSA ficha
   const { error: insertCodeError } = await supabaseAdmin.from("codes").insert({
     ficha_id: fichaId,
     code: finalCode,
@@ -206,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const worldId = String(body.worldId ?? "").trim();
-    const unitNumberRaw = body.unitNumber; // episódio / capítulo / vídeo (ainda opcional)
+    const unitNumberRaw = body.unitNumber; // episódio / capítulo / vídeo
     const fichas = (body.fichas ?? []) as IncomingFicha[];
 
     if (!worldId) {
@@ -230,7 +268,7 @@ export async function POST(req: NextRequest) {
         ? Number(unitNumberRaw)
         : null;
 
-    // Carrega o mundo uma vez para usar na geração automática de códigos
+    // Carrega o MUNDO onde este upload está sendo feito
     let worldRow: WorldRow | null = null;
     const { data: worldData, error: worldError } = await supabaseAdmin
       .from("worlds")
@@ -256,11 +294,12 @@ export async function POST(req: NextRequest) {
       const tipoNormalizado = (ficha.tipo ?? "").toLowerCase();
       const slug = slugify(titulo);
 
-      // 1) Verifica se já existe ficha igual (mesmo mundo + tipo + título)
+      // 1) FICHA É GLOBAL NO ANTIVERSO:
+      //    Mesma "identidade" se tipo + título forem iguais,
+      //    independentemente do mundo em que apareceu.
       const { data: existingList, error: existingError } = await supabaseAdmin
         .from("fichas")
         .select("*")
-        .eq("world_id", worldId)
         .eq("tipo", tipoNormalizado)
         .eq("titulo", titulo)
         .limit(1);
@@ -288,7 +327,7 @@ export async function POST(req: NextRequest) {
         const { data, error } = await supabaseAdmin
           .from("fichas")
           .insert({
-            world_id: worldId,
+            world_id: worldId, // mundo "de origem" da ficha
             titulo,
             slug,
             tipo: tipoNormalizado,
@@ -323,10 +362,11 @@ export async function POST(req: NextRequest) {
             fichaId: (data as any).id as string,
             world: worldRow,
             tipo: tipoNormalizado,
+            unitNumber,
           });
         }
       } else {
-        // 3) Já existe → faz MERGE (aparece_em + tags + eventualmente resumo/conteúdo)
+        // 3) Já existe → MERGE de info (aparece_em + tags + resumo/conteúdo)
         const mergedTags = mergeTags(existing.tags, ficha.tags ?? []);
         const mergedApareceEm = mergeApareceEm(
           existing.aparece_em,
@@ -336,7 +376,6 @@ export async function POST(req: NextRequest) {
         const { data: updated, error: updateError } = await supabaseAdmin
           .from("fichas")
           .update({
-            // se vier resumo/conteúdo novo, podemos substituir; se preferir manter o antigo, é só tirar essas linhas
             resumo: ficha.resumo || existing.resumo || "",
             conteudo: ficha.conteudo || existing.conteudo || "",
             tags: mergedTags,
@@ -368,6 +407,7 @@ export async function POST(req: NextRequest) {
             fichaId: (updated as any).id as string,
             world: worldRow,
             tipo: tipoNormalizado,
+            unitNumber,
           });
         }
       }
