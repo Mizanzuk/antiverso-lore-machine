@@ -1,21 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 
-export const dynamic = "force-dynamic";
+// Tipos permitidos, podem futuramente vir do banco (tabela "categories")
+const allowedTypes = [
+  "personagem",
+  "local",
+  "midia",
+  "agencia",
+  "empresa",
+  "conceito",
+  "regra_de_mundo",
+  "evento",
+  "epistemologia"
+];
 
-type ExtractResponsePayload = {
-  worldId: string;
-  documentName: string;
-  personagens: any[];
-  locais: any[];
-  empresas: any[];
-  agencias: any[];
-  midias: any[];
-};
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    // Garante em tempo de execução e satisfaz o TypeScript:
     if (!openai) {
       return NextResponse.json(
         {
@@ -38,42 +40,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const systemInstructions = `
-Você é Or, guardião do AntiVerso, encarregado de analisar roteiros e textos
-para extrair entidades e transformá-las em fichas de lore.
+    const typeInstructions = allowedTypes
+      .map((t) => `"${t}"`)
+      .join(", ");
 
-Você deve SEMPRE devolver a resposta em JSON válido, sem comentários, sem texto
-explicativo, no seguinte formato exato:
+    const systemInstructions = `
+Você é Or, guardião do AntiVerso.
+
+Sua tarefa é analisar textos e extrair as entidades relevantes para o lore,
+classificando-as de acordo com os tipos permitidos.
+
+Nunca invente tipos fora da lista abaixo.
+
+Tipos permitidos:
+${typeInstructions}
+
+Sempre devolva um JSON com a estrutura:
 
 {
-  "personagens": [ { ... } ],
-  "locais": [ { ... } ],
-  "empresas": [ { ... } ],
-  "agencias": [ { ... } ],
-  "midias": [ { ... } ]
+  "fichas": [
+    {
+      "tipo": um valor exato entre os tipos permitidos,
+      "titulo": nome curto da entidade,
+      "resumo": descrição resumida,
+      "conteudo": explicação mais detalhada sobre a entidade,
+      "tags": lista de palavras-chave (strings),
+      "ano_diegese": ano da narrativa (se houver),
+      "aparece_em": explicação breve de onde essa entidade aparece
+    }
+  ]
 }
 
-Cada item deve ter preferencialmente os campos abaixo:
-
-- "tipo": um destes valores exatos: "personagem", "local", "empresa", "agencia", "midia"
-- "titulo": nome curto da entidade (obrigatório)
-- "resumo": descrição resumida da entidade
-- "conteudo": descrição mais longa
-- "tags": lista de palavras-chave (array de strings)
-- "ano_diegese": ano em que a entidade aparece na história (se fizer sentido)
-- "ordem_cronologica": número ou índice que ajude a ordenar eventos
-- "aparece_em": texto curto explicando em quais episódios/cenas esse elemento aparece
-- "codes": lista de códigos sugeridos (ex: ["AV1-PS1", "SAL1-PS3"]) – se não souber, deixe lista vazia
-
-Se não encontrar nada em alguma categoria, devolva um array vazio para ela.
+Se não encontrar nenhuma entidade válida, devolva "fichas": [].
 `;
 
     const userPrompt = `
 Mundo de destino: ${worldId || "desconhecido"}
 Nome do documento: ${documentName || "sem nome"}
-
-Leia o texto abaixo e extraia TODAS as entidades relevantes para o lore,
-classificando-as em PERSONAGENS, LOCAIS, EMPRESAS, AGÊNCIAS e MÍDIAS.
 
 Texto a analisar (em português):
 
@@ -88,7 +91,7 @@ Texto a analisar (em português):
         { role: "user", content: userPrompt },
       ],
       temperature: 0.2,
-      max_tokens: 1400,
+      max_tokens: 1600,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "";
@@ -107,19 +110,25 @@ Texto a analisar (em português):
       );
     }
 
-    const payload: ExtractResponsePayload = {
+    const fichas = Array.isArray(parsed?.fichas) ? parsed.fichas : [];
+
+    // Só devolve os campos válidos
+    const cleanFichas = fichas.map((f: any, index: number) => ({
+      id_temp: `ficha_${index + 1}`,
+      tipo: typeof f.tipo === "string" ? f.tipo : "conceito",
+      titulo: String(f.titulo ?? "").trim(),
+      resumo: String(f.resumo ?? "").trim(),
+      conteudo: String(f.conteudo ?? "").trim(),
+      tags: Array.isArray(f.tags) ? f.tags.map((t: any) => String(t)) : [],
+      ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+      aparece_em: String(f.aparece_em ?? "").trim(),
+    }));
+
+    return NextResponse.json({
       worldId,
       documentName,
-      personagens: Array.isArray(parsed?.personagens)
-        ? parsed.personagens
-        : [],
-      locais: Array.isArray(parsed?.locais) ? parsed.locais : [],
-      empresas: Array.isArray(parsed?.empresas) ? parsed.empresas : [],
-      agencias: Array.isArray(parsed?.agencias) ? parsed.agencias : [],
-      midias: Array.isArray(parsed?.midias) ? parsed.midias : [],
-    };
-
-    return NextResponse.json(payload);
+      fichas: cleanFichas,
+    });
   } catch (err) {
     console.error("Erro inesperado em /api/lore/extract:", err);
     return NextResponse.json(
