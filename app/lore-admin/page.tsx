@@ -26,6 +26,9 @@ export default function LoreAdminPage() {
   const [codes, setCodes] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
+  // Filtro por tipo de ficha (personagem, local, epistemologia, etc.)
+  const [fichaFilterTipo, setFichaFilterTipo] = useState<string>("all");
+
   // ---- Formulário de Mundo --------------------------------------------------
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
@@ -168,15 +171,17 @@ export default function LoreAdminPage() {
         return;
       }
 
-      setWorlds(data || []);
+      const list = data || [];
+      setWorlds(list);
 
-      // se não houver um mundo selecionado, seleciona o primeiro
-      if (!selectedWorldId && data && data.length > 0) {
-        const firstId = data[0].id as string;
-        setSelectedWorldId(firstId);
-        await fetchFichas(firstId);
+      // seleciona um mundo inicial
+      if (!selectedWorldId && list.length > 0) {
+        const first = list[0];
+        setSelectedWorldId(first.id as string);
+        await fetchFichas(first);
       } else if (selectedWorldId) {
-        await fetchFichas(selectedWorldId);
+        const current = list.find((w) => w.id === selectedWorldId) || null;
+        await fetchFichas(current);
       }
 
       setIsLoadingData(false);
@@ -187,13 +192,30 @@ export default function LoreAdminPage() {
     }
   }
 
-  async function fetchFichas(worldId: string) {
+  // Busca fichas: se o mundo for "AntiVerso", traz TODAS as fichas (root)
+  async function fetchFichas(world: any | null) {
     setError(null);
-    const { data, error: fichasError } = await supabaseBrowser
+
+    if (!world) {
+      setFichas([]);
+      setSelectedFichaId(null);
+      setCodes([]);
+      return;
+    }
+
+    const isRoot =
+      (world?.nome || "").trim().toLowerCase() === "antiverso";
+
+    let query = supabaseBrowser
       .from("fichas")
       .select("*")
-      .eq("world_id", worldId)
       .order("titulo", { ascending: true });
+
+    if (!isRoot) {
+      query = query.eq("world_id", world.id);
+    }
+
+    const { data, error: fichasError } = await query;
 
     if (fichasError) {
       console.error(fichasError);
@@ -274,8 +296,7 @@ export default function LoreAdminPage() {
     const payload: any = {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
-      tipo: worldForm.tipo.trim() || null,
-      ordem: worldForm.ordem ? Number(worldForm.ordem) : null,
+      // tipo e ordem não são mais editados aqui; deixamos como estão no banco
       updated_at: new Date().toISOString(),
     };
 
@@ -452,7 +473,9 @@ export default function LoreAdminPage() {
     }
 
     cancelFichaForm();
-    await fetchFichas(selectedWorldId as string);
+    const currentWorld =
+      worlds.find((w) => w.id === selectedWorldId) || null;
+    await fetchFichas(currentWorld);
   }
 
   async function handleDeleteFicha(fichaId: string) {
@@ -478,7 +501,9 @@ export default function LoreAdminPage() {
       setCodes([]);
     }
 
-    await fetchFichas(selectedWorldId as string);
+    const currentWorld =
+      worlds.find((w) => w.id === selectedWorldId) || null;
+    await fetchFichas(currentWorld);
   }
 
   // ===========================================================================
@@ -594,6 +619,22 @@ export default function LoreAdminPage() {
   }
 
   // ===========================================================================
+  // Derivados de estado
+  // ===========================================================================
+
+  const selectedWorld =
+    worlds.find((w) => w.id === selectedWorldId) || null;
+
+  const filteredFichas =
+    fichaFilterTipo === "all"
+      ? fichas
+      : fichas.filter(
+          (f) =>
+            (f.tipo || "").toLowerCase() ===
+            fichaFilterTipo.toLowerCase(),
+        );
+
+  // ===========================================================================
   // Renderização
   // ===========================================================================
 
@@ -697,7 +738,7 @@ export default function LoreAdminPage() {
 
       <main className="flex flex-1 overflow-hidden">
         {/* Coluna 1: Mundos */}
-        <section className="w-72 border-r border-neutral-800 p-4 flex flex-col">
+        <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Mundos
@@ -731,7 +772,7 @@ export default function LoreAdminPage() {
                 }`}
                 onClick={() => {
                   setSelectedWorldId(world.id as string);
-                  fetchFichas(world.id as string);
+                  fetchFichas(world);
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -799,7 +840,7 @@ export default function LoreAdminPage() {
                   Descrição
                 </label>
                 <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
                   value={worldForm.descricao}
                   onChange={(e) =>
                     setWorldForm((prev) => ({
@@ -809,41 +850,6 @@ export default function LoreAdminPage() {
                   }
                   placeholder="Resumo do Mundo…"
                 />
-              </div>
-
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Tipo (opcional)
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={worldForm.tipo}
-                    onChange={(e) =>
-                      setWorldForm((prev) => ({
-                        ...prev,
-                        tipo: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: universo, saga…"
-                  />
-                </div>
-                <div className="w-24 space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Ordem
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={worldForm.ordem}
-                    onChange={(e) =>
-                      setWorldForm((prev) => ({
-                        ...prev,
-                        ordem: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: 10, 20…"
-                  />
-                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-1">
@@ -868,7 +874,7 @@ export default function LoreAdminPage() {
         </section>
 
         {/* Coluna 2: Fichas */}
-        <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col">
+        <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Fichas do Mundo
@@ -884,9 +890,38 @@ export default function LoreAdminPage() {
           <div className="text-[11px] text-neutral-500 mb-1">
             Mundo selecionado:{" "}
             <span className="text-neutral-300">
-              {worlds.find((w) => w.id === selectedWorldId)?.nome ??
-                "nenhum selecionado"}
+              {selectedWorld?.nome ?? "nenhum selecionado"}
             </span>
+          </div>
+
+          {/* Filtro por tipo de ficha */}
+          <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
+            <span className="text-neutral-500">Filtrar por tipo:</span>
+            {[
+              { value: "all", label: "Todos" },
+              { value: "personagem", label: "Personagens" },
+              { value: "local", label: "Locais" },
+              { value: "agencia", label: "Agências" },
+              { value: "empresa", label: "Empresas" },
+              { value: "midia", label: "Mídia" },
+              { value: "conceito", label: "Conceitos" },
+              { value: "epistemologia", label: "Epistemologia" },
+              { value: "evento", label: "Eventos" },
+              { value: "regra_de_mundo", label: "Regras de mundo" },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setFichaFilterTipo(opt.value)}
+                className={`px-2 py-0.5 rounded-full border ${
+                  fichaFilterTipo === opt.value
+                    ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
+                    : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
@@ -896,13 +931,13 @@ export default function LoreAdminPage() {
               </div>
             )}
 
-            {selectedWorldId != null && fichas.length === 0 && (
+            {selectedWorldId != null && filteredFichas.length === 0 && (
               <div className="text-[11px] text-neutral-600">
-                Nenhuma Ficha cadastrada para este Mundo ainda.
+                Nenhuma Ficha cadastrada para este filtro.
               </div>
             )}
 
-            {fichas.map((ficha) => (
+            {filteredFichas.map((ficha) => (
               <div
                 key={ficha.id}
                 className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
@@ -997,7 +1032,7 @@ export default function LoreAdminPage() {
                     placeholder="delegada-cintia, aris-042-corredor"
                   />
                 </div>
-                <div className="w-32 space-y-1">
+                <div className="w-40 space-y-1">
                   <label className="text-[11px] text-neutral-500">
                     Tipo
                   </label>
@@ -1017,6 +1052,10 @@ export default function LoreAdminPage() {
                     <option value="empresa">Empresa</option>
                     <option value="agencia">Agência</option>
                     <option value="midia">Mídia</option>
+                    <option value="conceito">Conceito</option>
+                    <option value="epistemologia">Epistemologia</option>
+                    <option value="evento">Evento</option>
+                    <option value="regra_de_mundo">Regra de mundo</option>
                   </select>
                 </div>
               </div>
@@ -1142,7 +1181,7 @@ export default function LoreAdminPage() {
         </section>
 
         {/* Coluna 3: Códigos */}
-        <section className="flex-1 p-4 flex flex-col">
+        <section className="flex-1 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Códigos da Ficha
