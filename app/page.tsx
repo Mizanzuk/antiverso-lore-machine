@@ -103,6 +103,50 @@ export default function Page() {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
+  // Carrega histórico de conversas do localStorage ao montar
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedSessions = window.localStorage.getItem("avlm_sessions_v1");
+      if (storedSessions) {
+        const parsed: ChatSession[] = JSON.parse(storedSessions);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSessions(parsed);
+          const storedActive =
+            window.localStorage.getItem("avlm_activeSession_v1");
+          if (
+            storedActive &&
+            parsed.some((session) => session.id === storedActive)
+          ) {
+            setActiveSessionId(storedActive);
+          } else {
+            setActiveSessionId(parsed[0].id);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao carregar histórico de sessões", err);
+    }
+  }, []);
+
+  // Salva histórico de conversas e sessão ativa no localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (sessions.length > 0) {
+        window.localStorage.setItem(
+          "avlm_sessions_v1",
+          JSON.stringify(sessions)
+        );
+      }
+      if (activeSessionId) {
+        window.localStorage.setItem("avlm_activeSession_v1", activeSessionId);
+      }
+    } catch (err) {
+      console.error("Erro ao salvar histórico de sessões", err);
+    }
+  }, [sessions, activeSessionId]);
+
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id);
@@ -494,7 +538,7 @@ export default function Page() {
                         }}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-gray-100">
+                          <span className="block truncate text-gray-100">
                             {session.title || "Conversa"}
                           </span>
                           <span
