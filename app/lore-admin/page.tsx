@@ -10,6 +10,19 @@ type WorldFormMode = "idle" | "create" | "edit";
 type FichaFormMode = "idle" | "create" | "edit";
 type CodeFormMode = "idle" | "create" | "edit";
 
+// Sugestões padrão de tipos de ficha (podem ser expandidas pelo próprio usuário)
+const KNOWN_TIPOS = [
+  "personagem",
+  "local",
+  "empresa",
+  "agencia",
+  "midia",
+  "conceito",
+  "epistemologia",
+  "evento",
+  "regra_de_mundo",
+];
+
 export default function LoreAdminPage() {
   // ---- Estado de autenticação / tela ---------------------------------------
   const [view, setView] = useState<ViewState>("loading");
@@ -26,8 +39,8 @@ export default function LoreAdminPage() {
   const [codes, setCodes] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Filtro por tipo de ficha (personagem, local, epistemologia, etc.)
-  const [fichaFilterTipo, setFichaFilterTipo] = useState<string>("all");
+  // Filtro por tipo de ficha (multi-seleção)
+  const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
 
   // ---- Formulário de Mundo --------------------------------------------------
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
@@ -625,14 +638,34 @@ export default function LoreAdminPage() {
   const selectedWorld =
     worlds.find((w) => w.id === selectedWorldId) || null;
 
+  // tipos disponíveis para filtros / sugestões, somando conhecidos + usados
+  const dynamicTipos = Array.from(
+    new Set<string>([
+      ...KNOWN_TIPOS,
+      ...fichas
+        .map((f) => (f.tipo || "").toLowerCase())
+        .filter((t) => !!t),
+    ]),
+  );
+
   const filteredFichas =
-    fichaFilterTipo === "all"
+    fichaFilterTipos.length === 0
       ? fichas
-      : fichas.filter(
-          (f) =>
-            (f.tipo || "").toLowerCase() ===
-            fichaFilterTipo.toLowerCase(),
-        );
+      : fichas.filter((f) => {
+          const t = (f.tipo || "").toLowerCase();
+          if (!t) return false;
+          return fichaFilterTipos.includes(t);
+        });
+
+  // ===========================================================================
+  // Helpers filtro multi-seleção
+  // ===========================================================================
+  function toggleFilterTipo(tipo: string) {
+    const t = tipo.toLowerCase();
+    setFichaFilterTipos((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+    );
+  }
 
   // ===========================================================================
   // Renderização
@@ -810,67 +843,6 @@ export default function LoreAdminPage() {
               </div>
             ))}
           </div>
-
-          {worldFormMode !== "idle" && (
-            <form
-              onSubmit={handleSaveWorld}
-              className="mt-3 border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
-            >
-              <div className="text-[11px] text-neutral-400 mb-1">
-                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Nome</label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={worldForm.nome}
-                  onChange={(e) =>
-                    setWorldForm((prev) => ({
-                      ...prev,
-                      nome: e.target.value,
-                    }))
-                  }
-                  placeholder="Ex: Arquivos Vermelhos"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Descrição
-                </label>
-                <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
-                  value={worldForm.descricao}
-                  onChange={(e) =>
-                    setWorldForm((prev) => ({
-                      ...prev,
-                      descricao: e.target.value,
-                    }))
-                  }
-                  placeholder="Resumo do Mundo…"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={cancelWorldForm}
-                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
-                  disabled={isSavingWorld}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingWorld}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {isSavingWorld ? "Salvando…" : "Salvar"}
-                </button>
-              </div>
-            </form>
-          )}
         </section>
 
         {/* Coluna 2: Fichas */}
@@ -894,32 +866,50 @@ export default function LoreAdminPage() {
             </span>
           </div>
 
-          {/* Filtro por tipo de ficha */}
+          {/* Filtro por tipo de ficha (multi-seleção) */}
           <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
             <span className="text-neutral-500">Filtrar por tipo:</span>
-            {[
-              { value: "all", label: "Todos" },
-              { value: "personagem", label: "Personagens" },
-              { value: "local", label: "Locais" },
-              { value: "agencia", label: "Agências" },
-              { value: "empresa", label: "Empresas" },
-              { value: "midia", label: "Mídia" },
-              { value: "conceito", label: "Conceitos" },
-              { value: "epistemologia", label: "Epistemologia" },
-              { value: "evento", label: "Eventos" },
-              { value: "regra_de_mundo", label: "Regras de mundo" },
-            ].map((opt) => (
+            <button
+              type="button"
+              onClick={() => setFichaFilterTipos([])}
+              className={`px-2 py-0.5 rounded-full border ${
+                fichaFilterTipos.length === 0
+                  ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
+                  : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
+              }`}
+            >
+              Todos
+            </button>
+            {dynamicTipos.map((tipo) => (
               <button
-                key={opt.value}
+                key={tipo}
                 type="button"
-                onClick={() => setFichaFilterTipo(opt.value)}
+                onClick={() => toggleFilterTipo(tipo)}
                 className={`px-2 py-0.5 rounded-full border ${
-                  fichaFilterTipo === opt.value
+                  fichaFilterTipos.includes(tipo)
                     ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
                     : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
                 }`}
               >
-                {opt.label}
+                {tipo === "personagem"
+                  ? "Personagens"
+                  : tipo === "local"
+                  ? "Locais"
+                  : tipo === "agencia"
+                  ? "Agências"
+                  : tipo === "empresa"
+                  ? "Empresas"
+                  : tipo === "midia"
+                  ? "Mídia"
+                  : tipo === "conceito"
+                  ? "Conceitos"
+                  : tipo === "epistemologia"
+                  ? "Epistemologia"
+                  : tipo === "evento"
+                  ? "Eventos"
+                  : tipo === "regra_de_mundo"
+                  ? "Regras de mundo"
+                  : tipo}
               </button>
             ))}
           </div>
@@ -990,194 +980,6 @@ export default function LoreAdminPage() {
               </div>
             ))}
           </div>
-
-          {fichaFormMode !== "idle" && (
-            <form
-              onSubmit={handleSaveFicha}
-              className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
-            >
-              <div className="text-[11px] text-neutral-400 mb-1">
-                {fichaFormMode === "create" ? "Nova Ficha" : "Editar Ficha"}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Título</label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={fichaForm.titulo}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      titulo: e.target.value,
-                    }))
-                  }
-                  placeholder="Ex: Delegada Cíntia"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Slug (opcional)
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.slug}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        slug: e.target.value,
-                      }))
-                    }
-                    placeholder="delegada-cintia, aris-042-corredor"
-                  />
-                </div>
-                <div className="w-40 space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Tipo
-                  </label>
-                  <select
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.tipo}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        tipo: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Selecione…</option>
-                    <option value="personagem">Personagem</option>
-                    <option value="local">Local</option>
-                    <option value="empresa">Empresa</option>
-                    <option value="agencia">Agência</option>
-                    <option value="midia">Mídia</option>
-                    <option value="conceito">Conceito</option>
-                    <option value="epistemologia">Epistemologia</option>
-                    <option value="evento">Evento</option>
-                    <option value="regra_de_mundo">Regra de mundo</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Resumo</label>
-                <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
-                  value={fichaForm.resumo}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      resumo: e.target.value,
-                    }))
-                  }
-                  placeholder="Resumo curto da ficha…"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Conteúdo
-                </label>
-                <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[100px]"
-                  value={fichaForm.conteudo}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      conteudo: e.target.value,
-                    }))
-                  }
-                  placeholder="Texto mais longo da ficha…"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Tags</label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={fichaForm.tags}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      tags: e.target.value,
-                    }))
-                  }
-                  placeholder="separe por vírgulas ou espaço, como preferir"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Aparece em
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={fichaForm.aparece_em}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      aparece_em: e.target.value,
-                    }))
-                  }
-                  placeholder="ex: AV Ep.1; A Sala – Experimento 3…"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Ano da diegese
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.ano_diegese}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        ano_diegese: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: 1993"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Ordem cronológica
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.ordem_cronologica}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        ordem_cronologica: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: 10, 20, 30…"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={cancelFichaForm}
-                  disabled={isSavingFicha}
-                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingFicha}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
-                >
-                  {isSavingFicha ? "Salvando…" : "Salvar"}
-                </button>
-              </div>
-            </form>
-          )}
         </section>
 
         {/* Coluna 3: Códigos */}
@@ -1256,86 +1058,371 @@ export default function LoreAdminPage() {
               </div>
             ))}
           </div>
-
-          {codeFormMode !== "idle" && (
-            <form
-              onSubmit={handleSaveCode}
-              className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/60 space-y-2"
-            >
-              <div className="text-[11px] text-neutral-400 mb-1">
-                {codeFormMode === "create" ? "Novo Código" : "Editar Código"}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">Código</label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={codeForm.code}
-                  onChange={(e) =>
-                    setCodeForm((prev) => ({
-                      ...prev,
-                      code: e.target.value,
-                    }))
-                  }
-                  placeholder="ex: AV1-PS1, SAL1-PS3…"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Rótulo (opcional)
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={codeForm.label}
-                  onChange={(e) =>
-                    setCodeForm((prev) => ({
-                      ...prev,
-                      label: e.target.value,
-                    }))
-                  }
-                  placeholder="Corredor – VHS 1993…"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Descrição (opcional)
-                </label>
-                <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
-                  value={codeForm.description}
-                  onChange={(e) =>
-                    setCodeForm((prev) => ({
-                      ...prev,
-                      description: e.target.value,
-                    }))
-                  }
-                  placeholder="Mais detalhes sobre onde esse código aparece…"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={cancelCodeForm}
-                  disabled={isSavingCode}
-                  className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingCode}
-                  className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
-                >
-                  {isSavingCode ? "Salvando…" : "Salvar"}
-                </button>
-              </div>
-            </form>
-          )}
         </section>
       </main>
+
+      {/* ====================== MODAIS ====================== */}
+
+      {/* Modal de Mundo */}
+      {worldFormMode !== "idle" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveWorld}
+            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Nome</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={worldForm.nome}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    nome: e.target.value,
+                  }))
+                }
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Descrição
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
+                value={worldForm.descricao}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    descricao: e.target.value,
+                  }))
+                }
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+                disabled={isSavingWorld}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingWorld}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {isSavingWorld ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal de Ficha */}
+      {fichaFormMode !== "idle" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveFicha}
+            className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {fichaFormMode === "create" ? "Nova Ficha" : "Editar Ficha"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelFichaForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Título</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.titulo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    titulo: e.target.value,
+                  }))
+                }
+                placeholder="Ex: Delegada Cíntia"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Slug (opcional)
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.slug}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      slug: e.target.value,
+                    }))
+                  }
+                  placeholder="delegada-cintia, aris-042-corredor"
+                />
+              </div>
+              <div className="w-48 space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Tipo (categoria)
+                </label>
+                <input
+                  list="tipo-suggestions"
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.tipo}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      tipo: e.target.value,
+                    }))
+                  }
+                  placeholder="personagem, local, veículo…"
+                />
+                <datalist id="tipo-suggestions">
+                  {dynamicTipos.map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+                <p className="text-[10px] text-neutral-500 mt-0.5">
+                  Você pode escolher uma sugestão ou digitar uma categoria nova
+                  (ex: &quot;veiculo&quot;).
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Resumo</label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
+                value={fichaForm.resumo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    resumo: e.target.value,
+                  }))
+                }
+                placeholder="Resumo curto da ficha…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Conteúdo</label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[120px]"
+                value={fichaForm.conteudo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    conteudo: e.target.value,
+                  }))
+                }
+                placeholder="Texto mais longo da ficha…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Tags</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.tags}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    tags: e.target.value,
+                  }))
+                }
+                placeholder="separe por vírgulas ou espaço, como preferir"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Aparece em
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.aparece_em}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    aparece_em: e.target.value,
+                  }))
+                }
+                placeholder="ex: AV Ep.1; A Sala – Experimento 3…"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ano da diegese
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ano_diegese}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ano_diegese: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 1993"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ordem cronológica
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ordem_cronologica}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ordem_cronologica: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 10, 20, 30…"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelFichaForm}
+                disabled={isSavingFicha}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingFicha}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {isSavingFicha ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal de Código */}
+      {codeFormMode !== "idle" && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveCode}
+            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {codeFormMode === "create" ? "Novo Código" : "Editar Código"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelCodeForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Código</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.code}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    code: e.target.value,
+                  }))
+                }
+                placeholder="ex: AV1-PS1, SAL1-PS3…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Rótulo (opcional)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.label}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    label: e.target.value,
+                  }))
+                }
+                placeholder="Corredor – VHS 1993…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Descrição (opcional)
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
+                value={codeForm.description}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                placeholder="Mais detalhes sobre onde esse código aparece…"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelCodeForm}
+                disabled={isSavingCode}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingCode}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {isSavingCode ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
