@@ -837,29 +837,19 @@ export default function LoreAdminPage() {
   return (
     <div className="min-h-screen bg-black text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-            AntiVerso Lore Machine
-          </div>
-          <div className="text-[11px] text-neutral-600">
-            /lore-admin – Mundos, Fichas e Códigos
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <a
-            href="/"
-            className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-400 transition-colors"
-          >
-            ← Home
-          </a>
-          <button
-            onClick={handleLogout}
-            className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-emerald-300 hover:border-emerald-500 transition-colors"
-          >
-            Sair
-          </button>
-        </div>
+        <a
+          href="/"
+          className="text-[11px] text-neutral-300 hover:text-white"
+        >
+          ← Voltar à Home
+        </a>
 
+        <button
+          onClick={handleLogout}
+          className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-emerald-300 hover:border-emerald-500 transition-colors"
+        >
+          Sair
+        </button>
       </header>
 
       {error && (
