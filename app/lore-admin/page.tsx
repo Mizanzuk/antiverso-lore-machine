@@ -5,12 +5,10 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
-// Form helpers
 type WorldFormMode = "idle" | "create" | "edit";
 type FichaFormMode = "idle" | "create" | "edit";
 type CodeFormMode = "idle" | "create" | "edit";
 
-// Sugestões padrão de tipos de ficha (podem ser expandidas pelo próprio usuário)
 const KNOWN_TIPOS = [
   "personagem",
   "local",
@@ -23,15 +21,50 @@ const KNOWN_TIPOS = [
   "regra_de_mundo",
 ];
 
+function getWorldPrefix(worldName: string | null | undefined): string {
+  if (!worldName) return "XX";
+  const words = worldName.trim().split(/\s+/);
+  if (words.length === 0) return "XX";
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+function getTipoPrefix(tipo: string | null | undefined): string {
+  if (!tipo) return "XX";
+  const key = tipo.toLowerCase();
+  switch (key) {
+    case "personagem":
+      return "PS";
+    case "local":
+      return "LC";
+    case "empresa":
+      return "EM";
+    case "agencia":
+      return "AG";
+    case "midia":
+      return "MD";
+    case "conceito":
+      return "CC";
+    case "epistemologia":
+      return "EP";
+    case "evento":
+      return "EV";
+    case "regra_de_mundo":
+      return "RM";
+    default:
+      return key.slice(0, 2).toUpperCase() || "XX";
+  }
+}
+
 export default function LoreAdminPage() {
-  // ---- Estado de autenticação / tela ---------------------------------------
   const [view, setView] = useState<ViewState>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ---- Estado de dados (Mundos, Fichas, Códigos) ---------------------------
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
@@ -39,11 +72,10 @@ export default function LoreAdminPage() {
   const [codes, setCodes] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Filtro por tipo de ficha (multi-seleção)
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
 
-  // ---- Formulário de Mundo --------------------------------------------------
-  const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
+  const [worldFormMode, setWorldFormMode] =
+    useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
     id: string;
@@ -59,11 +91,11 @@ export default function LoreAdminPage() {
     ordem: "",
   });
 
-  // ---- Formulário de Ficha --------------------------------------------------
-  const [fichaFormMode, setFichaFormMode] = useState<FichaFormMode>("idle");
+  const [fichaFormMode, setFichaFormMode] =
+    useState<FichaFormMode>("idle");
   const [isSavingFicha, setIsSavingFicha] = useState(false);
   const [fichaForm, setFichaForm] = useState<{
-    id: string; // só usamos para edição
+    id: string;
     titulo: string;
     slug: string;
     tipo: string;
@@ -86,28 +118,25 @@ export default function LoreAdminPage() {
     aparece_em: "",
   });
 
-  // ---- Formulário de Código -------------------------------------------------
-  const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
+  const [codeFormMode, setCodeFormMode] =
+    useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
     id: string;
     code: string;
     label: string;
     description: string;
+    episode: string;
   }>({
     id: "",
     code: "",
     label: "",
     description: "",
+    episode: "",
   });
 
-  // ---- Modais de LEITURA (duplo clique) ------------------------------------
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
-
-  // ===========================================================================
-  // Autenticação básica
-  // ===========================================================================
 
   useEffect(() => {
     const checkSession = async () => {
@@ -132,7 +161,6 @@ export default function LoreAdminPage() {
     };
 
     checkSession();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
@@ -166,16 +194,11 @@ export default function LoreAdminPage() {
     setPassword("");
   }
 
-  // ===========================================================================
-  // Carregamento inicial
-  // ===========================================================================
-
   async function fetchAllData() {
     try {
       setIsLoadingData(true);
       setError(null);
 
-      // Carrega Mundos
       const { data, error: worldsError } = await supabaseBrowser
         .from("worlds")
         .select("*")
@@ -191,7 +214,6 @@ export default function LoreAdminPage() {
       const list = data || [];
       setWorlds(list);
 
-      // seleciona um mundo inicial
       if (!selectedWorldId && list.length > 0) {
         const first = list[0];
         setSelectedWorldId(first.id as string);
@@ -209,7 +231,6 @@ export default function LoreAdminPage() {
     }
   }
 
-  // Busca fichas: se o mundo for "AntiVerso", traz TODAS as fichas (root)
   async function fetchFichas(world: any | null) {
     setError(null);
 
@@ -261,10 +282,6 @@ export default function LoreAdminPage() {
 
     setCodes(data || []);
   }
-
-  // ===========================================================================
-  // CRUD – MUNDOS
-  // ===========================================================================
 
   function startCreateWorld() {
     setWorldFormMode("create");
@@ -370,10 +387,6 @@ export default function LoreAdminPage() {
 
     await fetchAllData();
   }
-
-  // ===========================================================================
-  // CRUD – FICHAS
-  // ===========================================================================
 
   function startCreateFicha() {
     if (!selectedWorldId) {
@@ -522,10 +535,6 @@ export default function LoreAdminPage() {
     await fetchFichas(currentWorld);
   }
 
-  // ===========================================================================
-  // CRUD – CÓDIGOS
-  // ===========================================================================
-
   function startCreateCode() {
     if (!selectedFichaId) {
       setError("Selecione uma Ficha antes de criar um Código.");
@@ -537,16 +546,25 @@ export default function LoreAdminPage() {
       code: "",
       label: "",
       description: "",
+      episode: "",
     });
   }
 
   function startEditCode(code: any) {
+    let episode = "";
+    if (typeof code.code === "string") {
+      const m = code.code.match(/^[A-Z]{2}(\d+)-[A-Z]{2}\d+$/);
+      if (m && m[1]) {
+        episode = m[1];
+      }
+    }
     setCodeFormMode("edit");
     setCodeForm({
       id: code.id ?? "",
       code: code.code ?? "",
       label: code.label ?? "",
       description: code.description ?? "",
+      episode,
     });
   }
 
@@ -557,6 +575,7 @@ export default function LoreAdminPage() {
       code: "",
       label: "",
       description: "",
+      episode: "",
     });
   }
 
@@ -568,17 +587,85 @@ export default function LoreAdminPage() {
     }
     if (codeFormMode === "idle") return;
 
-    if (!codeForm.code.trim()) {
-      setError("Código precisa de um valor.");
-      return;
-    }
-
     setIsSavingCode(true);
     setError(null);
 
+    const selectedWorld =
+      worlds.find((w) => w.id === selectedWorldId) || null;
+    const selectedFicha =
+      fichas.find((f) => f.id === selectedFichaId) || null;
+
+    let finalCode = codeForm.code.trim();
+
+    // GERAÇÃO AUTOMÁTICA
+    if (!finalCode) {
+      const episodeRaw = codeForm.episode.trim();
+      if (!selectedWorld || !selectedFicha) {
+        setError(
+          "Não foi possível gerar o código: selecione um Mundo e uma Ficha.",
+        );
+        setIsSavingCode(false);
+        return;
+      }
+      if (!episodeRaw) {
+        setError(
+          'Para gerar o código automaticamente, preencha o campo "Episódio".',
+        );
+        setIsSavingCode(false);
+        return;
+      }
+      if (!selectedFicha.tipo) {
+        setError(
+          'Para gerar o código automaticamente, defina o "Tipo" da Ficha (personagem, local, etc.).',
+        );
+        setIsSavingCode(false);
+        return;
+      }
+
+      const worldPrefix = getWorldPrefix(selectedWorld.nome);
+      const tipoPrefix = getTipoPrefix(selectedFicha.tipo);
+      const episodeNumber = episodeRaw;
+
+      const basePrefix = `${worldPrefix}${episodeNumber}-${tipoPrefix}`;
+
+      const { data: existingCodes, error: existingError } =
+        await supabaseBrowser
+          .from("codes")
+          .select("code")
+          .like("code", `${basePrefix}%`);
+
+      if (existingError) {
+        console.error(existingError);
+        setError("Erro ao gerar código automaticamente.");
+        setIsSavingCode(false);
+        return;
+      }
+
+      let maxIndex = 0;
+      (existingCodes || []).forEach((row) => {
+        const c = row.code as string;
+        if (typeof c === "string" && c.startsWith(basePrefix)) {
+          const suffix = c.slice(basePrefix.length);
+          const n = parseInt(suffix, 10);
+          if (!Number.isNaN(n) && n > maxIndex) {
+            maxIndex = n;
+          }
+        }
+      });
+
+      const nextIndex = maxIndex + 1;
+      finalCode = `${basePrefix}${nextIndex}`;
+    }
+
+    if (!finalCode) {
+      setError("Código precisa de um valor.");
+      setIsSavingCode(false);
+      return;
+    }
+
     const payload: any = {
       ficha_id: selectedFichaId,
-      code: codeForm.code.trim(),
+      code: finalCode,
       label: codeForm.label.trim() || null,
       description: codeForm.description.trim() || null,
       updated_at: new Date().toISOString(),
@@ -634,14 +721,9 @@ export default function LoreAdminPage() {
     }
   }
 
-  // ===========================================================================
-  // Derivados de estado
-  // ===========================================================================
-
   const selectedWorld =
     worlds.find((w) => w.id === selectedWorldId) || null;
 
-  // tipos disponíveis para filtros / sugestões, somando conhecidos + usados
   const dynamicTipos = Array.from(
     new Set<string>([
       ...KNOWN_TIPOS,
@@ -660,19 +742,12 @@ export default function LoreAdminPage() {
           return fichaFilterTipos.includes(t);
         });
 
-  // ===========================================================================
-  // Helpers filtro multi-seleção
-  // ===========================================================================
   function toggleFilterTipo(tipo: string) {
     const t = tipo.toLowerCase();
     setFichaFilterTipos((prev) =>
       prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
     );
   }
-
-  // ===========================================================================
-  // Renderização
-  // ===========================================================================
 
   if (view === "loading") {
     return (
@@ -773,7 +848,7 @@ export default function LoreAdminPage() {
       )}
 
       <main className="flex flex-1 overflow-hidden">
-        {/* Coluna 1: Mundos */}
+        {/* Mundos */}
         <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
@@ -849,7 +924,7 @@ export default function LoreAdminPage() {
           </div>
         </section>
 
-        {/* Coluna 2: Fichas */}
+        {/* Fichas */}
         <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
@@ -870,7 +945,6 @@ export default function LoreAdminPage() {
             </span>
           </div>
 
-          {/* Filtro por tipo de ficha (multi-seleção) */}
           <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
             <span className="text-neutral-500">Filtrar por tipo:</span>
             <button
@@ -987,7 +1061,7 @@ export default function LoreAdminPage() {
           </div>
         </section>
 
-        {/* Coluna 3: Códigos */}
+        {/* Códigos */}
         <section className="flex-1 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
@@ -1066,9 +1140,7 @@ export default function LoreAdminPage() {
         </section>
       </main>
 
-      {/* ====================== MODAIS DE LEITURA (duplo clique) ====================== */}
-
-      {/* Modal de leitura de Mundo */}
+      {/* Modais de leitura – Mundo */}
       {worldViewModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
@@ -1126,7 +1198,7 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* Modal de leitura de Ficha */}
+      {/* Modais de leitura – Ficha */}
       {fichaViewModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
           <div className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
@@ -1179,7 +1251,9 @@ export default function LoreAdminPage() {
 
             {fichaViewModal.conteudo && (
               <div className="space-y-1">
-                <div className="text-[11px] text-neutral-500">Conteúdo</div>
+                <div className="text-[11px] text-neutral-500">
+                  Conteúdo
+                </div>
                 <div className="text-[12px] text-neutral-200 whitespace-pre-line">
                   {fichaViewModal.conteudo}
                 </div>
@@ -1255,9 +1329,7 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* ====================== MODAIS DE EDIÇÃO ====================== */}
-
-      {/* Modal de Mundo (edição/criação) */}
+      {/* Modais de edição – Mundo */}
       {worldFormMode !== "idle" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
@@ -1330,7 +1402,7 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* Modal de Ficha (edição/criação) */}
+      {/* Modais de edição – Ficha */}
       {fichaFormMode !== "idle" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
@@ -1426,7 +1498,9 @@ export default function LoreAdminPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-neutral-500">Conteúdo</label>
+              <label className="text-[11px] text-neutral-500">
+                Conteúdo
+              </label>
               <textarea
                 className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[120px]"
                 value={fichaForm.conteudo}
@@ -1528,7 +1602,7 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* Modal de Código (edição/criação) */}
+      {/* Modais de edição – Código */}
       {codeFormMode !== "idle" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
@@ -1559,8 +1633,33 @@ export default function LoreAdminPage() {
                     code: e.target.value,
                   }))
                 }
-                placeholder="ex: AV1-PS1, SAL1-PS3…"
+                placeholder="Deixe em branco para gerar automaticamente…"
               />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Se você deixar vazio e preencher o Episódio, a Lore Machine gera
+                algo como AV7-PS3 automaticamente.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Episódio (para geração automática)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.episode}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    episode: e.target.value,
+                  }))
+                }
+                placeholder="ex: 7"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Usado para gerar o código no formato AV7-PS3. Você também pode
+                ignorar e escrever o código manualmente.
+              </p>
             </div>
 
             <div className="space-y-1">
