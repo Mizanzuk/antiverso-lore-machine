@@ -1,12 +1,5 @@
 "use client";
 
-<header className="h-10 border-b border-white/10 flex items-center px-4 bg-black/40">
-  <a href="/" className="text-xs text-gray-300 hover:text-white">
-    ← Voltar à Home
-  </a>
-</header>
-
-
 import React, { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
@@ -80,8 +73,8 @@ export default function LoreAdminPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
-  const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
+  const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
   const [worldFormMode, setWorldFormMode] =
     useState<WorldFormMode>("idle");
@@ -743,33 +736,23 @@ export default function LoreAdminPage() {
   );
 
   const filteredFichas = fichas.filter((f) => {
-    const t = (f.tipo || "").toLowerCase();
-
+    // filtro por tipo
     if (fichaFilterTipos.length > 0) {
+      const t = (f.tipo || "").toLowerCase();
       if (!t || !fichaFilterTipos.includes(t)) {
         return false;
       }
     }
 
+    // filtro por busca
     if (fichasSearchTerm.trim().length > 0) {
       const q = fichasSearchTerm.toLowerCase();
-      const titulo = (f.titulo || "").toLowerCase();
-      const resumo = (f.resumo || "").toLowerCase();
-      const tipo = t;
-      const tagsArray =
-        Array.isArray(f.tags)
-          ? (f.tags as string[])
-          : typeof f.tags === "string"
-          ? f.tags.split(",")
-          : [];
-      const tagsText = tagsArray.join(" ").toLowerCase();
-
-      if (
-        !titulo.includes(q) &&
-        !resumo.includes(q) &&
-        !tipo.includes(q) &&
-        !tagsText.includes(q)
-      ) {
+      const inTitulo = (f.titulo || "").toLowerCase().includes(q);
+      const inResumo = (f.resumo || "").toLowerCase().includes(q);
+      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || ""))
+        .toLowerCase()
+        .includes(q);
+      if (!inTitulo && !inResumo && !inTags) {
         return false;
       }
     }
@@ -862,12 +845,21 @@ export default function LoreAdminPage() {
             /lore-admin – Mundos, Fichas e Códigos
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-[11px] px-3 py-1 rounded-full border border-neutral-800 text-neutral-400 hover:text-emerald-300 hover:border-emerald-500 transition-colors"
-        >
-          Sair
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/"
+            className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-400 transition-colors"
+          >
+            ← Home
+          </a>
+          <button
+            onClick={handleLogout}
+            className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-emerald-300 hover:border-emerald-500 transition-colors"
+          >
+            Sair
+          </button>
+        </div>
+
       </header>
 
       {error && (
@@ -980,6 +972,15 @@ export default function LoreAdminPage() {
             </span>
           </div>
 
+          <div className="mb-2">
+            <input
+              className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-[11px]"
+              placeholder="Buscar fichas por título, resumo ou tags…"
+              value={fichasSearchTerm}
+              onChange={(e) => setFichasSearchTerm(e.target.value)}
+            />
+          </div>
+
           <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
             <span className="text-neutral-500">Filtrar por tipo:</span>
             <button
@@ -999,7 +1000,7 @@ export default function LoreAdminPage() {
                 type="button"
                 onClick={() => toggleFilterTipo(tipo)}
                 className={`px-2 py-0.5 rounded-full border ${
-                  fichaFilterTipos.includes(tipo.toLowerCase())
+                  fichaFilterTipos.includes(tipo)
                     ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
                     : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
                 }`}
@@ -1027,16 +1028,19 @@ export default function LoreAdminPage() {
             ))}
           </div>
 
-          <div className="mb-2">
-            <input
-              className="w-full bg-black/40 border border-neutral-700 rounded-md px-2 py-1 text-[11px] text-neutral-100"
-              placeholder="Buscar por título, resumo, tipo ou tags..."
-              value={fichasSearchTerm}
-              onChange={(e) => setFichasSearchTerm(e.target.value)}
-            />
-          </div>
-
           <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
+            {selectedWorldId == null && (
+              <div className="text-[11px] text-neutral-600">
+                Selecione um Mundo na coluna da esquerda.
+              </div>
+            )}
+
+            {selectedWorldId != null && filteredFichas.length === 0 && (
+              <div className="text-[11px] text-neutral-600">
+                Nenhuma Ficha cadastrada para este filtro.
+              </div>
+            )}
+
             {filteredFichas.map((ficha) => (
               <div
                 key={ficha.id}
