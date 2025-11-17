@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, ChangeEvent } from "react";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type FichaSugerida = {
   id?: string;
@@ -15,8 +16,18 @@ type FichaSugerida = {
   world_id?: string;
 };
 
+type World = {
+  id: string;
+  nome: string;
+  descricao?: string | null;
+  tipo?: string | null;
+  ordem?: number | null;
+};
+
+
 export default function LoreUploadPage() {
   const [worldId, setWorldId] = useState("");
+  const [worlds, setWorlds] = useState<World[]>([]);
   const [unitNumber, setUnitNumber] = useState("");
   const [documentName, setDocumentName] = useState("");
 
@@ -27,6 +38,72 @@ export default function LoreUploadPage() {
 
   const [modalFicha, setModalFicha] = useState<FichaSugerida | null>(null);
 
+
+  useEffect(() => {
+    const loadWorlds = async () => {
+      const { data, error } = await supabaseBrowser
+        .from("worlds")
+        .select("*")
+        .order("ordem", { ascending: true });
+
+      if (error) {
+        console.error("Erro ao carregar mundos:", error);
+        return;
+      }
+
+      if (data) {
+        setWorlds(data as World[]);
+      }
+    };
+
+    loadWorlds();
+  }, []);
+
+  const handleWorldChange = async (e: ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+
+    if (value === "create_new") {
+      const nome = window.prompt("Nome do novo mundo:");
+      if (!nome) {
+        return;
+      }
+
+      const baseId = nome
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const newId = baseId || `mundo_${Date.now()}`;
+
+      const { data, error } = await supabaseBrowser
+        .from("worlds")
+        .insert([
+          {
+            id: newId,
+            nome,
+            descricao: "",
+            tipo: "mundo_ficcional",
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Erro ao criar mundo:", error);
+        alert("Erro ao criar mundo. Veja o console.");
+        return;
+      }
+
+      const criado = data as World;
+      setWorlds((prev) => [...prev, criado]);
+      setWorldId(criado.id);
+    } else {
+      setWorldId(value);
+    }
+  };
+  
   async function handleExtract() {
     if (!textInput.trim() || !worldId || !unitNumber) return;
     setLoading(true);
@@ -125,12 +202,19 @@ export default function LoreUploadPage() {
 
         {/* Seleção de mundo + episódio */}
         <div className="flex gap-2">
-          <input
+          <select
             className="flex-1 rounded-md bg-black/40 border border-white/15 px-3 py-2 text-sm"
-            placeholder="ID do Mundo (ex: AV1)"
             value={worldId}
-            onChange={(e) => setWorldId(e.target.value)}
-          />
+            onChange={handleWorldChange}
+          >
+            <option value="">Selecione um Mundo...</option>
+            {worlds.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.nome}
+              </option>
+            ))}
+            <option value="create_new">+ Criar novo mundo…</option>
+          </select>
           <input
             className="w-32 rounded-md bg-black/40 border border-white/15 px-3 py-2 text-sm"
             placeholder="Ep/Cap #"
