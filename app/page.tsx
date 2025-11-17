@@ -62,6 +62,10 @@ function createIntroMessage(): ChatMessage {
   };
 }
 
+function normalize(str: string | null | undefined) {
+  return (str ?? "").toLowerCase();
+}
+
 export default function Page() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     const id =
@@ -76,6 +80,7 @@ export default function Page() {
       },
     ];
   });
+
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -87,6 +92,7 @@ export default function Page() {
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
+
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
 
   const [loadingCatalog, setLoadingCatalog] = useState(false);
@@ -117,7 +123,6 @@ export default function Page() {
     );
     return inTitle || inMessages;
   });
-
 
   useEffect(() => {
     if (viewMode === "chat") {
@@ -150,7 +155,6 @@ export default function Page() {
     loadCatalog();
   }, []);
 
-  // Se o usuário aplicar filtro de mundo/tipo/busca, automaticamente focamos no catálogo
   useEffect(() => {
     if (
       selectedWorldId !== "all" ||
@@ -275,7 +279,9 @@ export default function Page() {
 
   function newChat() {
     const id =
-      typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
+      typeof crypto !== "undefined"
+        ? crypto.randomUUID()
+        : `session-${Date.now()}`;
     const newSession: ChatSession = {
       id,
       title: "Nova conversa",
@@ -348,10 +354,6 @@ export default function Page() {
     { id: "objeto", label: "Objetos" },
   ];
 
-  function normalize(str: string | null | undefined) {
-    return (str ?? "").toLowerCase();
-  }
-
   const filteredEntitiesAll = entities.filter((e) => {
     if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) {
       return false;
@@ -402,7 +404,7 @@ export default function Page() {
     setViewMode("chat");
   }
 
-  function CatalogPagination() {
+  const CatalogPagination = () => {
     if (totalPages <= 1) return null;
     const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
     return (
@@ -423,7 +425,7 @@ export default function Page() {
         ))}
       </div>
     );
-  }
+  };
 
   return (
     <div className="h-screen w-screen flex bg-[#050509] text-gray-100">
@@ -553,6 +555,7 @@ export default function Page() {
               </a>
             </div>
           </div>
+        </div>
 
         <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500">
           <p>Logado como Ivan.</p>
@@ -629,7 +632,10 @@ export default function Page() {
         </header>
 
         {/* Conteúdo principal */}
-        <section className="flex-1 overflow-y-auto px-4 py-4" ref={viewportRef}>
+        <section
+          className="flex-1 overflow-y-auto px-4 py-4"
+          ref={viewportRef}
+        >
           <div className="max-w-4xl mx-auto">
             {viewMode === "chat" && (
               <div className="space-y-4 max-w-2xl mx-auto">
@@ -704,14 +710,24 @@ export default function Page() {
 
                 <CatalogPagination />
 
-                {pageEntities.length === 0 && (
+                {catalogError && (
+                  <p className="text-xs text-red-400 mt-2">{catalogError}</p>
+                )}
+
+                {loadingCatalog && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Carregando catálogo...
+                  </p>
+                )}
+
+                {!loadingCatalog && pageEntities.length === 0 && (
                   <p className="text-sm text-gray-500 mt-4">
                     Nenhuma entrada para esses filtros. Tente limpar a busca ou
                     escolher outro mundo/tipo.
                   </p>
                 )}
 
-                {pageEntities.length > 0 && (
+                {!loadingCatalog && pageEntities.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {pageEntities.map((entity) => (
                       <button
