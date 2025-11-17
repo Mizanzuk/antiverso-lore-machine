@@ -29,7 +29,7 @@ type WorldRow = {
   id: string;
   nome: string | null;
   descricao: string | null;
-  tipo: string | null;   // ex: "AV", "TR", "SL", "EO", "CO"
+  tipo: string | null; // ex: "AV", "TR", "SL", "EO", "CO"
   ordem: number | null;
 };
 
@@ -83,8 +83,8 @@ function getWorldPrefix(world: WorldRow): string {
   return initials.toUpperCase();
 }
 
-// Opcionalmente ainda usamos ordem em alguns cenários futuros, mas
-// pra códigos, o "episódio" é SEMPRE o unitNumber enviado pela UI.
+// Ainda usamos ordem em alguns cenários futuros;
+// para códigos, o "episódio" é o unitNumber enviado pela UI.
 function getWorldIndex(world: WorldRow): number {
   if (typeof world.ordem === "number" && !Number.isNaN(world.ordem)) {
     return world.ordem;
@@ -115,6 +115,12 @@ async function ensureCodeForFicha({
   tipo: string;
   unitNumber: number | null;
 }) {
+  // ✅ Guard extra para o TypeScript: se supabaseAdmin for null, aborta
+  if (!supabaseAdmin) {
+    console.error("Supabase não configurado ao tentar gerar código para ficha.");
+    return;
+  }
+
   // Se não tiver mundo carregado ou não tiver episódio, não gera código
   if (!world) {
     return;
@@ -132,19 +138,21 @@ async function ensureCodeForFicha({
 
   // 1) Monta prefixos
   const worldPrefix = getWorldPrefix(world); // ex: "AV"
-  const typePrefix = getTypePrefix(tipo);     // ex: "PS"
+  const typePrefix = getTypePrefix(tipo); // ex: "PS"
 
   const worldSegment = `${worldPrefix}${episodeNumber}`; // "AV7"
-  const prefix = `${worldSegment}-${typePrefix}`;        // "AV7-PS"
+  const prefix = `${worldSegment}-${typePrefix}`; // "AV7-PS"
 
   // 2) Verifica se ESSA ficha já tem um código para esse mundo+episódio+tipo
-  const { data: existingForFicha, error: existingForFichaError } =
-    await supabaseAdmin
-      .from("codes")
-      .select("id, code")
-      .eq("ficha_id", fichaId)
-      .ilike("code", `${prefix}%`)
-      .limit(1);
+  const {
+    data: existingForFicha,
+    error: existingForFichaError,
+  } = await supabaseAdmin
+    .from("codes")
+    .select("id, code")
+    .eq("ficha_id", fichaId)
+    .ilike("code", `${prefix}%`)
+    .limit(1);
 
   if (existingForFichaError) {
     console.error(
