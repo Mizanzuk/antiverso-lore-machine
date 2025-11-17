@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 
-// Tipos permitidos, podem futuramente vir do banco (tabela "categories")
+// Tipos permitidos (no futuro podem vir do banco)
 const allowedTypes = [
   "personagem",
   "local",
@@ -112,7 +112,7 @@ Texto a analisar (em português):
 
     const fichas = Array.isArray(parsed?.fichas) ? parsed.fichas : [];
 
-    // Só devolve os campos válidos
+    // Normaliza os campos
     const cleanFichas = fichas.map((f: any, index: number) => ({
       id_temp: `ficha_${index + 1}`,
       tipo: typeof f.tipo === "string" ? f.tipo : "conceito",
@@ -124,10 +124,32 @@ Texto a analisar (em português):
       aparece_em: String(f.aparece_em ?? "").trim(),
     }));
 
+    // Compatibilidade com a UI atual: agrupa por tipo
+    const personagens = cleanFichas.filter(
+      (f) => f.tipo.toLowerCase() === "personagem"
+    );
+    const locais = cleanFichas.filter(
+      (f) => f.tipo.toLowerCase() === "local"
+    );
+    const empresas = cleanFichas.filter(
+      (f) => f.tipo.toLowerCase() === "empresa"
+    );
+    const agencias = cleanFichas.filter(
+      (f) => f.tipo.toLowerCase() === "agencia"
+    );
+    const midias = cleanFichas.filter(
+      (f) => f.tipo.toLowerCase() === "midia"
+    );
+
     return NextResponse.json({
       worldId,
       documentName,
-      fichas: cleanFichas,
+      fichas: cleanFichas, // modelo novo, mais geral
+      personagens,
+      locais,
+      empresas,
+      agencias,
+      midias,              // campos antigos, para a UI atual não quebrar
     });
   } catch (err) {
     console.error("Erro inesperado em /api/lore/extract:", err);
