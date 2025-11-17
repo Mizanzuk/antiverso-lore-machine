@@ -11,10 +11,21 @@ const allowedTypes = [
   "conceito",
   "regra_de_mundo",
   "evento",
-  "epistemologia"
+  "epistemologia",
 ];
 
 export const dynamic = "force-dynamic";
+
+type ExtractedFicha = {
+  id_temp: string;
+  tipo: string;
+  titulo: string;
+  resumo: string;
+  conteudo: string;
+  tags: string[];
+  ano_diegese: number | null;
+  aparece_em: string;
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,9 +51,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const typeInstructions = allowedTypes
-      .map((t) => `"${t}"`)
-      .join(", ");
+    const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
 
     const systemInstructions = `
 Você é Or, guardião do AntiVerso.
@@ -113,32 +122,35 @@ Texto a analisar (em português):
     const fichas = Array.isArray(parsed?.fichas) ? parsed.fichas : [];
 
     // Normaliza os campos
-    const cleanFichas = fichas.map((f: any, index: number) => ({
-      id_temp: `ficha_${index + 1}`,
-      tipo: typeof f.tipo === "string" ? f.tipo : "conceito",
-      titulo: String(f.titulo ?? "").trim(),
-      resumo: String(f.resumo ?? "").trim(),
-      conteudo: String(f.conteudo ?? "").trim(),
-      tags: Array.isArray(f.tags) ? f.tags.map((t: any) => String(t)) : [],
-      ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
-      aparece_em: String(f.aparece_em ?? "").trim(),
-    }));
+    const cleanFichas: ExtractedFicha[] = fichas.map(
+      (f: any, index: number): ExtractedFicha => ({
+        id_temp: `ficha_${index + 1}`,
+        tipo: typeof f.tipo === "string" ? f.tipo : "conceito",
+        titulo: String(f.titulo ?? "").trim(),
+        resumo: String(f.resumo ?? "").trim(),
+        conteudo: String(f.conteudo ?? "").trim(),
+        tags: Array.isArray(f.tags) ? f.tags.map((t: any) => String(t)) : [],
+        ano_diegese:
+          typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+        aparece_em: String(f.aparece_em ?? "").trim(),
+      }),
+    );
 
     // Compatibilidade com a UI atual: agrupa por tipo
     const personagens = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "personagem"
+      (f: ExtractedFicha) => f.tipo.toLowerCase() === "personagem",
     );
     const locais = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "local"
+      (f: ExtractedFicha) => f.tipo.toLowerCase() === "local",
     );
     const empresas = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "empresa"
+      (f: ExtractedFicha) => f.tipo.toLowerCase() === "empresa",
     );
     const agencias = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "agencia"
+      (f: ExtractedFicha) => f.tipo.toLowerCase() === "agencia",
     );
     const midias = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "midia"
+      (f: ExtractedFicha) => f.tipo.toLowerCase() === "midia",
     );
 
     return NextResponse.json({
@@ -149,7 +161,7 @@ Texto a analisar (em português):
       locais,
       empresas,
       agencias,
-      midias,              // campos antigos, para a UI atual não quebrar
+      midias, // campos antigos, para a UI atual não quebrar
     });
   } catch (err) {
     console.error("Erro inesperado em /api/lore/extract:", err);
