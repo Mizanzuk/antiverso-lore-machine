@@ -73,6 +73,8 @@ export default function LoreAdminPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
+  const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
+
 
   const [worldFormMode, setWorldFormMode] =
     useState<WorldFormMode>("idle");
@@ -733,14 +735,40 @@ export default function LoreAdminPage() {
     ]),
   );
 
-  const filteredFichas =
-    fichaFilterTipos.length === 0
-      ? fichas
-      : fichas.filter((f) => {
-          const t = (f.tipo || "").toLowerCase();
-          if (!t) return false;
-          return fichaFilterTipos.includes(t);
-        });
+  const filteredFichas = fichas.filter((f) => {
+    const t = (f.tipo || "").toLowerCase();
+
+    if (fichaFilterTipos.length > 0) {
+      if (!t || !fichaFilterTipos.includes(t)) {
+        return false;
+      }
+    }
+
+    if (fichasSearchTerm.trim().length > 0) {
+      const q = fichasSearchTerm.toLowerCase();
+      const titulo = (f.titulo || "").toLowerCase();
+      const resumo = (f.resumo || "").toLowerCase();
+      const tipo = t;
+      const tagsArray =
+        Array.isArray(f.tags)
+          ? (f.tags as string[])
+          : typeof f.tags === "string"
+          ? f.tags.split(",")
+          : [];
+      const tagsText = tagsArray.join(" ").toLowerCase();
+
+      if (
+        !titulo.includes(q) &&
+        !resumo.includes(q) &&
+        !tipo.includes(q) &&
+        !tagsText.includes(q)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 
   function toggleFilterTipo(tipo: string) {
     const t = tipo.toLowerCase();
@@ -964,7 +992,7 @@ export default function LoreAdminPage() {
                 type="button"
                 onClick={() => toggleFilterTipo(tipo)}
                 className={`px-2 py-0.5 rounded-full border ${
-                  fichaFilterTipos.includes(tipo)
+                  fichaFilterTipos.includes(tipo.toLowerCase())
                     ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
                     : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
                 }`}
@@ -992,20 +1020,17 @@ export default function LoreAdminPage() {
             ))}
           </div>
 
+          <div className="mb-2">
+            <input
+              className="w-full bg-black/40 border border-neutral-700 rounded-md px-2 py-1 text-[11px] text-neutral-100"
+              placeholder="Buscar por título, resumo, tipo ou tags..."
+              value={fichasSearchTerm}
+              onChange={(e) => setFichasSearchTerm(e.target.value)}
+            />
+          </div>
+
           <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
-            {selectedWorldId == null && (
-              <div className="text-[11px] text-neutral-600">
-                Selecione um Mundo na coluna da esquerda.
-              </div>
-            )}
 
-            {selectedWorldId != null && filteredFichas.length === 0 && (
-              <div className="text-[11px] text-neutral-600">
-                Nenhuma Ficha cadastrada para este filtro.
-              </div>
-            )}
-
-            {filteredFichas.map((ficha) => (
               <div
                 key={ficha.id}
                 className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${

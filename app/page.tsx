@@ -87,6 +87,7 @@ export default function Page() {
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
 
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -106,6 +107,17 @@ export default function Page() {
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
   const mode: ChatMode = activeSession?.mode ?? "consulta";
+
+  const filteredSessions = sessions.filter((s) => {
+    if (!historySearchTerm.trim()) return true;
+    const q = normalize(historySearchTerm);
+    const inTitle = normalize(s.title).includes(q);
+    const inMessages = s.messages.some((m) =>
+      normalize(m.content).includes(q)
+    );
+    return inTitle || inMessages;
+  });
+
 
   useEffect(() => {
     if (viewMode === "chat") {
@@ -448,151 +460,99 @@ export default function Page() {
                 Nenhuma conversa ainda.
               </p>
             )}
-            <div className="space-y-1">
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={clsx(
-                    "group flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
-                    activeSession?.id === session.id
-                      ? "bg-white/10 border-white/20"
-                      : "bg-white/5"
-                  )}
-                >
-                  <button
-                    className="flex-1 text-left"
-                    onClick={() => {
-                      setActiveSessionId(session.id);
-                      setViewMode("chat");
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-gray-100">
-                        {session.title || "Conversa"}
-                      </span>
-                      <span
-                        className={clsx(
-                          "shrink-0 rounded-full px-2 py-[1px] text-[10px] border",
-                          session.mode === "consulta"
-                            ? "border-emerald-500/50 text-emerald-300/90"
-                            : "border-purple-500/60 text-purple-300/90"
-                        )}
-                      >
-                        {session.mode === "consulta" ? "Consulta" : "Criativo"}
-                      </span>
-                    </div>
-                  </button>
-                  <button
-                    className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
-                    onClick={() => deleteSession(session.id)}
-                    aria-label="Excluir conversa"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Catálogo de mundos e entidades */}
-          <div className="border-t border-white/10 pt-3">
-            <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">
-              Mundos
-            </p>
-            {loadingCatalog && (
-              <p className="text-[11px] text-gray-500">Carregando...</p>
-            )}
-            {catalogError && (
-              <p className="text-[11px] text-red-400">{catalogError}</p>
-            )}
-            {!loadingCatalog && !catalogError && worlds.length === 0 && (
-              <p className="text-[11px] text-gray-500">
-                Nenhum mundo cadastrado ainda.
-              </p>
-            )}
-            {worlds.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-3">
-                <button
-                  onClick={() => setSelectedWorldId("all")}
-                  className={clsx(
-                    "px-2 py-[3px] rounded-full text-[10px] border",
-                    selectedWorldId === "all"
-                      ? "bg-white/20 border-white/40 text-white"
-                      : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"
-                  )}
-                >
-                  Todos
-                </button>
-                {worlds.map((w) => (
-                  <button
-                    key={w.id}
-                    onClick={() =>
-                      setSelectedWorldId((prev) =>
-                        prev === w.id ? "all" : w.id
-                      )
-                    }
-                    className={clsx(
-                      "px-2 py-[3px] rounded-full text-[10px] border",
-                      selectedWorldId === w.id
-                        ? "bg-white/20 border-white/40 text-white"
-                        : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"
-                    )}
-                  >
-                    {w.nome}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-1">
-              <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">
-                Catálogo rápido
-              </p>
-              <select
-                className="w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200"
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-              >
-                {catalogTypes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                className="mt-2 w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200"
-                placeholder="Buscar por título, código, tag..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-
-              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto pr-1">
-                {filteredEntitiesAll.length === 0 && (
-                  <p className="text-[11px] text-gray-500">
-                    Nenhum item encontrado para estes filtros.
+            {sessions.length > 0 && (
+              <>
+                <input
+                  className="mb-2 w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200"
+                  placeholder="Buscar no histórico..."
+                  value={historySearchTerm}
+                  onChange={(e) => setHistorySearchTerm(e.target.value)}
+                />
+                {filteredSessions.length === 0 && (
+                  <p className="text-gray-500 text-[11px]">
+                    Nenhuma conversa encontrada para essa busca.
                   </p>
                 )}
-                {filteredEntitiesAll.slice(0, 30).map((entity) => (
-                  <button
-                    key={entity.id}
-                    onClick={() => handleCatalogClick(entity)}
-                    className="w-full text-left rounded-md px-2 py-1 text-[11px] bg-white/5 hover:bg-white/10 text-gray-100"
-                  >
-                    <div className="font-medium truncate">
-                      {entity.titulo}
+                <div className="space-y-1">
+                  {filteredSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={clsx(
+                        "group flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                        activeSession?.id === session.id
+                          ? "bg-white/10 border-white/20"
+                          : "bg-white/5"
+                      )}
+                    >
+                      <button
+                        className="flex-1 text-left"
+                        onClick={() => {
+                          setActiveSessionId(session.id);
+                          setViewMode("chat");
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-gray-100">
+                            {session.title || "Conversa"}
+                          </span>
+                          <span
+                            className={clsx(
+                              "shrink-0 rounded-full px-2 py-[1px] text-[10px] border",
+                              session.mode === "consulta"
+                                ? "border-emerald-500/50 text-emerald-300/90"
+                                : "border-purple-500/60 text-purple-300/90"
+                            )}
+                          >
+                            {session.mode === "consulta"
+                              ? "Consulta"
+                              : "Criativo"}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
+                        onClick={() => deleteSession(session.id)}
+                        aria-label="Excluir conversa"
+                      >
+                        ×
+                      </button>
                     </div>
-                    {entity.resumo && (
-                      <div className="text-[10px] text-gray-400 line-clamp-2">
-                        {entity.resumo}
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Ferramentas de catálogo e upload */}
+          <div className="border-t border-white/10 pt-3 mt-3">
+            <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-2">
+              Ferramentas
+            </p>
+            <div className="space-y-2">
+              <a
+                href="/lore-upload"
+                className="block w-full text-left text-[11px] rounded-md border border-white/20 bg-white/5 hover:bg-white/10 px-2 py-2"
+              >
+                <div className="font-semibold text-gray-100">
+                  Upload de arquivo
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  Envie um texto para extrair fichas automaticamente.
+                </div>
+              </a>
+              <a
+                href="/lore-admin"
+                className="block w-full text-left text-[11px] rounded-md border border-white/20 bg-white/5 hover:bg-white/10 px-2 py-2"
+              >
+                <div className="font-semibold text-gray-100">
+                  Catálogo completo
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  Gerencie mundos, fichas e códigos do AntiVerso.
+                </div>
+              </a>
             </div>
           </div>
-        </div>
 
         <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500">
           <p>Logado como Ivan.</p>
