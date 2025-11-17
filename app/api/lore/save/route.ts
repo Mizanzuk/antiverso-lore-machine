@@ -25,19 +25,152 @@ type DBFicha = {
   aparece_em: string | null;
 };
 
+type WorldRow = {
+  id: string;
+  nome: string | null;
+  descricao: string | null;
+  tipo: string | null;
+  ordem: number | null;
+};
+
+const TYPE_PREFIX_MAP: Record<string, string> = {
+  personagem: "PS",
+  local: "LO",
+  midia: "MD",
+  agencia: "AG",
+  empresa: "EM",
+  conceito: "CO",
+  regra_de_mundo: "RG",
+  evento: "EV",
+  epistemologia: "EP",
+};
+
+function getTypePrefix(tipo: string): string {
+  const key = (tipo || "").toLowerCase();
+  if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
+
+  const cleaned = key.replace(/[^a-z]/g, "");
+  if (!cleaned) return "XX";
+
+  if (cleaned.length === 1) {
+    const upper = cleaned.toUpperCase();
+    return upper.padEnd(2, upper);
+  }
+
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
+function getWorldPrefix(world: WorldRow): string {
+  const rawTipo = (world.tipo || "").trim();
+  if (rawTipo && /^[A-Za-z]{2,5}$/.test(rawTipo)) {
+    // Se você já preencher "AV", "OR" etc em world.tipo, ele usa isso
+    return rawTipo.toUpperCase();
+  }
+
+  const nome = (world.nome || "").trim();
+  if (!nome) return "AV";
+
+  const words = nome.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "AV";
+
+  const initials = words
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("");
+
+  return initials.toUpperCase();
+}
+
+function getWorldIndex(world: WorldRow): number {
+  if (typeof world.ordem === "number" && !Number.isNaN(world.ordem)) {
+    return world.ordem;
+  }
+  return 1;
+}
+
+async function ensureCodeForFicha({
+  fichaId,
+  world,
+  tipo,
+}: {
+  fichaId: string;
+  world: WorldRow;
+  tipo: string;
+}) {
+  // 1) Verifica se a ficha já possui algum código
+  const { data: existingCodes, error: existingCodesError } = await supabaseAdmin
+    .from("codes")
+    .select("id, code")
+    .eq("ficha_id", fichaId);
+
+  if (existingCodesError) {
+    console.error("Erro ao verificar códigos existentes da ficha:", existingCodesError);
+    return;
+  }
+
+  if (existingCodes && existingCodes.length > 0) {
+    // Já existe pelo menos um código vinculado → não gera automaticamente
+    return;
+  }
+
+  // 2) Monta prefixos
+  const worldPrefix = getWorldPrefix(world); // ex: "AV"
+  const worldIndex = getWorldIndex(world);   // ex: 1
+  const typePrefix = getTypePrefix(tipo);    // ex: "PS"
+
+  const worldSegment = `${worldPrefix}${worldIndex}`; // "AV1"
+  const prefix = `${worldSegment}-${typePrefix}`;     // "AV1-PS"
+
+  // 3) Busca o último código existente começando por esse prefixo
+  const { data: latestCodeRows, error: latestCodeError } = await supabaseAdmin
+    .from("codes")
+    .select("code")
+    .ilike("code", `${prefix}%`)
+    .order("code", { ascending: false })
+    .limit(1);
+
+  if (latestCodeError) {
+    console.error("Erro ao buscar último código existente:", latestCodeError);
+  }
+
+  let nextNumber = 1;
+
+  if (latestCodeRows && latestCodeRows.length > 0) {
+    const lastCode = latestCodeRows[0].code as string;
+    const numericPart = lastCode.replace(prefix, "");
+    const parsed = Number.parseInt(numericPart, 10);
+    if (!Number.isNaN(parsed) && parsed >= 1) {
+      nextNumber = parsed + 1;
+    }
+  }
+
+  const finalCode = `${prefix}${nextNumber}`; // ex: "AV1-PS3"
+
+  // 4) Cria o registro em "codes"
+  const { error: insertCodeError } = await supabaseAdmin.from("codes").insert({
+    ficha_id: fichaId,
+    code: finalCode,
+    label: null,
+    description: null,
+  });
+
+  if (insertCodeError) {
+    console.error("Erro ao criar código automático para ficha:", insertCodeError);
+  }
+}
+
 function slugify(str: string): string {
   return str
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
+    .replace(/(^-|-$)+/g, "");
 }
 
-// Faz merge de tags antigas (string) com tags novas (array) sem repetir
-function mergeTags(oldTags: string | null, newTags: string[]): string {
-  const oldArr = (oldTags || "")
+// Junta "tags" antigas + novas, sem duplicar
+function mergeTags(oldVal: string | null, newTags: string[]): string {
+  const oldArr = (oldVal || "")
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
@@ -54,8 +187,8 @@ function mergeApareceEm(oldVal: string | null, newVal?: string): string {
   if (!novo) return antigo;
   if (!antigo) return novo;
   if (antigo.includes(novo)) return antigo;
+  if (novo.includes(antigo)) return novo;
 
-  // separador simples; depois podemos sofisticar (por episódio, etc.)
   return `${antigo} | ${novo}`;
 }
 
@@ -65,14 +198,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Supabase Admin não configurado. Verifique SUPABASE_SERVICE_ROLE_KEY e NEXT_PUBLIC_SUPABASE_URL.",
+            "Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
         },
         { status: 500 },
       );
     }
 
     const body = await req.json();
-
     const worldId = String(body.worldId ?? "").trim();
     const unitNumberRaw = body.unitNumber; // episódio / capítulo / vídeo (ainda opcional)
     const fichas = (body.fichas ?? []) as IncomingFicha[];
@@ -97,6 +229,20 @@ export async function POST(req: NextRequest) {
         : unitNumberRaw
         ? Number(unitNumberRaw)
         : null;
+
+    // Carrega o mundo uma vez para usar na geração automática de códigos
+    let worldRow: WorldRow | null = null;
+    const { data: worldData, error: worldError } = await supabaseAdmin
+      .from("worlds")
+      .select("id, nome, descricao, tipo, ordem")
+      .eq("id", worldId)
+      .single();
+
+    if (worldError) {
+      console.error("Erro ao carregar mundo para geração de códigos:", worldError);
+    } else if (worldData) {
+      worldRow = worldData as WorldRow;
+    }
 
     const saved: any[] = [];
 
@@ -171,6 +317,14 @@ export async function POST(req: NextRequest) {
           unitNumber,
           wasNew: true,
         });
+
+        if (worldRow && data && typeof (data as any).id === "string") {
+          await ensureCodeForFicha({
+            fichaId: (data as any).id as string,
+            world: worldRow,
+            tipo: tipoNormalizado,
+          });
+        }
       } else {
         // 3) Já existe → faz MERGE (aparece_em + tags + eventualmente resumo/conteúdo)
         const mergedTags = mergeTags(existing.tags, ficha.tags ?? []);
@@ -208,11 +362,20 @@ export async function POST(req: NextRequest) {
           unitNumber,
           wasNew: false,
         });
+
+        if (worldRow && updated && typeof (updated as any).id === "string") {
+          await ensureCodeForFicha({
+            fichaId: (updated as any).id as string,
+            world: worldRow,
+            tipo: tipoNormalizado,
+          });
+        }
       }
     }
 
     return NextResponse.json(
       {
+        ok: true,
         worldId,
         unitNumber,
         count: saved.length,
