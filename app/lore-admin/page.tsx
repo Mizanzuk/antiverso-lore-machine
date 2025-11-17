@@ -101,6 +101,10 @@ export default function LoreAdminPage() {
     description: "",
   });
 
+  // ---- Modais de LEITURA (duplo clique) ------------------------------------
+  const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
+  const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
+
   // ===========================================================================
   // Autenticação básica
   // ===========================================================================
@@ -309,7 +313,6 @@ export default function LoreAdminPage() {
     const payload: any = {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
-      // tipo e ordem não são mais editados aqui; deixamos como estão no banco
       updated_at: new Date().toISOString(),
     };
 
@@ -807,6 +810,7 @@ export default function LoreAdminPage() {
                   setSelectedWorldId(world.id as string);
                   fetchFichas(world);
                 }}
+                onDoubleClick={() => setWorldViewModal(world)}
               >
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-neutral-100">
@@ -939,6 +943,7 @@ export default function LoreAdminPage() {
                   setSelectedFichaId(ficha.id as string);
                   fetchCodes(ficha.id as string);
                 }}
+                onDoubleClick={() => setFichaViewModal(ficha)}
               >
                 <div className="flex items-center justify-between">
                   <div>
@@ -1061,11 +1066,200 @@ export default function LoreAdminPage() {
         </section>
       </main>
 
-      {/* ====================== MODAIS ====================== */}
+      {/* ====================== MODAIS DE LEITURA (duplo clique) ====================== */}
 
-      {/* Modal de Mundo */}
-      {worldFormMode !== "idle" && (
+      {/* Modal de leitura de Mundo */}
+      {worldViewModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[11px] text-neutral-400">
+                Mundo – visão geral
+              </div>
+              <button
+                type="button"
+                onClick={() => setWorldViewModal(null)}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[11px] text-neutral-500">Nome</div>
+              <div className="text-sm text-neutral-100 font-medium">
+                {worldViewModal.nome}
+              </div>
+            </div>
+
+            {worldViewModal.descricao && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Descrição
+                </div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {worldViewModal.descricao}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setWorldViewModal(null)}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  startEditWorld(worldViewModal);
+                  setWorldViewModal(null);
+                }}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400"
+              >
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de leitura de Ficha */}
+      {fichaViewModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[11px] text-neutral-400">
+                Ficha – visão geral
+              </div>
+              <button
+                type="button"
+                onClick={() => setFichaViewModal(null)}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[11px] text-neutral-500">Título</div>
+              <div className="text-sm text-neutral-100 font-medium">
+                {fichaViewModal.titulo}
+              </div>
+            </div>
+
+            {fichaViewModal.tipo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Tipo</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.tipo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.slug && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Slug</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.slug}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.resumo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Resumo</div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.resumo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.conteudo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Conteúdo</div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.conteudo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.tags && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Tags</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.tags}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.aparece_em && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Aparece em
+                </div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.aparece_em}
+                </div>
+              </div>
+            )}
+
+            {(fichaViewModal.ano_diegese ||
+              fichaViewModal.ordem_cronologica) && (
+              <div className="grid grid-cols-2 gap-3">
+                {fichaViewModal.ano_diegese && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ano da diegese
+                    </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ano_diegese}
+                    </div>
+                  </div>
+                )}
+                {fichaViewModal.ordem_cronologica && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ordem cronológica
+                    </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ordem_cronologica}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setFichaViewModal(null)}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  startEditFicha(fichaViewModal);
+                  setFichaViewModal(null);
+                }}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400"
+              >
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================== MODAIS DE EDIÇÃO ====================== */}
+
+      {/* Modal de Mundo (edição/criação) */}
+      {worldFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
             onSubmit={handleSaveWorld}
             className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
@@ -1136,9 +1330,9 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* Modal de Ficha */}
+      {/* Modal de Ficha (edição/criação) */}
       {fichaFormMode !== "idle" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
             onSubmit={handleSaveFicha}
             className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
@@ -1334,9 +1528,9 @@ export default function LoreAdminPage() {
         </div>
       )}
 
-      {/* Modal de Código */}
+      {/* Modal de Código (edição/criação) */}
       {codeFormMode !== "idle" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
           <form
             onSubmit={handleSaveCode}
             className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
