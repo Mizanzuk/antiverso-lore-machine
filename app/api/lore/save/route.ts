@@ -65,23 +65,26 @@ function getTypePrefix(tipo: string): string {
 
 // Prefixos fixos por slug ou nome de mundo.
 // Você pode ajustar conforme for criando novos mundos.
+
 const WORLD_PREFIX_MAP: Record<string, string> = {
-  "arquivos-vermelhos": "AV",
-  "torre-de-vera-cruz": "TVC",
-  "a-sala": "AS",
+  "arquivos vermelhos": "AV",
+  "torre de vera cruz": "TVC",
+  "a sala": "AS",
   "aris": "AR",
-  "evangelho-de-or": "EO",
-  "culto-de-or": "CO",
+  "evangelho de or": "EO",
+  "culto de or": "CO",
 };
 
 function getWorldPrefix(world: WorldRow): string {
-  const slugKey = (world.slug || "").toLowerCase();
-  const nameKey = (world.nome || "").toLowerCase();
+  const nameKey = (world.nome || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
 
-  if (WORLD_PREFIX_MAP[slugKey]) return WORLD_PREFIX_MAP[slugKey];
   if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
 
-  const base = (world.slug || world.nome || "XX")
+  const base = (world.nome || "XX")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[^a-z]/g, "")
@@ -99,6 +102,8 @@ function getWorldIndex(world: WorldRow): number {
   if (typeof world.ordem === "number" && !Number.isNaN(world.ordem)) {
     return world.ordem;
   }
+  return 1;
+}
   return 1;
 }
 /**
