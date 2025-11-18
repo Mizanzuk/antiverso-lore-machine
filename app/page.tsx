@@ -8,7 +8,6 @@ import {
   useState,
 } from "react";
 import { clsx } from "clsx";
-import ReactMarkdown from "react-markdown";
 
 type ChatMessage = {
   id: string;
@@ -167,7 +166,93 @@ export default function Page() {
     }
   }, [selectedWorldId, selectedType, searchTerm]);
 
-  async function onSubmit(e?: FormEvent) {
+  
+function renderAssistantMarkdown(text: string) {
+  const lines = text.split(/\r?\n/);
+  const blocks: JSX.Element[] = [];
+  let currentList: string[] = [];
+
+  const flushList = () => {
+    if (!currentList.length) return;
+    blocks.push(
+      <ul className="list-disc pl-5 space-y-1">
+        {currentList.map((item, idx) => (
+          <li key={idx} className="leading-relaxed">
+            {applyBoldInline(item)}
+          </li>
+        ))}
+      </ul>,
+    );
+    currentList = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine || "";
+    if (line.startsWith("### ")) {
+      flushList();
+      const content = line.slice(4).trim();
+      if (content) {
+        blocks.push(
+          <h3
+            key={blocks.length}
+            className="text-sm font-semibold mt-3 mb-1 text-gray-100"
+          >
+            {applyBoldInline(content)}
+          </h3>,
+        );
+      }
+      return;
+    }
+
+    if (/^\s*[-*] /.test(line)) {
+      const item = line.replace(/^\s*[-*] /, "").trim();
+      if (item) currentList.push(item);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushList();
+      return;
+    }
+
+    flushList();
+    blocks.push(
+      <p
+        key={blocks.length}
+        className="mb-2 last:mb-0 leading-relaxed text-gray-100"
+      >
+        {applyBoldInline(line)}
+      </p>,
+    );
+  });
+
+  flushList();
+  if (!blocks.length) {
+    return (
+      <p className="leading-relaxed text-gray-100 whitespace-pre-wrap">
+        {text}
+      </p>
+    );
+  }
+  return <div className="space-y-1">{blocks}</div>;
+}
+
+function applyBoldInline(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    const match = part.match(/^\*\*([^*]+)\*\*$/);
+    if (match) {
+      return (
+        <strong key={idx} className="font-semibold">
+          {match[1]}
+        </strong>
+      );
+    }
+    return <span key={idx}>{part}</span>;
+  });
+}
+
+async function onSubmit(e?: FormEvent) {
     if (e) {
       e.preventDefault();
     }
@@ -659,40 +744,7 @@ export default function Page() {
                       {msg.role === "user" ? (
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       ) : (
-                        <ReactMarkdown
-                          className="prose prose-invert prose-sm max-w-none"
-                          components={{
-                            p: ({ node, ...props }) => (
-                              <p {...props} className="mb-2 last:mb-0" />
-                            ),
-                            h3: ({ node, ...props }) => (
-                              <h3
-                                {...props}
-                                className="text-sm font-semibold mt-3 mb-1"
-                              />
-                            ),
-                            ul: ({ node, ...props }) => (
-                              <ul
-                                {...props}
-                                className="list-disc pl-5 space-y-1"
-                              />
-                            ),
-                            ol: ({ node, ...props }) => (
-                              <ol
-                                {...props}
-                                className="list-decimal pl-5 space-y-1"
-                              />
-                            ),
-                            li: ({ node, ...props }) => (
-                              <li {...props} className="leading-relaxed" />
-                            ),
-                            strong: ({ node, ...props }) => (
-                              <strong {...props} className="font-semibold" />
-                            ),
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
+                        renderAssistantMarkdown(msg.content)
                       )}
 </div>
                   </div>
