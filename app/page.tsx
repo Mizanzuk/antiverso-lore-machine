@@ -66,8 +66,111 @@ function normalize(str: string | null | undefined) {
   return (str ?? "").toLowerCase();
 }
 
+
+const SESSION_STORAGE_KEY = "antiverso-lore-sessions-v2";
+const MAX_MESSAGES_PER_SESSION = 32;
+const MAX_SESSIONS = 40;
+
+const STOPWORDS = new Set([
+  "de",
+  "da",
+  "do",
+  "das",
+  "dos",
+  "e",
+  "a",
+  "o",
+  "os",
+  "as",
+  "um",
+  "uma",
+  "uns",
+  "umas",
+  "que",
+  "por",
+  "para",
+  "com",
+  "na",
+  "no",
+  "nas",
+  "nos",
+  "em",
+  "se",
+  "sobre",
+  "como",
+  "qual",
+  "quais",
+  "quando",
+  "onde",
+  "porque",
+  "porquê",
+  "ser",
+  "tem",
+  "ter",
+  "vai",
+  "vou",
+  "tá",
+  "tava",
+  "está",
+  "estao",
+  "estão",
+]);
+
+function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
+  if (!messages || messages.length <= MAX_MESSAGES_PER_SESSION) return messages;
+
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const nonSystem = messages.filter((m) => m.role !== "system");
+
+  const allowedNonSystem = Math.max(
+    0,
+    MAX_MESSAGES_PER_SESSION - systemMessages.length
+  );
+  const tailNonSystem = nonSystem.slice(-allowedNonSystem);
+
+  return [...systemMessages, ...tailNonSystem];
+}
+
+function buildTitleFromQuestion(text: string): string {
+  const raw = (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const keywords = raw.filter(
+    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())
+  );
+
+  if (keywords.length === 0) {
+    return "Nova conversa";
+  }
+
+  const picked = keywords.slice(0, 4);
+  const titled = picked.map(
+    (w) => w.charAt(0).toUpperCase() + w.slice(1)
+  );
+
+  return titled.join(" · ");
+}
 export default function Page() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed as ChatSession[];
+          }
+        }
+      } catch (err) {
+        console.error("Falha ao carregar histórico do localStorage", err);
+      }
+    }
+
     const id =
       typeof crypto !== "undefined" ? crypto.randomUUID() : "session-inicial";
     return [
@@ -84,6 +187,8 @@ export default function Page() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
 
@@ -108,6 +213,22 @@ export default function Page() {
       setActiveSessionId(sessions[0].id);
     }
   }, [activeSessionId, sessions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const sanitized = sessions.map((s) => ({
+        ...s,
+        messages: trimMessagesForStorage(s.messages),
+      }));
+      window.localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify(sanitized)
+      );
+    } catch (err) {
+      console.error("Falha ao salvar histórico no localStorage", err);
+    }
+  }, [sessions]);
 
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
@@ -273,18 +394,19 @@ async function onSubmit(e?: FormEvent) {
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSession.id) return s;
-        const isFirstUserMessage =
-          s.messages.filter((m) => m.role === "user").length === 0;
-        const baseTitle = isFirstUserMessage
-          ? value.replace(/\s+/g, " ").trim()
-          : (s.title || "Conversa");
-        const finalTitle =
-          baseTitle.length > 40 ? baseTitle.slice(0, 40) + "…" : baseTitle;
-
+        const hadUserBefore = s.messages.some((m) => m.role === "user");
+        const updatedMessages = trimMessagesForStorage([
+          ...s.messages,
+          newUserMessage,
+        ]);
+        let newTitle = s.title;
+        if (!hadUserBefore && s.title === "Nova conversa") {
+          newTitle = buildTitleFromQuestion(newUserMessage.content);
+        }
         return {
           ...s,
-          title: finalTitle,
-          messages: [...s.messages, newUserMessage],
+          title: newTitle,
+          messages: updatedMessages,
         };
       })
     );
@@ -300,10 +422,14 @@ async function onSubmit(e?: FormEvent) {
       const systemPrompt =
         mode === "consulta" ? systemPromptConsulta : systemPromptCriativo;
 
-      const payloadMessages = [
-        { role: "system" as const, content: systemPrompt },
+      const contextMessages = trimMessagesForStorage([
         ...activeSession.messages,
         newUserMessage,
+      ]);
+
+      const payloadMessages = [
+        { role: "system" as const, content: systemPrompt },
+        ...contextMessages,
       ].map((m) => ({
         role: m.role,
         content: m.content,
@@ -333,7 +459,10 @@ async function onSubmit(e?: FormEvent) {
       setSessions((prev) =>
         prev.map((s) =>
           s.id === activeSession.id
-            ? { ...s, messages: [...s.messages, answer] }
+            ? {
+                ...s,
+                messages: trimMessagesForStorage([...s.messages, answer]),
+              }
             : s
         )
       );
@@ -352,7 +481,13 @@ async function onSubmit(e?: FormEvent) {
       setSessions((prev) =>
         prev.map((s) =>
           s.id === activeSession.id
-            ? { ...s, messages: [...s.messages, errorMsg] }
+            ? {
+                ...s,
+                messages: trimMessagesForStorage([
+                  ...s.messages,
+                  errorMsg,
+                ]),
+              }
             : s
         )
       );
@@ -379,7 +514,13 @@ async function onSubmit(e?: FormEvent) {
       createdAt: Date.now(),
       messages: [createIntroMessage()],
     };
-    setSessions((prev) => [newSession, ...prev]);
+    setSessions((prev) => {
+      const merged = [newSession, ...prev];
+      if (merged.length > MAX_SESSIONS) {
+        return merged.slice(0, MAX_SESSIONS);
+      }
+      return merged;
+    });
     setActiveSessionId(id);
     setInput("");
     setViewMode("chat");
@@ -401,6 +542,34 @@ async function onSubmit(e?: FormEvent) {
         void onSubmit();
       }
     }
+  }
+
+
+  function startRenameSession(sessionId: string, currentTitle: string) {
+    setRenamingSessionId(sessionId);
+    setRenameDraft(currentTitle);
+  }
+
+  function confirmRenameSession() {
+    if (!renamingSessionId) return;
+    const newTitle = renameDraft.trim();
+    if (!newTitle) {
+      setRenamingSessionId(null);
+      setRenameDraft("");
+      return;
+    }
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === renamingSessionId ? { ...s, title: newTitle } : s
+      )
+    );
+    setRenamingSessionId(null);
+    setRenameDraft("");
+  }
+
+  function cancelRenameSession() {
+    setRenamingSessionId(null);
+    setRenameDraft("");
   }
 
   function deleteSession(sessionId: string) {
@@ -542,6 +711,7 @@ async function onSubmit(e?: FormEvent) {
             </p>
           </div>
 
+
           {/* Histórico de conversas */}
           <div>
             <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">
@@ -560,56 +730,82 @@ async function onSubmit(e?: FormEvent) {
                   value={historySearchTerm}
                   onChange={(e) => setHistorySearchTerm(e.target.value)}
                 />
-                {filteredSessions.length === 0 && (
-                  <p className="text-gray-500 text-[11px]">
-                    Nenhuma conversa encontrada para essa busca.
-                  </p>
-                )}
-                <div className="space-y-1">
-                  {filteredSessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className={clsx(
-                        "group flex items-center gap-2 rounded-md px-2 py-1.5 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
-                        activeSession?.id === session.id
-                          ? "bg-white/10 border-white/20"
-                          : "bg-white/5"
-                      )}
-                    >
-                      <button
-                        className="flex-1 text-left"
-                        onClick={() => {
-                          setActiveSessionId(session.id);
-                          setViewMode("chat");
-                        }}
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {filteredSessions.map((session) => {
+                    const isActive = activeSession?.id === session.id;
+                    const isRenaming = renamingSessionId === session.id;
+                    return (
+                      <div
+                        key={session.id}
+                        className={clsx(
+                          "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                          isActive
+                            ? "bg-white/10 border-white/30"
+                            : "bg-transparent"
+                        )}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-gray-100">
-                            {session.title || "Conversa"}
-                          </span>
-                          <span
-                            className={clsx(
-                              "shrink-0 rounded-full px-2 py-[1px] text-[10px] border",
-                              session.mode === "consulta"
-                                ? "border-emerald-500/50 text-emerald-300/90"
-                                : "border-purple-500/60 text-purple-300/90"
-                            )}
+                        <button
+                          className="flex-1 text-left"
+                          onClick={() => {
+                            setActiveSessionId(session.id);
+                            setViewMode("chat");
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11px] font-medium text-gray-100 truncate">
+                                {isRenaming ? (
+                                  <input
+                                    className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
+                                    value={renameDraft}
+                                    onChange={(e) =>
+                                      setRenameDraft(e.target.value)
+                                    }
+                                    onBlur={confirmRenameSession}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        confirmRenameSession();
+                                      } else if (e.key === "Escape") {
+                                        cancelRenameSession();
+                                      }
+                                    }}
+                                    autoFocus
+                                  />
+                                ) : (
+                                  session.title
+                                )}
+                              </div>
+                              <div className="text-[10px] text-gray-500 truncate">
+                                {new Date(session.createdAt).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRenameSession(session.id, session.title);
+                            }}
+                            aria-label="Renomear conversa"
                           >
-                            {session.mode === "consulta"
-                              ? "Consulta"
-                              : "Criativo"}
-                          </span>
+                            ✎
+                          </button>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSession(session.id);
+                            }}
+                            aria-label="Excluir conversa"
+                          >
+                            ×
+                          </button>
                         </div>
-                      </button>
-                      <button
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
-                        onClick={() => deleteSession(session.id)}
-                        aria-label="Excluir conversa"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             )}
