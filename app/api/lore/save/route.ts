@@ -10,6 +10,7 @@ type IncomingFicha = {
   conteudo: string;
   tags: string[];
   aparece_em?: string;
+  codigo?: string;
   ano_diegese?: number | null;
 };
 
@@ -423,12 +424,23 @@ export async function POST(req: NextRequest) {
         });
 
         if (worldRow && updated && typeof (updated as any).id === "string") {
-          await ensureCodeForFicha({
-            fichaId: (updated as any).id as string,
-            world: worldRow,
-            tipo: tipoNormalizado,
-            unitNumber,
-          });
+          const fichaIdStr = (updated as any).id as string;
+
+          if (ficha.codigo && ficha.codigo.trim()) {
+            await createManualCodeForFicha({
+              fichaId: fichaIdStr,
+              world: worldRow,
+              manualCode: ficha.codigo,
+              unitNumber,
+            });
+          } else {
+            await ensureCodeForFicha({
+              fichaId: fichaIdStr,
+              world: worldRow,
+              tipo: tipoNormalizado,
+              unitNumber,
+            });
+          }
         }
       }
     }
@@ -454,3 +466,60 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+async function createManualCodeForFicha({
+  fichaId,
+  world,
+  manualCode,
+  unitNumber,
+}: {
+  fichaId: string;
+  world: WorldRow | null;
+  manualCode: string;
+  unitNumber: number | null;
+}) {
+  if (!supabaseAdmin) {
+    console.error("Supabase não configurado ao tentar salvar código manual.");
+    return;
+  }
+
+  if (!world || !world.id) {
+    console.error("World inválido ao tentar salvar código manual.");
+    return;
+  }
+
+  const code = manualCode.trim().toUpperCase();
+  if (!code) return;
+
+  // Verifica se já existe esse código para a ficha
+  const { data: existingRows, error: existingError } = await supabaseAdmin
+    .from("codes")
+    .select("id, code")
+    .eq("ficha_id", fichaId)
+    .eq("code", code)
+    .limit(1);
+
+  if (existingError) {
+    console.error("Erro ao verificar código manual existente:", existingError);
+    return;
+  }
+
+  if (existingRows && existingRows.length > 0) {
+    // Já existe, não cria de novo
+    return;
+  }
+
+  const { error: insertError } = await supabaseAdmin.from("codes").insert({
+    ficha_id: fichaId,
+    world_id: world.id,
+    code,
+    label: "",
+    description: "",
+    episode: unitNumber,
+  });
+
+  if (insertError) {
+    console.error("Erro ao inserir código manual:", insertError);
+  }
+}
+
+

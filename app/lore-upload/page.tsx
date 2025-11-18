@@ -24,6 +24,7 @@ type FichaSugerida = {
   conteudo?: string;
   tags?: string[];
   aparece_em?: string;
+  codigo?: string;
   ano_diegese?: number | null;
   slug?: string;
   world_id?: string;
@@ -207,11 +208,19 @@ export default function LoreUploadPage() {
   return (
     <div className="min-h-screen bg-[#0b0b0d] text-gray-100 flex flex-col">
 
-      {/* 🔹 TOPO FIXO - VOLTAR À HOME */}
-      <header className="h-10 border-b border-white/10 flex items-center px-4 bg-black/40">
-        <a href="/" className="text-xs text-gray-300 hover:text-white">
-          ← Voltar à Home
-        </a>
+      {/* 🔹 TOPO FIXO - VOLTAR À HOME E IR PARA CATÁLOGO */}
+      <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
+        <div className="flex items-center gap-4">
+          <a href="/" className="text-xs text-gray-300 hover:text-white">
+            ← Voltar à Home
+          </a>
+          <a
+            href="/lore-admin"
+            className="text-[11px] text-gray-400 hover:text-white"
+          >
+            Ir para Catálogo
+          </a>
+        </div>
       </header>
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6 space-y-4">

@@ -839,12 +839,20 @@ export default function LoreAdminPage() {
   return (
     <div className="min-h-screen bg-black text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
-        <a
-          href="/"
-          className="text-[11px] text-neutral-300 hover:text-white"
-        >
-          ← Voltar à Home
-        </a>
+        <div className="flex items-center gap-4">
+          <a
+            href="/"
+            className="text-[11px] text-neutral-300 hover:text-white"
+          >
+            ← Voltar à Home
+          </a>
+          <a
+            href="/lore-upload"
+            className="text-[11px] text-neutral-400 hover:text-white"
+          >
+            Ir para Upload
+          </a>
+        </div>
 
         <button
           onClick={handleLogout}
