@@ -158,11 +158,11 @@ export default function Page() {
         }
       }
     } catch (err) {
-      console.error("Erro ao carregar histórico de sessões do localStorage", err);
+      console.error("Erro ao carregar histórico de sessões no localStorage", err);
     }
   }, []);
 
-  // Salva histórico no localStorage quando mudar
+  // Salva histórico de sessões no localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -181,7 +181,7 @@ export default function Page() {
       console.error("Erro ao salvar histórico de sessões no localStorage", err);
     }
   }, [sessions, activeSessionId]);
-);
+
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
@@ -590,6 +590,28 @@ export default function Page() {
                               : "Criativo"}
                           </span>
                         </div>
+                      </button>
+                      <button
+                        type="button"
+                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[13px]"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newTitle = window.prompt(
+                            "Novo título da conversa:",
+                            session.title || "Conversa",
+                          );
+                          if (!newTitle) return;
+                          setSessions((prev) =>
+                            prev.map((s) =>
+                              s.id === session.id
+                                ? { ...s, title: newTitle.trim() || "Conversa" }
+                                : s,
+                            ),
+                          );
+                        }}
+                        aria-label="Renomear conversa"
+                      >
+                        ✏︎
                       </button>
                       <button
                         className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
