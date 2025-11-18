@@ -104,8 +104,6 @@ function getWorldIndex(world: WorldRow): number {
   }
   return 1;
 }
-  return 1;
-}
 /**
  * Gera código de catalogação no formato:
  *   AV7-PS3 = Mundo "AV" (Arquivos Vermelhos), Episódio 7, Personagem 3
