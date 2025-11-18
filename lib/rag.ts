@@ -24,11 +24,7 @@ export type LoreChunk = {
 
 export async function searchLore(
   query: string,
-  {
-    limit = 6,
-    minSimilarity = 0.25,
-    onlyFichas = true,
-  }: { limit?: number; minSimilarity?: number; onlyFichas?: boolean } = {},
+  { limit = 6, minSimilarity = 0.25 } = {}
 ): Promise<LoreChunk[]> {
   if (!openai || !supabaseAdmin) return [];
 
@@ -46,13 +42,5 @@ export async function searchLore(
     return [];
   }
 
-  let chunks = data as LoreChunk[];
-
-  if (onlyFichas) {
-    chunks = chunks.filter(
-      (c: any) => typeof c.source === "string" && c.source.startsWith("ficha:")
-    );
-  }
-
-  return chunks.slice(0, limit);
+  return data as LoreChunk[];
 }

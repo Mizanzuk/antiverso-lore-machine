@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { embedText } from "@/lib/rag";
 
 export const dynamic = "force-dynamic";
 
@@ -206,47 +205,6 @@ async function ensureCodeForFicha({
   }
 }
 
-async function indexFichaInLoreChunks(params: {
-  fichaId: string;
-  titulo: string;
-  resumo?: string;
-  conteudo?: string;
-  tipo: string;
-}) {
-  if (!supabaseAdmin) return;
-
-  const { fichaId, titulo, resumo, conteudo, tipo } = params;
-
-  const parts = [
-    (resumo ?? "").trim(),
-    (conteudo ?? "").trim(),
-  ].filter((p) => p.length > 0);
-
-  if (parts.length === 0) return;
-
-  const text = parts.join("\n\n").slice(0, 8000);
-
-  const embedding = await embedText(text);
-  if (!embedding) return;
-
-  try {
-    await supabaseAdmin
-      .from("lore_chunks")
-      .delete()
-      .eq("source", `ficha:${fichaId}`);
-
-    await supabaseAdmin.from("lore_chunks").insert({
-      source: `ficha:${fichaId}`,
-      source_type: tipo,
-      title: titulo,
-      content: text,
-      embedding,
-    });
-  } catch (err) {
-    console.error("Erro ao indexar ficha em lore_chunks:", err);
-  }
-}
-
 function slugify(str: string): string {
   return str
     .toLowerCase()
@@ -407,24 +365,12 @@ export async function POST(req: NextRequest) {
           wasNew: true,
         });
 
-        const newFichaId = (data as any)?.id as string | undefined;
-
-        if (newFichaId) {
-          if (worldRow) {
-            await ensureCodeForFicha({
-              fichaId: newFichaId,
-              world: worldRow,
-              tipo: tipoNormalizado,
-              unitNumber,
-            });
-          }
-
-          await indexFichaInLoreChunks({
-            fichaId: newFichaId,
-            titulo,
-            resumo: ficha.resumo,
-            conteudo: ficha.conteudo,
+        if (worldRow && data && typeof (data as any).id === "string") {
+          await ensureCodeForFicha({
+            fichaId: (data as any).id as string,
+            world: worldRow,
             tipo: tipoNormalizado,
+            unitNumber,
           });
         }
       } else {
@@ -464,24 +410,12 @@ export async function POST(req: NextRequest) {
           wasNew: false,
         });
 
-        const existingFichaId = (updated as any)?.id as string | undefined;
-
-        if (existingFichaId) {
-          if (worldRow) {
-            await ensureCodeForFicha({
-              fichaId: existingFichaId,
-              world: worldRow,
-              tipo: tipoNormalizado,
-              unitNumber,
-            });
-          }
-
-          await indexFichaInLoreChunks({
-            fichaId: existingFichaId,
-            titulo,
-            resumo: (updated as any)?.resumo ?? existing.resumo ?? "",
-            conteudo: (updated as any)?.conteudo ?? existing.conteudo ?? "",
+        if (worldRow && updated && typeof (updated as any).id === "string") {
+          await ensureCodeForFicha({
+            fichaId: (updated as any).id as string,
+            world: worldRow,
             tipo: tipoNormalizado,
+            unitNumber,
           });
         }
       }

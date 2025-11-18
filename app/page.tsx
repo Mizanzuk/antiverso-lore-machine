@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { clsx } from "clsx";
+import ReactMarkdown from "react-markdown";
 
 type ChatMessage = {
   id: string;
@@ -62,42 +63,6 @@ function createIntroMessage(): ChatMessage {
   };
 }
 
-function buildSessionTitleFromFirstMessage(value: string): string {
-  const raw = value.trim();
-  if (!raw) return "Nova conversa";
-
-  let cleaned = raw;
-
-  const patterns = [
-    /^escreva\s+para\s+mim\s+uma\s+história\s+sobre\s+/i,
-    /^escreva\s+uma\s+história\s+sobre\s+/i,
-    /^escreva\s+sobre\s+/i,
-    /^quero\s+criar\s+uma\s+história\s+sobre\s+/i,
-    /^quero\s+uma\s+história\s+sobre\s+/i,
-    /^quero\s+falar\s+sobre\s+/i,
-    /^me\s+diga\s+/i,
-    /^me\s+fale\s+/i,
-    /^quem\s+é\s+/i,
-  ];
-
-  for (const pattern of patterns) {
-    if (pattern.test(cleaned)) {
-      cleaned = cleaned.replace(pattern, "");
-      break;
-    }
-  }
-
-  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 6);
-  if (words.length === 0) return "Nova conversa";
-
-  let base = words.join(" ");
-  if (base.length > 42) {
-    base = base.slice(0, 42).trimEnd() + "…";
-  }
-
-  return base.charAt(0).toUpperCase() + base.slice(1);
-}
-
 function normalize(str: string | null | undefined) {
   return (str ?? "").toLowerCase();
 }
@@ -138,50 +103,6 @@ export default function Page() {
   const itemsPerPage = 20;
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
-
-  // Carrega histórico do localStorage ao montar
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const storedSessions = window.localStorage.getItem("avlm_sessions_v1");
-      const storedActive = window.localStorage.getItem("avlm_activeSession_v1");
-
-      if (storedSessions) {
-        const parsed = JSON.parse(storedSessions) as ChatSession[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setSessions(parsed);
-          if (storedActive && parsed.some((s) => s.id === storedActive)) {
-            setActiveSessionId(storedActive);
-          } else {
-            setActiveSessionId(parsed[0].id);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Erro ao carregar histórico de sessões no localStorage", err);
-    }
-  }, []);
-
-  // Salva histórico de sessões no localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (sessions.length > 0) {
-        window.localStorage.setItem("avlm_sessions_v1", JSON.stringify(sessions));
-      } else {
-        window.localStorage.removeItem("avlm_sessions_v1");
-      }
-
-      if (activeSessionId) {
-        window.localStorage.setItem("avlm_activeSession_v1", activeSessionId);
-      } else {
-        window.localStorage.removeItem("avlm_activeSession_v1");
-      }
-    } catch (err) {
-      console.error("Erro ao salvar histórico de sessões no localStorage", err);
-    }
-  }, [sessions, activeSessionId]);
-
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
@@ -272,7 +193,7 @@ export default function Page() {
         return {
           ...s,
           title: isFirstUserMessage
-            ? buildSessionTitleFromFirstMessage(value)
+            ? value.slice(0, 60)
             : s.title || "Conversa",
           messages: [...s.messages, newUserMessage],
         };
@@ -567,14 +488,14 @@ export default function Page() {
                       )}
                     >
                       <button
-                        className="flex-1 text-left min-w-0"
+                        className="flex-1 text-left"
                         onClick={() => {
                           setActiveSessionId(session.id);
                           setViewMode("chat");
                         }}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="block max-w-full truncate text-gray-100">
+                          <span className="truncate text-gray-100">
                             {session.title || "Conversa"}
                           </span>
                           <span
@@ -590,28 +511,6 @@ export default function Page() {
                               : "Criativo"}
                           </span>
                         </div>
-                      </button>
-                      <button
-                        type="button"
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[13px]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const newTitle = window.prompt(
-                            "Novo título da conversa:",
-                            session.title || "Conversa",
-                          );
-                          if (!newTitle) return;
-                          setSessions((prev) =>
-                            prev.map((s) =>
-                              s.id === session.id
-                                ? { ...s, title: newTitle.trim() || "Conversa" }
-                                : s,
-                            ),
-                          );
-                        }}
-                        aria-label="Renomear conversa"
-                      >
-                        ✏︎
                       </button>
                       <button
                         className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
@@ -751,14 +650,51 @@ export default function Page() {
                   >
                     <div
                       className={clsx(
-                        "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed whitespace-pre-wrap",
+                        "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed",
                         msg.role === "user"
                           ? "bg-blue-600 text-white"
                           : "bg-white/5 text-gray-100 border border-white/10"
                       )}
                     >
-                      {msg.content}
-                    </div>
+                      {msg.role === "user" ? (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      ) : (
+                        <ReactMarkdown
+                          className="prose prose-invert prose-sm max-w-none"
+                          components={{
+                            p: ({ node, ...props }) => (
+                              <p {...props} className="mb-2 last:mb-0" />
+                            ),
+                            h3: ({ node, ...props }) => (
+                              <h3
+                                {...props}
+                                className="text-sm font-semibold mt-3 mb-1"
+                              />
+                            ),
+                            ul: ({ node, ...props }) => (
+                              <ul
+                                {...props}
+                                className="list-disc pl-5 space-y-1"
+                              />
+                            ),
+                            ol: ({ node, ...props }) => (
+                              <ol
+                                {...props}
+                                className="list-decimal pl-5 space-y-1"
+                              />
+                            ),
+                            li: ({ node, ...props }) => (
+                              <li {...props} className="leading-relaxed" />
+                            ),
+                            strong: ({ node, ...props }) => (
+                              <strong {...props} className="font-semibold" />
+                            ),
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      )}
+</div>
                   </div>
                 ))}
 

@@ -735,6 +735,8 @@ export default function LoreAdminPage() {
     ]),
   );
 
+  const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
+
   const filteredFichas = fichas.filter((f) => {
     // filtro por tipo
     if (fichaFilterTipos.length > 0) {
@@ -1087,84 +1089,161 @@ export default function LoreAdminPage() {
           </div>
         </section>
 
-        {/* Códigos */}
+        
+        {/* Detalhes da Ficha */}
         <section className="flex-1 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-              Códigos da Ficha
+              Detalhes da Ficha
             </h2>
-            <button
-              onClick={startCreateCode}
-              className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
-            >
-              + Novo
-            </button>
-          </div>
-
-          <div className="text-[11px] text-neutral-500 mb-1">
-            Ficha selecionada:{" "}
-            <span className="text-neutral-300">
-              {fichas.find((f) => f.id === selectedFichaId)?.titulo ||
-                "nenhuma selecionada"}
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
-            {selectedFichaId == null && (
-              <div className="text-[11px] text-neutral-600">
-                Escolha uma Ficha na coluna do meio.
-              </div>
-            )}
-
-            {selectedFichaId != null && codes.length === 0 && (
-              <div className="text-[11px] text-neutral-600">
-                Nenhum código cadastrado para esta Ficha.
-              </div>
-            )}
-
-            {codes.map((code) => (
-              <div
-                key={code.id}
-                className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px] mb-1"
+            {selectedFicha && (
+              <button
+                onClick={() => startEditFicha(selectedFicha)}
+                className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-neutral-100">
-                      {code.code}
-                    </div>
-                    {code.label && (
-                      <div className="text-[10px] text-neutral-500">
-                        {code.label}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
-                      onClick={() => startEditCode(code)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
-                      onClick={() => handleDeleteCode(code.id as string)}
-                    >
-                      Del
-                    </button>
+                Editar
+              </button>
+            )}
+          </div>
+
+          {!selectedFicha ? (
+            <div className="text-[11px] text-neutral-500">
+              Selecione uma ficha na coluna do meio para ver os detalhes aqui.
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Título</div>
+                <div className="text-sm text-neutral-100 font-medium">
+                  {selectedFicha.titulo}
+                </div>
+              </div>
+
+              {selectedFicha.tipo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Tipo</div>
+                  <div className="text-[12px] text-neutral-200">
+                    {selectedFicha.tipo}
                   </div>
                 </div>
-                {code.description && (
-                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
-                    {code.description}
+              )}
+
+              {selectedFicha.slug && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Slug</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.slug}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.resumo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Resumo</div>
+                  <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                    {selectedFicha.resumo}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.conteudo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Conteúdo</div>
+                  <div className="text-[12px] text-neutral-300 whitespace-pre-line">
+                    {selectedFicha.conteudo}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.tags && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Tags</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.tags}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.aparece_em && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">
+                    Aparece em
+                  </div>
+                  <div className="text-[12px] text-neutral-300 whitespace-pre-line">
+                    {selectedFicha.aparece_em}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-neutral-500">Códigos</div>
+                  {selectedFicha && (
+                    <button
+                      onClick={startCreateCode}
+                      className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+                    >
+                      + Novo código
+                    </button>
+                  )}
+                </div>
+
+                {!codes.length && (
+                  <div className="text-[11px] text-neutral-500 mt-1">
+                    Nenhum código cadastrado para esta ficha.
+                  </div>
+                )}
+
+                {codes.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {codes.map((code) => (
+                      <div
+                        key={code.id}
+                        className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-neutral-100">
+                              {code.code}
+                            </div>
+                            {code.label && (
+                              <div className="text-[10px] text-neutral-500">
+                                {code.label}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
+                              onClick={() => startEditCode(code)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
+                              onClick={() => handleDeleteCode(code.id as string)}
+                            >
+                              Del
+                            </button>
+                          </div>
+                        </div>
+                        {code.description && (
+                          <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                            {code.description}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </section>
       </main>
+
 
       {/* Modais de leitura – Mundo */}
       {worldViewModal && (
@@ -1305,6 +1384,50 @@ export default function LoreAdminPage() {
                 </div>
               </div>
             )}
+
+            {selectedFichaId === fichaViewModal.id && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-neutral-500">Códigos</div>
+                  <button
+                    type="button"
+                    onClick={startCreateCode}
+                    className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+                  >
+                    + Novo código
+                  </button>
+                </div>
+                {!codes.length && (
+                  <div className="text-[11px] text-neutral-500 mt-1">
+                    Nenhum código cadastrado para esta ficha.
+                  </div>
+                )}
+                {codes.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {codes.map((code) => (
+                      <div
+                        key={code.id}
+                        className="border border-neutral-800 rounded-md px-2 py-1 text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-neutral-100">
+                              {code.code}
+                            </div>
+                            {code.label && (
+                              <div className="text-[10px] text-neutral-500">
+                                {code.label}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
 
             {(fichaViewModal.ano_diegese ||
               fichaViewModal.ordem_cronologica) && (
@@ -1480,30 +1603,45 @@ export default function LoreAdminPage() {
                   placeholder="delegada-cintia, aris-042-corredor"
                 />
               </div>
-              <div className="w-48 space-y-1">
+              
+<div className="w-48 space-y-1">
                 <label className="text-[11px] text-neutral-500">
                   Tipo (categoria)
                 </label>
-                <input
-                  list="tipo-suggestions"
+                <select
                   className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                   value={fichaForm.tipo}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      tipo: e.target.value,
-                    }))
-                  }
-                  placeholder="personagem, local, veículo…"
-                />
-                <datalist id="tipo-suggestions">
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "__novo__") {
+                      const novo = window.prompt(
+                        "Digite o novo tipo/categoria (ex: personagem, local, veículo…):"
+                      );
+                      if (novo && novo.trim()) {
+                        const normalized = novo.trim().toLowerCase();
+                        setFichaForm((prev) => ({
+                          ...prev,
+                          tipo: normalized,
+                        }));
+                      }
+                    } else {
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        tipo: value,
+                      }));
+                    }
+                  }}
+                >
+                  <option value="">Selecione um tipo…</option>
                   {dynamicTipos.map((t) => (
-                    <option key={t} value={t} />
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
                   ))}
-                </datalist>
+                  <option value="__novo__">+ Novo tipo…</option>
+                </select>
                 <p className="text-[10px] text-neutral-500 mt-0.5">
-                  Você pode escolher uma sugestão ou digitar uma categoria nova
-                  (ex: &quot;veiculo&quot;).
+                  Escolha um tipo existente ou crie um novo (ex: &quot;veiculo&quot;).
                 </p>
               </div>
             </div>
@@ -1513,7 +1651,7 @@ export default function LoreAdminPage() {
               <textarea
                 className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
                 value={fichaForm.resumo}
-                onChange={(e) =>
+  onChange={(e) =>
                   setFichaForm((prev) => ({
                     ...prev,
                     resumo: e.target.value,
