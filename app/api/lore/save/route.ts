@@ -206,7 +206,6 @@ async function ensureCodeForFicha({
   }
 }
 
-
 async function indexFichaInLoreChunks(params: {
   fichaId: string;
   titulo: string;
@@ -225,20 +224,17 @@ async function indexFichaInLoreChunks(params: {
 
   if (parts.length === 0) return;
 
-  // Limita o tamanho para evitar textos gigantescos na indexação
   const text = parts.join("\n\n").slice(0, 8000);
 
   const embedding = await embedText(text);
   if (!embedding) return;
 
   try {
-    // Remove chunks antigos desta ficha, se houver
     await supabaseAdmin
       .from("lore_chunks")
       .delete()
       .eq("source", `ficha:${fichaId}`);
 
-    // Insere o chunk atualizado
     await supabaseAdmin.from("lore_chunks").insert({
       source: `ficha:${fichaId}`,
       source_type: tipo,
@@ -250,7 +246,6 @@ async function indexFichaInLoreChunks(params: {
     console.error("Erro ao indexar ficha em lore_chunks:", err);
   }
 }
-
 
 function slugify(str: string): string {
   return str
@@ -413,6 +408,7 @@ export async function POST(req: NextRequest) {
         });
 
         const newFichaId = (data as any)?.id as string | undefined;
+
         if (newFichaId) {
           if (worldRow) {
             await ensureCodeForFicha({
@@ -468,23 +464,24 @@ export async function POST(req: NextRequest) {
           wasNew: false,
         });
 
-        const existingFichaId = existing.id as string | undefined;
+        const existingFichaId = (updated as any)?.id as string | undefined;
+
         if (existingFichaId) {
+          if (worldRow) {
+            await ensureCodeForFicha({
+              fichaId: existingFichaId,
+              world: worldRow,
+              tipo: tipoNormalizado,
+              unitNumber,
+            });
+          }
+
           await indexFichaInLoreChunks({
             fichaId: existingFichaId,
             titulo,
             resumo: (updated as any)?.resumo ?? existing.resumo ?? "",
             conteudo: (updated as any)?.conteudo ?? existing.conteudo ?? "",
             tipo: tipoNormalizado,
-          });
-        }
-
-        if (worldRow && updated && typeof (updated as any).id === "string") {
-          await ensureCodeForFicha({
-            fichaId: (updated as any).id as string,
-            world: worldRow,
-            tipo: tipoNormalizado,
-            unitNumber,
           });
         }
       }

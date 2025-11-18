@@ -24,7 +24,11 @@ export async function POST(req: NextRequest) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "";
 
-    const loreResults = await searchLore(userQuestion);
+    const loreResults = await searchLore(userQuestion, {
+      limit: 8,
+      minSimilarity: 0.25,
+      onlyFichas: true,
+    });
 
     const systemPrompt = [
       "Você é Or, o guardião do AntiVerso, um assistente especializado em organizar e expandir o universo ficcional do AntiVerso.",
