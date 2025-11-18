@@ -234,13 +234,13 @@ function renderAssistantMarkdown(text: string) {
       </p>
     );
   }
-  return <div className="space-y-1">{blocks}</div>;
+  return <div className="space-y-3">{blocks}</div>;
 }
 
 function applyBoldInline(text: string) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*{1,2}[^*]+\*{1,2})/g);
   return parts.map((part, idx) => {
-    const match = part.match(/^\*\*([^*]+)\*\*$/);
+    const match = part.match(/^\*{1,2}([^*]+)\*{1,2}$/);
     if (match) {
       return (
         <strong key={idx} className="font-semibold">
@@ -275,11 +275,15 @@ async function onSubmit(e?: FormEvent) {
         if (s.id !== activeSession.id) return s;
         const isFirstUserMessage =
           s.messages.filter((m) => m.role === "user").length === 0;
+        const baseTitle = isFirstUserMessage
+          ? value.replace(/\s+/g, " ").trim()
+          : (s.title || "Conversa");
+        const finalTitle =
+          baseTitle.length > 40 ? baseTitle.slice(0, 40) + "…" : baseTitle;
+
         return {
           ...s,
-          title: isFirstUserMessage
-            ? value.slice(0, 60)
-            : s.title || "Conversa",
+          title: finalTitle,
           messages: [...s.messages, newUserMessage],
         };
       })

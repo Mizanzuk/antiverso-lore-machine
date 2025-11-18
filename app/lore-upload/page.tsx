@@ -3,6 +3,19 @@
 import { useEffect, useState, ChangeEvent } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
+
+const KNOWN_TIPOS = [
+  "personagem",
+  "local",
+  "conceito",
+  "evento",
+  "mídia",
+  "empresa",
+  "agência",
+  "epistemologia",
+  "regras de mundo",
+];
+
 type FichaSugerida = {
   id?: string;
   tipo: string;
@@ -182,6 +195,15 @@ export default function LoreUploadPage() {
     }
   }
 
+
+  const tipoOptions = Array.from(
+    new Set<string>([
+      ...KNOWN_TIPOS,
+      ...fichas
+        .map((f) => (f.tipo || "").toLowerCase())
+        .filter((t) => !!t),
+    ]),
+  ).sort();
   return (
     <div className="min-h-screen bg-[#0b0b0d] text-gray-100 flex flex-col">
 
@@ -306,14 +328,38 @@ export default function LoreUploadPage() {
               className="w-full bg-black/40 border border-white/15 px-3 py-2 rounded-md text-sm"
             />
 
-            <input
-              value={modalFicha.tipo}
-              onChange={(e) =>
-                setModalFicha({ ...modalFicha, tipo: e.target.value })
-              }
+            <select
+              value={modalFicha.tipo || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "__novo__") {
+                  const novo = window.prompt(
+                    "Digite o novo tipo/categoria (ex: personagem, local, conceito…):",
+                    modalFicha.tipo || "",
+                  );
+                  if (novo && novo.trim()) {
+                    setModalFicha({
+                      ...modalFicha,
+                      tipo: novo.trim().toLowerCase(),
+                    });
+                  }
+                } else {
+                  setModalFicha({
+                    ...modalFicha,
+                    tipo: value,
+                  });
+                }
+              }}
               className="w-full bg-black/40 border border-white/15 px-3 py-2 rounded-md text-sm"
-              placeholder="Tipo"
-            />
+            >
+              <option value="">Selecione um tipo…</option>
+              {tipoOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+              <option value="__novo__">+ Novo tipo…</option>
+            </select>
 
             <textarea
               className="w-full h-24 bg-black/40 border border-white/15 px-3 py-2 rounded-md text-sm resize-none"

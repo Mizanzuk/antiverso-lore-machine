@@ -62,25 +62,35 @@ function getTypePrefix(tipo: string): string {
 }
 
 // PREFIXO DO MUNDO (AV, TR, SL, EO, CO...)
-// Regra: usa world.tipo se você preencher no banco; se não, deduz das iniciais do nome
+
+// Prefixos fixos por slug ou nome de mundo.
+// Você pode ajustar conforme for criando novos mundos.
+const WORLD_PREFIX_MAP: Record<string, string> = {
+  "arquivos-vermelhos": "AV",
+  "torre-de-vera-cruz": "TVC",
+  "a-sala": "AS",
+  "aris": "AR",
+  "evangelho-de-or": "EO",
+  "culto-de-or": "CO",
+};
+
 function getWorldPrefix(world: WorldRow): string {
-  const rawTipo = (world.tipo || "").trim();
-  if (rawTipo && /^[A-Za-z]{2,5}$/.test(rawTipo)) {
-    return rawTipo.toUpperCase();
-  }
+  const slugKey = (world.slug || "").toLowerCase();
+  const nameKey = (world.nome || "").toLowerCase();
 
-  const nome = (world.nome || "").trim();
-  if (!nome) return "AV";
+  if (WORLD_PREFIX_MAP[slugKey]) return WORLD_PREFIX_MAP[slugKey];
+  if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
 
-  const words = nome.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "AV";
+  const base = (world.slug || world.nome || "XX")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[^a-z]/g, "")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase();
 
-  const initials = words
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("");
-
-  return initials.toUpperCase();
+  if (base.length >= 2) return base.slice(0, 2);
+  if (base.length === 1) return base + "X";
+  return "XX";
 }
 
 // Ainda usamos ordem em alguns cenários futuros;
@@ -91,7 +101,6 @@ function getWorldIndex(world: WorldRow): number {
   }
   return 1;
 }
-
 /**
  * Gera código de catalogação no formato:
  *   AV7-PS3 = Mundo "AV" (Arquivos Vermelhos), Episódio 7, Personagem 3
