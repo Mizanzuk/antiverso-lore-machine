@@ -66,7 +66,6 @@ function normalize(str: string | null | undefined) {
   return (str ?? "").toLowerCase();
 }
 
-
 const SESSION_STORAGE_KEY = "antiverso-lore-sessions-v2";
 const MAX_MESSAGES_PER_SESSION = 32;
 const MAX_SESSIONS = 40;
@@ -124,7 +123,7 @@ function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
 
   const allowedNonSystem = Math.max(
     0,
-    MAX_MESSAGES_PER_SESSION - systemMessages.length
+    MAX_MESSAGES_PER_SESSION - systemMessages.length,
   );
   const tailNonSystem = nonSystem.slice(-allowedNonSystem);
 
@@ -141,7 +140,7 @@ function buildTitleFromQuestion(text: string): string {
     .filter(Boolean);
 
   const keywords = raw.filter(
-    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())
+    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase()),
   );
 
   if (keywords.length === 0) {
@@ -150,11 +149,12 @@ function buildTitleFromQuestion(text: string): string {
 
   const picked = keywords.slice(0, 4);
   const titled = picked.map(
-    (w) => w.charAt(0).toUpperCase() + w.slice(1)
+    (w) => w.charAt(0).toUpperCase() + w.slice(1),
   );
 
   return titled.join(" · ");
 }
+
 export default function Page() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -187,7 +187,9 @@ export default function Page() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
+    null,
+  );
   const [renameDraft, setRenameDraft] = useState("");
 
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
@@ -223,7 +225,7 @@ export default function Page() {
       }));
       window.localStorage.setItem(
         SESSION_STORAGE_KEY,
-        JSON.stringify(sanitized)
+        JSON.stringify(sanitized),
       );
     } catch (err) {
       console.error("Falha ao salvar histórico no localStorage", err);
@@ -240,7 +242,7 @@ export default function Page() {
     const q = normalize(historySearchTerm);
     const inTitle = normalize(s.title).includes(q);
     const inMessages = s.messages.some((m) =>
-      normalize(m.content).includes(q)
+      normalize(m.content).includes(q),
     );
     return inTitle || inMessages;
   });
@@ -266,7 +268,7 @@ export default function Page() {
       } catch (err) {
         console.error(err);
         setCatalogError(
-          "Não foi possível carregar o catálogo do AntiVerso agora."
+          "Não foi possível carregar o catálogo do AntiVerso agora.",
         );
       } finally {
         setLoadingCatalog(false);
@@ -287,93 +289,92 @@ export default function Page() {
     }
   }, [selectedWorldId, selectedType, searchTerm]);
 
-  
-function renderAssistantMarkdown(text: string) {
-  const lines = text.split(/\r?\n/);
-  const blocks: JSX.Element[] = [];
-  let currentList: string[] = [];
+  function renderAssistantMarkdown(text: string) {
+    const lines = text.split(/\r?\n/);
+    const blocks: JSX.Element[] = [];
+    let currentList: string[] = [];
 
-  const flushList = () => {
-    if (!currentList.length) return;
-    blocks.push(
-      <ul className="list-disc pl-5 space-y-1">
-        {currentList.map((item, idx) => (
-          <li key={idx} className="leading-relaxed">
-            {applyBoldInline(item)}
-          </li>
-        ))}
-      </ul>,
-    );
-    currentList = [];
-  };
+    const flushList = () => {
+      if (!currentList.length) return;
+      blocks.push(
+        <ul className="list-disc pl-5 space-y-1">
+          {currentList.map((item, idx) => (
+            <li key={idx} className="leading-relaxed">
+              {applyBoldInline(item)}
+            </li>
+          ))}
+        </ul>,
+      );
+      currentList = [];
+    };
 
-  lines.forEach((rawLine) => {
-    const line = rawLine || "";
-    if (line.startsWith("### ")) {
-      flushList();
-      const content = line.slice(4).trim();
-      if (content) {
-        blocks.push(
-          <h3
-            key={blocks.length}
-            className="text-sm font-semibold mt-3 mb-1 text-gray-100"
-          >
-            {applyBoldInline(content)}
-          </h3>,
-        );
+    lines.forEach((rawLine) => {
+      const line = rawLine || "";
+      if (line.startsWith("### ")) {
+        flushList();
+        const content = line.slice(4).trim();
+        if (content) {
+          blocks.push(
+            <h3
+              key={blocks.length}
+              className="text-sm font-semibold mt-3 mb-1 text-gray-100"
+            >
+              {applyBoldInline(content)}
+            </h3>,
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    if (/^\s*[-*] /.test(line)) {
-      const item = line.replace(/^\s*[-*] /, "").trim();
-      if (item) currentList.push(item);
-      return;
-    }
+      if (/^\s*[-*] /.test(line)) {
+        const item = line.replace(/^\s*[-*] /, "").trim();
+        if (item) currentList.push(item);
+        return;
+      }
 
-    if (!line.trim()) {
+      if (!line.trim()) {
+        flushList();
+        return;
+      }
+
       flushList();
-      return;
-    }
+      blocks.push(
+        <p
+          key={blocks.length}
+          className="mb-2 last:mb-0 leading-relaxed text-gray-100"
+        >
+          {applyBoldInline(line)}
+        </p>,
+      );
+    });
 
     flushList();
-    blocks.push(
-      <p
-        key={blocks.length}
-        className="mb-2 last:mb-0 leading-relaxed text-gray-100"
-      >
-        {applyBoldInline(line)}
-      </p>,
-    );
-  });
-
-  flushList();
-  if (!blocks.length) {
-    return (
-      <p className="leading-relaxed text-gray-100 whitespace-pre-wrap">
-        {text}
-      </p>
-    );
-  }
-  return <div className="space-y-3">{blocks}</div>;
-}
-
-function applyBoldInline(text: string) {
-  const parts = text.split(/(\*{1,2}[^*]+\*{1,2})/g);
-  return parts.map((part, idx) => {
-    const match = part.match(/^\*{1,2}([^*]+)\*{1,2}$/);
-    if (match) {
+    if (!blocks.length) {
       return (
-        <strong key={idx} className="font-semibold">
-          {match[1]}
-        </strong>
+        <p className="leading-relaxed text-gray-100 whitespace-pre-wrap">
+          {text}
+        </p>
       );
     }
-    return <span key={idx}>{part}</span>;
-  });
-}
+    return <div className="space-y-3">{blocks}</div>;
+  }
 
-async function onSubmit(e?: FormEvent) {
+  function applyBoldInline(text: string) {
+    const parts = text.split(/(\*{1,2}[^*]+\*{1,2})/g);
+    return parts.map((part, idx) => {
+      const match = part.match(/^\*{1,2}([^*]+)\*{1,2}$/);
+      if (match) {
+        return (
+          <strong key={idx} className="font-semibold">
+            {match[1]}
+          </strong>
+        );
+      }
+      return <span key={idx}>{part}</span>;
+    });
+  }
+
+  async function onSubmit(e?: FormEvent) {
     if (e) {
       e.preventDefault();
     }
@@ -389,11 +390,14 @@ async function onSubmit(e?: FormEvent) {
       content: value,
     };
 
+    const activeId = activeSession.id;
+
     setInput("");
 
+    // Atualiza sessão com a mensagem do usuário e ajusta o título
     setSessions((prev) =>
       prev.map((s) => {
-        if (s.id !== activeSession.id) return s;
+        if (s.id !== activeId) return s;
         const hadUserBefore = s.messages.some((m) => m.role === "user");
         const updatedMessages = trimMessagesForStorage([
           ...s.messages,
@@ -408,10 +412,11 @@ async function onSubmit(e?: FormEvent) {
           title: newTitle,
           messages: updatedMessages,
         };
-      })
+      }),
     );
 
     setLoading(true);
+    setViewMode("chat");
 
     try {
       const systemPromptConsulta =
@@ -441,32 +446,70 @@ async function onSubmit(e?: FormEvent) {
         body: JSON.stringify({ messages: payloadMessages }),
       });
 
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         throw new Error("Erro ao chamar /api/chat");
       }
 
-      const data = await res.json();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
 
-      const answer: ChatMessage = {
-        id:
-          typeof crypto !== "undefined"
-            ? crypto.randomUUID()
-            : `${Date.now()}-assistant`,
-        role: "assistant",
-        content: data.reply ?? "Algo deu errado ao gerar a resposta.",
-      };
+      // Cria mensagem vazia do assistant para receber o streaming
+      const assistantId =
+        typeof crypto !== "undefined"
+          ? crypto.randomUUID()
+          : `${Date.now()}-assistant`;
 
       setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSession.id
-            ? {
-                ...s,
-                messages: trimMessagesForStorage([...s.messages, answer]),
-              }
-            : s
-        )
+        prev.map((s) => {
+          if (s.id !== activeId) return s;
+          const assistantMsg: ChatMessage = {
+            id: assistantId,
+            role: "assistant",
+            content: "",
+          };
+          return {
+            ...s,
+            messages: trimMessagesForStorage([...s.messages, assistantMsg]),
+          };
+        }),
       );
-      setViewMode("chat");
+
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (!chunk) continue;
+
+        fullText += chunk;
+
+        const partial = fullText;
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== activeId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === assistantId ? { ...m, content: partial } : m,
+              ),
+            };
+          }),
+        );
+
+        scrollToBottom();
+      }
+
+      // Trim final para não deixar o histórico crescer demais
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== activeId) return s;
+          return {
+            ...s,
+            messages: trimMessagesForStorage(s.messages),
+          };
+        }),
+      );
     } catch (err) {
       console.error(err);
       const errorMsg: ChatMessage = {
@@ -480,16 +523,13 @@ async function onSubmit(e?: FormEvent) {
       };
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === activeSession.id
+          s.id === activeId
             ? {
                 ...s,
-                messages: trimMessagesForStorage([
-                  ...s.messages,
-                  errorMsg,
-                ]),
+                messages: trimMessagesForStorage([...s.messages, errorMsg]),
               }
-            : s
-        )
+            : s,
+        ),
       );
     } finally {
       setLoading(false);
@@ -530,8 +570,8 @@ async function onSubmit(e?: FormEvent) {
     if (!activeSession) return;
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === activeSession.id ? { ...s, mode: newMode } : s
-      )
+        s.id === activeSession.id ? { ...s, mode: newMode } : s,
+      ),
     );
   }
 
@@ -543,7 +583,6 @@ async function onSubmit(e?: FormEvent) {
       }
     }
   }
-
 
   function startRenameSession(sessionId: string, currentTitle: string) {
     setRenamingSessionId(sessionId);
@@ -560,8 +599,8 @@ async function onSubmit(e?: FormEvent) {
     }
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === renamingSessionId ? { ...s, title: newTitle } : s
-      )
+        s.id === renamingSessionId ? { ...s, title: newTitle } : s,
+      ),
     );
     setRenamingSessionId(null);
     setRenameDraft("");
@@ -640,14 +679,14 @@ async function onSubmit(e?: FormEvent) {
 
   const totalPages = Math.max(
     1,
-    Math.ceil(filteredEntitiesAll.length / itemsPerPage)
+    Math.ceil(filteredEntitiesAll.length / itemsPerPage),
   );
   const safePage =
     currentPage > totalPages ? totalPages : Math.max(1, currentPage);
   const startIndex = (safePage - 1) * itemsPerPage;
   const pageEntities = filteredEntitiesAll.slice(
     startIndex,
-    startIndex + itemsPerPage
+    startIndex + itemsPerPage,
   );
 
   function getWorldName(worldId?: string | null): string | null {
@@ -676,7 +715,7 @@ async function onSubmit(e?: FormEvent) {
               "px-2 py-1 rounded-md border",
               p === safePage
                 ? "bg-white/20 border-white text-white"
-                : "bg-transparent border-white/20 hover:bg-white/10"
+                : "bg-transparent border-white/20 hover:bg-white/10",
             )}
           >
             {p}
@@ -711,7 +750,6 @@ async function onSubmit(e?: FormEvent) {
             </p>
           </div>
 
-
           {/* Histórico de conversas */}
           <div>
             <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">
@@ -741,7 +779,7 @@ async function onSubmit(e?: FormEvent) {
                           "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
-                            : "bg-transparent"
+                            : "bg-transparent",
                         )}
                       >
                         <button
@@ -776,7 +814,9 @@ async function onSubmit(e?: FormEvent) {
                                 )}
                               </div>
                               <div className="text-[10px] text-gray-500 truncate">
-                                {new Date(session.createdAt).toLocaleString()}
+                                {new Date(
+                                  session.createdAt,
+                                ).toLocaleString()}
                               </div>
                             </div>
                           </div>
@@ -872,7 +912,7 @@ async function onSubmit(e?: FormEvent) {
                   "px-2 py-1 rounded-full border text-xs",
                   mode === "consulta"
                     ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
-                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10",
                 )}
               >
                 Consulta
@@ -883,7 +923,7 @@ async function onSubmit(e?: FormEvent) {
                   "px-2 py-1 rounded-full border text-xs",
                   mode === "criativo"
                     ? "bg-purple-600/30 border-purple-400 text-purple-100"
-                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10",
                 )}
               >
                 Criativo
@@ -897,7 +937,7 @@ async function onSubmit(e?: FormEvent) {
                   "px-2 py-1 rounded-full text-[11px]",
                   viewMode === "chat"
                     ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
+                    : "text-gray-300 hover:bg-white/10",
                 )}
               >
                 Chat
@@ -908,7 +948,7 @@ async function onSubmit(e?: FormEvent) {
                   "px-2 py-1 rounded-full text-[11px]",
                   viewMode === "catalog"
                     ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
+                    : "text-gray-300 hover:bg-white/10",
                 )}
               >
                 Catálogo
@@ -930,7 +970,7 @@ async function onSubmit(e?: FormEvent) {
                     key={msg.id}
                     className={clsx(
                       "flex",
-                      msg.role === "user" ? "justify-end" : "justify-start"
+                      msg.role === "user" ? "justify-end" : "justify-start",
                     )}
                   >
                     <div
@@ -938,15 +978,17 @@ async function onSubmit(e?: FormEvent) {
                         "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed",
                         msg.role === "user"
                           ? "bg-blue-600 text-white"
-                          : "bg-white/5 text-gray-100 border border-white/10"
+                          : "bg-white/5 text-gray-100 border border-white/10",
                       )}
                     >
                       {msg.role === "user" ? (
-                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                        <div className="whitespace-pre-wrap">
+                          {msg.content}
+                        </div>
                       ) : (
                         renderAssistantMarkdown(msg.content)
                       )}
-</div>
+                    </div>
                   </div>
                 ))}
 
