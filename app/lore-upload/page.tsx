@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState, ChangeEvent } from "react";
@@ -44,13 +45,12 @@ const TYPE_PREFIX_MAP: Record<string, string> = {
   "registro anômalo": "RA",
 };
 
-function slugify(value: string): string {
-  return value
+function normalizeTipo(tipo: string): string {
+  return tipo
+    .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .trim();
 }
 
 function getWorldPrefix(world?: World | null): string {
@@ -73,14 +73,6 @@ function getWorldPrefix(world?: World | null): string {
   }
   const initials = parts.map((p) => p[0]).join("");
   return initials.toUpperCase().slice(0, 4) || "XX";
-}
-
-function normalizeTipo(tipo: string): string {
-  return tipo
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
 }
 
 function getTypePrefix(tipo: string): string {
@@ -142,7 +134,7 @@ export default function LoreUploadPage() {
     };
 
     fetchWorlds();
-  }, []);
+  }, [selectedWorldId]);
 
   async function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -259,7 +251,6 @@ export default function LoreUploadPage() {
       const worldPrefix = getWorldPrefix(world);
       const episode = normalizeEpisode(unitNumber);
 
-      // Contadores por prefixo de tipo, para gerar número incremental
       const typeCounters: Record<string, number> = {};
 
       const mapped: SuggestedFicha[] = extracted.map((raw: any) => {
@@ -293,7 +284,6 @@ export default function LoreUploadPage() {
         };
       });
 
-      // Caso não venha nada da API, ainda assim permitir criar uma ficha manual
       if (mapped.length === 0) {
         const id =
           typeof crypto !== "undefined" && (crypto as any).randomUUID
@@ -376,7 +366,6 @@ export default function LoreUploadPage() {
       const data = await response.json();
       console.log("Fichas salvas:", data);
 
-      // Limpa somente as fichas sugeridas; texto permanece para referência
       setSuggestedFichas([]);
     } catch (err) {
       console.error("Erro inesperado em handleSaveFichas:", err);
@@ -387,11 +376,11 @@ export default function LoreUploadPage() {
   }
 
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
+  const worldLabel = selectedWorld?.nome ?? selectedWorld?.id ?? "";
 
-  
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
-      {/* 🔹 TOPO FIXO - VOLTAR À HOME E IR PARA CATÁLOGO */}
+      {/* TOPO FIXO */}
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
         <div className="flex items-center gap-4">
           <a href="/" className="text-xs text-gray-300 hover:text-white">
@@ -404,176 +393,184 @@ export default function LoreUploadPage() {
             Ir para Catálogo
           </a>
         </div>
-      </header>
-
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
-<header className="space-y-2">
-          <h1 className="text-2xl font-semibold">Upload de Texto</h1>
-          <p className="text-sm text-zinc-400">
-            Envie o texto de um episódio, capítulo ou documento. A Lore Machine
-            extrai automaticamente fichas pertencentes ao Mundo escolhido,
-            permitindo editar cada ficha antes de salvar no banco.
-          </p>
-        </header>
-
-        {error && (
-          <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-            {error}
+        {worldLabel && (
+          <div className="text-[11px] text-zinc-500">
+            Mundo selecionado: <span className="text-zinc-200">{worldLabel}</span>
           </div>
         )}
+      </header>
 
-        {/* Seleção de mundo e episódio */}
-        <section className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-3 items-center">
-          <div className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-zinc-400">
-              Mundo de destino
-            </label>
-            <select
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-              value={selectedWorldId}
-              onChange={handleWorldChange}
-            >
-              {worlds.map((world) => (
-                <option key={world.id} value={world.id}>
-                  {world.nome ?? world.id}
-                </option>
-              ))}
-              <option value="create_new">+ Novo mundo...</option>
-            </select>
-          </div>
+      {/* ÁREA SCROLLÁVEL */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
+          <header className="space-y-2">
+            <h1 className="text-2xl font-semibold">Upload de Texto</h1>
+            <p className="text-sm text-zinc-400">
+              Envie o texto de um episódio, capítulo ou documento. A Lore Machine
+              extrai automaticamente fichas pertencentes ao Mundo escolhido,
+              permitindo editar cada ficha antes de salvar no banco.
+            </p>
+          </header>
 
-          <div className="space-y-1">
+          {error && (
+            <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+
+          {/* Seleção de mundo e episódio */}
+          <section className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-3 items-center">
+            <div className="space-y-1">
+              <label className="text-xs uppercase tracking-wide text-zinc-400">
+                Mundo de destino
+              </label>
+              <select
+                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                value={selectedWorldId}
+                onChange={handleWorldChange}
+              >
+                {worlds.map((world) => (
+                  <option key={world.id} value={world.id}>
+                    {world.nome ?? world.id}
+                  </option>
+                ))}
+                <option value="create_new">+ Novo mundo...</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs uppercase tracking-wide text-zinc-400">
+                Episódio / Capítulo / Documento #
+              </label>
+              <input
+                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                value={unitNumber}
+                onChange={(e) => setUnitNumber(e.target.value)}
+                placeholder="Ex.: 6"
+              />
+            </div>
+          </section>
+
+          {/* Nome do documento (opcional) */}
+          <section className="space-y-1">
             <label className="text-xs uppercase tracking-wide text-zinc-400">
-              Episódio / Capítulo / Documento #
+              Nome do documento (opcional)
             </label>
             <input
               className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-              value={unitNumber}
-              onChange={(e) => setUnitNumber(e.target.value)}
-              placeholder="Ex.: 6"
+              value={documentName}
+              onChange={(e) => setDocumentName(e.target.value)}
+              placeholder="Ex.: Episódio 6 — A Geladeira"
             />
-          </div>
-        </section>
+          </section>
 
-        {/* Nome do documento (opcional) */}
-        <section className="space-y-1">
-          <label className="text-xs uppercase tracking-wide text-zinc-400">
-            Nome do documento (opcional)
-          </label>
-          <input
-            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-            value={documentName}
-            onChange={(e) => setDocumentName(e.target.value)}
-            placeholder="Ex.: Episódio 6 — A Geladeira"
-          />
-        </section>
+          {/* Texto */}
+          <section className="space-y-1">
+            <label className="text-xs uppercase tracking-wide text-zinc-400">
+              Texto do episódio / capítulo
+            </label>
+            <textarea
+              className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Cole aqui o texto a ser analisado..."
+            />
+          </section>
 
-        {/* Texto */}
-        <section className="space-y-1">
-          <label className="text-xs uppercase tracking-wide text-zinc-400">
-            Texto do episódio / capítulo
-          </label>
-          <textarea
-            className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Cole aqui o texto a ser analisado..."
-          />
-        </section>
-
-        {/* Botão de extrair */}
-        <div className="flex justify-center">
-          <button
-            onClick={handleExtractFichas}
-            disabled={isExtracting}
-            className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium"
-          >
-            {isExtracting ? "Extraindo fichas..." : "Extrair fichas"}
-          </button>
-        </div>
-
-        {/* Fichas sugeridas */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
-              Fichas sugeridas ({suggestedFichas.length})
-            </h2>
-            {suggestedFichas.length > 0 && (
-              <button
-                onClick={handleClearAll}
-                className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline"
-              >
-                Limpar todas
-              </button>
-            )}
+          {/* Botão de extrair */}
+          <div className="flex justify-center">
+            <button
+              onClick={handleExtractFichas}
+              disabled={isExtracting}
+              className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium"
+            >
+              {isExtracting ? "Extraindo fichas..." : "Extrair fichas"}
+            </button>
           </div>
 
-          {suggestedFichas.length === 0 && (
-            <p className="text-xs text-zinc-500">
-              Nenhuma ficha sugerida ainda. Extraia fichas a partir de um texto
-              para começar.
-            </p>
-          )}
-
-          <div className="space-y-2">
-            {suggestedFichas.map((ficha) => (
-              <div
-                key={ficha.id}
-                className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="font-medium">
-                      {ficha.titulo || "(sem título)"}
-                    </div>
-                    <div className="text-[11px] uppercase tracking-wide text-zinc-500">
-                      {ficha.tipo || "conceito"}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {ficha.codigo && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
-                        {ficha.codigo}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleEditFicha(ficha.id)}
-                      className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => handleRemoveFicha(ficha.id)}
-                      className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40"
-                    >
-                      Remover
-                    </button>
-                  </div>
-                </div>
-                {ficha.resumo && (
-                  <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
-                    {ficha.resumo}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {suggestedFichas.length > 0 && (
-            <div className="pt-3 flex justify-center">
-              <button
-                onClick={handleSaveFichas}
-                disabled={isSaving}
-                className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium"
-              >
-                {isSaving ? "Salvando fichas..." : "Salvar fichas"}
-              </button>
+          {/* Fichas sugeridas */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
+                Fichas sugeridas ({suggestedFichas.length})
+              </h2>
+              {suggestedFichas.length > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline"
+                >
+                  Limpar todas
+                </button>
+              )}
             </div>
-          )}
-        </section>
-      </main>
 
-      {/* Modal de edição de ficha */}
+            {suggestedFichas.length === 0 && (
+              <p className="text-xs text-zinc-500">
+                Nenhuma ficha sugerida ainda. Extraia fichas a partir de um texto
+                para começar.
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {suggestedFichas.map((ficha) => (
+                <div
+                  key={ficha.id}
+                  className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">
+                        {ficha.titulo || "(sem título)"}
+                      </div>
+                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                        {ficha.tipo || "conceito"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {ficha.codigo && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
+                          {ficha.codigo}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleEditFicha(ficha.id)}
+                        className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleRemoveFicha(ficha.id)}
+                        className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                  {ficha.resumo && (
+                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
+                      {ficha.resumo}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {suggestedFichas.length > 0 && (
+              <div className="pt-3 flex justify-center">
+                <button
+                  onClick={handleSaveFichas}
+                  disabled={isSaving}
+                  className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium"
+                >
+                  {isSaving ? "Salvando fichas..." : "Salvar fichas"}
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Modal de edição */}
       {editingFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
