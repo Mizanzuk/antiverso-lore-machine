@@ -210,7 +210,6 @@ export default function Page() {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // intervalo que controla o "digitar" da resposta
   const typingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -384,7 +383,6 @@ export default function Page() {
     const value = input.trim();
     if (!value || loading || !activeSession) return;
 
-    // se já houver um streaming rolando, interrompe
     if (typingIntervalRef.current !== null) {
       window.clearInterval(typingIntervalRef.current);
       typingIntervalRef.current = null;
@@ -412,7 +410,6 @@ export default function Page() {
 
     setInput("");
 
-    // adiciona mensagem do usuário + bolha vazia do Or
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSession.id) return s;
@@ -430,6 +427,7 @@ export default function Page() {
           ...s,
           title: newTitle,
           messages: updatedMessages,
+          mode: s.mode ?? "consulta",
         };
       })
     );
@@ -475,10 +473,9 @@ export default function Page() {
           ? data.reply
           : "Algo deu errado ao gerar a resposta.";
 
-      // efeito de "digitando" na bolha já existente
       let index = 0;
-      const step = 10; // caracteres por tick
-      const delay = 20; // ms entre ticks
+      const step = 10;
+      const delay = 20;
 
       typingIntervalRef.current = window.setInterval(() => {
         index += step;
@@ -518,7 +515,6 @@ export default function Page() {
       const errorText =
         "Houve um erro ao falar com Or. Verifique se suas chaves estão corretas e tente novamente.";
 
-      // em caso de erro, escreve a mensagem de erro na bolha placeholder
       setSessions((prev) =>
         prev.map((s) =>
           s.id === activeSession.id
@@ -772,6 +768,12 @@ export default function Page() {
                   {filteredSessions.map((session) => {
                     const isActive = activeSession?.id === session.id;
                     const isRenaming = renamingSessionId === session.id;
+                    const sessionMode: ChatMode =
+                      (session.mode as ChatMode) ?? "consulta";
+                    const modeLabel =
+                      sessionMode === "consulta"
+                        ? "Consulta"
+                        : "Criativo";
                     return (
                       <div
                         key={session.id}
@@ -814,9 +816,23 @@ export default function Page() {
                                 )}
                               </div>
                               <div className="text-[10px] text-gray-500 truncate">
-                                {new Date(session.createdAt).toLocaleString()}
+                                {new Date(
+                                  session.createdAt
+                                ).toLocaleString()}
                               </div>
                             </div>
+
+                            {/* Selo de modo da conversa */}
+                            <span
+                              className={clsx(
+                                "ml-1 flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border",
+                                sessionMode === "consulta"
+                                  ? "border-emerald-400 text-emerald-200 bg-emerald-500/10"
+                                  : "border-purple-400 text-purple-200 bg-purple-500/10"
+                              )}
+                            >
+                              {modeLabel}
+                            </span>
                           </div>
                         </button>
                         <div className="flex items-center gap-1">
