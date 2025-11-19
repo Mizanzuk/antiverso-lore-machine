@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, ChangeEvent } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type World = {
@@ -120,7 +120,6 @@ export default function LoreUploadPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
-
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
   // Carrega mundos
@@ -144,6 +143,55 @@ export default function LoreUploadPage() {
 
     fetchWorlds();
   }, []);
+
+  async function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+
+    if (value === "create_new") {
+      const nome = window.prompt("Nome do novo mundo:");
+      if (!nome) return;
+
+      const baseId = nome
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const existingIds = new Set(worlds.map((w) => w.id));
+      let newId = baseId || "mundo_novo";
+      let suffix = 2;
+      while (existingIds.has(newId)) {
+        newId = `${baseId || "mundo_novo"}_${suffix}`;
+        suffix++;
+      }
+
+      const { data, error } = await supabaseBrowser
+        .from("worlds")
+        .insert([
+          {
+            id: newId,
+            nome,
+            descricao: "",
+            tipo: "mundo_ficcional",
+          },
+        ])
+        .select("id, nome")
+        .single();
+
+      if (error) {
+        console.error("Erro ao criar mundo:", error);
+        alert("Erro ao criar mundo. Veja o console.");
+        return;
+      }
+
+      const criado = data as World;
+      setWorlds((prev) => [...prev, criado]);
+      setSelectedWorldId(criado.id);
+    } else {
+      setSelectedWorldId(value);
+    }
+  }
 
   function handleEditFicha(fichaId: string) {
     const ficha = suggestedFichas.find((f) => f.id === fichaId) || null;
@@ -215,9 +263,10 @@ export default function LoreUploadPage() {
       const typeCounters: Record<string, number> = {};
 
       const mapped: SuggestedFicha[] = extracted.map((raw: any) => {
-        const id = (typeof crypto !== "undefined" && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : Math.random().toString(36).slice(2);
+        const id =
+          typeof crypto !== "undefined" && (crypto as any).randomUUID
+            ? (crypto as any).randomUUID()
+            : Math.random().toString(36).slice(2);
 
         const tipoNormalizado = normalizeTipo(raw.tipo || "conceito");
         const typePrefix = getTypePrefix(tipoNormalizado);
@@ -230,7 +279,7 @@ export default function LoreUploadPage() {
             : "";
 
         const tagsArray = Array.isArray(raw.tags) ? raw.tags : [];
-        const tagsStr = tagsArray.join(", ");
+        const tagsStr = tagsArray.join(", "");
 
         return {
           id,
@@ -246,9 +295,10 @@ export default function LoreUploadPage() {
 
       // Caso não venha nada da API, ainda assim permitir criar uma ficha manual
       if (mapped.length === 0) {
-        const id = (typeof crypto !== "undefined" && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : Math.random().toString(36).slice(2);
+        const id =
+          typeof crypto !== "undefined" && (crypto as any).randomUUID
+            ? (crypto as any).randomUUID()
+            : Math.random().toString(36).slice(2);
 
         mapped.push(createEmptyFicha(id));
       }
@@ -365,13 +415,14 @@ export default function LoreUploadPage() {
             <select
               className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
               value={selectedWorldId}
-              onChange={(e) => setSelectedWorldId(e.target.value)}
+              onChange={handleWorldChange}
             >
               {worlds.map((world) => (
                 <option key={world.id} value={world.id}>
                   {world.nome ?? world.id}
                 </option>
               ))}
+              <option value="create_new">+ Novo mundo...</option>
             </select>
           </div>
 
@@ -456,7 +507,9 @@ export default function LoreUploadPage() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <div className="font-medium">{ficha.titulo || "(sem título)"}</div>
+                    <div className="font-medium">
+                      {ficha.titulo || "(sem título)"}
+                    </div>
                     <div className="text-[11px] uppercase tracking-wide text-zinc-500">
                       {ficha.tipo || "conceito"}
                     </div>
