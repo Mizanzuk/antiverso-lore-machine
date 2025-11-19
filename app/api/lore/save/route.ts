@@ -26,7 +26,7 @@ type WorldRow = {
 function slugify(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -51,7 +51,7 @@ function getWorldPrefix(world: WorldRow): string {
   const nameKey = (world.nome || "")
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
   if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
@@ -83,7 +83,7 @@ function getTypePrefix(tipo: string): string {
   const key = tipo
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
   if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
@@ -114,7 +114,7 @@ async function generateAutomaticCode(opts: {
   const basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
 
   // busca códigos existentes com mesmo prefixo, para descobrir o próximo número
-  const { data: existing, error } = await supabaseAdmin
+  const { data: existing, error } = await supabaseAdmin!
     .from("codes")
     .select("code")
     .ilike("code", `${basePrefix}%`);
@@ -140,7 +140,7 @@ async function generateAutomaticCode(opts: {
 
   const finalCode = `${basePrefix}${nextNumber}`;
 
-  const { error: insertCodeError } = await supabaseAdmin.from("codes").insert({
+  const { error: insertCodeError } = await supabaseAdmin!.from("codes").insert({
     ficha_id: fichaId,
     code: finalCode,
     label: "",
@@ -152,7 +152,7 @@ async function generateAutomaticCode(opts: {
     return null;
   }
 
-  const { error: updateFichaError } = await supabaseAdmin
+  const { error: updateFichaError } = await supabaseAdmin!
     .from("fichas")
     .update({ codigo: finalCode })
     .eq("id", fichaId);
@@ -180,7 +180,7 @@ async function applyCodeForFicha(opts: {
 
   // Se o usuário enviou um código manual não vazio, usamos ele.
   if (trimmed.length > 0) {
-    const { error: insertManualError } = await supabaseAdmin.from("codes").insert({
+    const { error: insertManualError } = await supabaseAdmin!.from("codes").insert({
       ficha_id: fichaId,
       code: trimmed,
       label: "",
@@ -191,7 +191,7 @@ async function applyCodeForFicha(opts: {
       console.error("Erro ao inserir código manual em 'codes':", insertManualError);
     }
 
-    const { error: updateFichaError } = await supabaseAdmin
+    const { error: updateFichaError } = await supabaseAdmin!
       .from("fichas")
       .update({ codigo: trimmed })
       .eq("id", fichaId);
@@ -214,6 +214,13 @@ async function applyCodeForFicha(opts: {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { error: "Supabase Admin não configurado no servidor." },
+        { status: 500 },
+      );
+    }
+
     const body = await req.json();
 
     const worldId = String(body.worldId || "").trim();
@@ -228,7 +235,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Buscar mundo
-    const { data: worldRow, error: worldError } = await supabaseAdmin
+    const { data: worldRow, error: worldError } = await supabaseAdmin!
       .from("worlds")
       .select("id, nome, descricao, tipo")
       .eq("id", worldId)
@@ -254,13 +261,13 @@ export async function POST(req: NextRequest) {
       const tipoNormalizado = (ficha.tipo || "conceito")
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
+        .replace(/[\u0300-\u036f]/g, "")
         .trim();
 
       const slug = slugify(titulo);
       const tagsStr = (ficha.tags || []).join(", ");
 
-      const { data: inserted, error: insertError } = await supabaseAdmin
+      const { data: inserted, error: insertError } = await supabaseAdmin!
         .from("fichas")
         .insert({
           world_id: world.id,
