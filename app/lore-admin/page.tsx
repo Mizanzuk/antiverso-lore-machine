@@ -107,6 +107,7 @@ export default function LoreAdminPage() {
     ano_diegese: string;
     ordem_cronologica: string;
     aparece_em: string;
+    codigo: string;
   }>({
     id: "",
     titulo: "",
@@ -118,6 +119,7 @@ export default function LoreAdminPage() {
     ano_diegese: "",
     ordem_cronologica: "",
     aparece_em: "",
+    codigo: "",
   });
 
   const [codeFormMode, setCodeFormMode] =
@@ -407,6 +409,7 @@ export default function LoreAdminPage() {
       ano_diegese: "",
       ordem_cronologica: "",
       aparece_em: "",
+      codigo: "",
     });
   }
 
@@ -425,6 +428,7 @@ export default function LoreAdminPage() {
         ? String(ficha.ordem_cronologica)
         : "",
       aparece_em: ficha.aparece_em ?? "",
+      codigo: ficha.codigo ?? "",
     });
   }
 
@@ -441,6 +445,7 @@ export default function LoreAdminPage() {
       ano_diegese: "",
       ordem_cronologica: "",
       aparece_em: "",
+      codigo: "",
     });
   }
 
@@ -468,7 +473,18 @@ export default function LoreAdminPage() {
       resumo: fichaForm.resumo.trim() || null,
       conteudo: fichaForm.conteudo.trim() || null,
       tags: fichaForm.tags.trim() || null,
+      ano_diegese: fichaForm.ano_diegese.trim()
+        ? Number.isNaN(Number(fichaForm.ano_diegese.trim()))
+          ? fichaForm.ano_diegese.trim()
+          : Number(fichaForm.ano_diegese.trim())
+        : null,
+      ordem_cronologica: fichaForm.ordem_cronologica.trim()
+        ? Number.isNaN(Number(fichaForm.ordem_cronologica.trim()))
+          ? fichaForm.ordem_cronologica.trim()
+          : Number(fichaForm.ordem_cronologica.trim())
+        : null,
       aparece_em: fichaForm.aparece_em.trim() || null,
+      codigo: fichaForm.codigo.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -506,19 +522,6 @@ export default function LoreAdminPage() {
     );
     if (!ok) return;
 
-    // Primeiro remove todos os códigos associados à ficha
-    const { error: deleteCodesError } = await supabaseBrowser
-      .from("codes")
-      .delete()
-      .eq("ficha_id", fichaId);
-
-    if (deleteCodesError) {
-      console.error(deleteCodesError);
-      setError("Erro ao deletar Códigos da Ficha.");
-      return;
-    }
-
-    // Depois remove a própria ficha
     const { error: deleteError } = await supabaseBrowser
       .from("fichas")
       .delete()
@@ -840,7 +843,7 @@ export default function LoreAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-neutral-100 flex flex-col">
+    <div className="h-screen bg-black text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a
@@ -1144,6 +1147,15 @@ export default function LoreAdminPage() {
                   <div className="text-[11px] text-neutral-500">Slug</div>
                   <div className="text-[12px] text-neutral-300">
                     {selectedFicha.slug}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.codigo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Código</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.codigo}
                   </div>
                 </div>
               )}
@@ -1619,7 +1631,26 @@ export default function LoreAdminPage() {
                 <label className="text-[11px] text-neutral-500">
                   Tipo (categoria)
                 </label>
-                <select
+   
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Código da ficha</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.codigo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    codigo: e.target.value,
+                  }))
+                }
+                placeholder="Deixe em branco para usar o código gerado automaticamente (ex: AV7-PS3)…"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                A Lore Machine pode gerar esse código automaticamente com base no Mundo, episódio e tipo.
+                Aqui você pode ajustar manualmente se precisar.
+              </p>
+            </div>
+             <select
                   className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                   value={fichaForm.tipo}
                   onChange={(e) => {
