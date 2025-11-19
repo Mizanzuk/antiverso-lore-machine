@@ -1,10 +1,9 @@
-
-import type { Metadata } from "next";
 import "./globals.css";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "AntiVerso Lore Machine",
-  description: "Chat com Or sobre o AntiVerso, com RAG em cima da sua bíblia de lore.",
+  description: "Ferramenta de administração e upload para o AntiVerso",
 };
 
 export default function RootLayout({
@@ -14,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body className="h-screen w-screen overflow-hidden bg-[#050509] text-gray-100">
+      <body className="min-h-screen w-screen overflow-y-auto bg-[#050509] text-gray-100">
         {children}
       </body>
     </html>
