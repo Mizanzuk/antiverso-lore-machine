@@ -1,8 +1,8 @@
+
 "use client";
 
 import { useEffect, useState, ChangeEvent } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-
 
 const KNOWN_TIPOS = [
   "personagem",
@@ -38,7 +38,6 @@ type World = {
   ordem?: number | null;
 };
 
-
 export default function LoreUploadPage() {
   const [worldId, setWorldId] = useState("");
   const [worlds, setWorlds] = useState<World[]>([]);
@@ -51,7 +50,6 @@ export default function LoreUploadPage() {
   const [saving, setSaving] = useState(false);
 
   const [modalFicha, setModalFicha] = useState<FichaSugerida | null>(null);
-
 
   useEffect(() => {
     const loadWorlds = async () => {
@@ -117,7 +115,7 @@ export default function LoreUploadPage() {
       setWorldId(value);
     }
   };
-  
+
   async function handleExtract() {
     if (!textInput.trim() || !worldId || !unitNumber) return;
     setLoading(true);
@@ -161,6 +159,19 @@ export default function LoreUploadPage() {
     );
   }
 
+  const handleDeleteFicha = (index: number) => {
+    setFichas((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleClearFichas = () => {
+    if (!fichas.length) return;
+    const ok = window.confirm(
+      "Tem certeza que deseja limpar todas as fichas sugeridas? O texto do episódio continuará intacto."
+    );
+    if (!ok) return;
+    setFichas([]);
+  };
+
   async function handleSave() {
     if (!worldId || !unitNumber) {
       alert("Selecione o Mundo e o Número de episódio/capítulo.");
@@ -196,18 +207,17 @@ export default function LoreUploadPage() {
     }
   }
 
-
   const tipoOptions = Array.from(
     new Set<string>([
       ...KNOWN_TIPOS,
       ...fichas
         .map((f) => (f.tipo || "").toLowerCase())
         .filter((t) => !!t),
-    ]),
+    ])
   ).sort();
+
   return (
     <div className="min-h-screen bg-[#0b0b0d] text-gray-100 flex flex-col">
-
       {/* 🔹 TOPO FIXO - VOLTAR À HOME E IR PARA CATÁLOGO */}
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
         <div className="flex items-center gap-4">
@@ -226,8 +236,8 @@ export default function LoreUploadPage() {
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6 space-y-4">
         <h1 className="text-xl font-bold">Upload de Texto</h1>
         <p className="text-sm text-gray-400 leading-relaxed">
-          Envie o texto de um episódio, capítulo ou documento.
-          A Lore Machine extrai automaticamente fichas pertencentes ao Mundo escolhido,
+          Envie o texto de um episódio, capítulo ou documento. A Lore Machine
+          extrai automaticamente fichas pertencentes ao Mundo escolhido,
           permitindo editar cada ficha antes de salvar no banco.
         </p>
 
@@ -278,14 +288,23 @@ export default function LoreUploadPage() {
 
         {fichas.length > 0 && (
           <div className="mt-6 space-y-4">
-            <h2 className="text-lg font-semibold">
-              Fichas sugeridas ({fichas.length})
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                Fichas sugeridas ({fichas.length})
+              </h2>
+
+              <button
+                onClick={handleClearFichas}
+                className="text-xs px-2 py-1 rounded-md border border-red-500/60 text-red-300 hover:bg-red-500/10 transition"
+              >
+                Limpar todas
+              </button>
+            </div>
 
             <div className="space-y-3">
-              {fichas.map((f) => (
+              {fichas.map((f, index) => (
                 <div
-                  key={f.titulo}
+                  key={`${f.titulo}-${index}`}
                   className="border border-white/10 bg-black/30 rounded-md p-3 text-sm"
                 >
                   <div className="flex items-center justify-between">
@@ -295,12 +314,20 @@ export default function LoreUploadPage() {
                         {f.tipo}
                       </span>
                     </div>
-                    <button
-                      onClick={() => openEditModal(f)}
-                      className="text-[11px] text-blue-300 hover:text-blue-100"
-                    >
-                      Editar
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openEditModal(f)}
+                        className="text-[11px] text-blue-300 hover:text-blue-100"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDeleteFicha(index)}
+                        className="text-[11px] text-red-400 hover:text-red-200"
+                      >
+                        Remover
+                      </button>
+                    </div>
                   </div>
 
                   {f.resumo && (
@@ -344,7 +371,7 @@ export default function LoreUploadPage() {
                 if (value === "__novo__") {
                   const novo = window.prompt(
                     "Digite o novo tipo/categoria (ex: personagem, local, conceito…):",
-                    modalFicha.tipo || "",
+                    modalFicha.tipo || ""
                   );
                   if (novo && novo.trim()) {
                     setModalFicha({
@@ -403,9 +430,19 @@ export default function LoreUploadPage() {
               className="w-full bg-black/40 border border-white/15 px-3 py-2 rounded-md text-sm"
             />
 
+            {/* Campo de código (somente leitura, gerado automaticamente pelo backend) */}
+            <input
+              value={modalFicha.codigo ?? ""}
+              readOnly
+              placeholder="Código da ficha (gerado automaticamente)"
+              className="w-full bg-black/30 border border-dashed border-white/20 px-3 py-2 rounded-md text-xs text-gray-300"
+            />
+
             <button
               onClick={() => {
-                updateFichaInList(modalFicha);
+                if (modalFicha) {
+                  updateFichaInList(modalFicha);
+                }
                 closeEditModal();
               }}
               className="w-full py-2 rounded-md bg-blue-600 hover:bg-blue-700 transition"
