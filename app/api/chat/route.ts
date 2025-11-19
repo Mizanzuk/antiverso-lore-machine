@@ -38,7 +38,8 @@ export async function POST(req: NextRequest) {
       "Resuma a conversa e responda da melhor forma possível com base no AntiVerso.";
 
     // Busca trechos relevantes no banco de lore
-    const loreResults = await searchLore(userQuestion, 8);
+    // ✅ AQUI ESTAVA O ERRO: segundo argumento deve ser um OBJETO, não o número puro
+    const loreResults = await searchLore(userQuestion, { limit: 8 });
 
     const loreContext =
       loreResults && loreResults.length > 0
@@ -75,8 +76,7 @@ ${chunk.content}`
       completion.choices[0]?.message?.content ??
       "Não consegui gerar uma resposta no momento.";
 
-    // IMPORTANTE: volta a responder em JSON,
-    // compatível com o front que faz `const data = await res.json()`
+    // Resposta em JSON, compatível com o front atual
     return NextResponse.json({
       reply,
       sources: loreResults ?? [],
