@@ -468,16 +468,6 @@ export default function LoreAdminPage() {
       resumo: fichaForm.resumo.trim() || null,
       conteudo: fichaForm.conteudo.trim() || null,
       tags: fichaForm.tags.trim() || null,
-      ano_diegese: fichaForm.ano_diegese.trim()
-        ? Number.isNaN(Number(fichaForm.ano_diegese.trim()))
-          ? fichaForm.ano_diegese.trim()
-          : Number(fichaForm.ano_diegese.trim())
-        : null,
-      ordem_cronologica: fichaForm.ordem_cronologica.trim()
-        ? Number.isNaN(Number(fichaForm.ordem_cronologica.trim()))
-          ? fichaForm.ordem_cronologica.trim()
-          : Number(fichaForm.ordem_cronologica.trim())
-        : null,
       aparece_em: fichaForm.aparece_em.trim() || null,
       updated_at: new Date().toISOString(),
     };
@@ -516,6 +506,19 @@ export default function LoreAdminPage() {
     );
     if (!ok) return;
 
+    // Primeiro remove todos os códigos associados à ficha
+    const { error: deleteCodesError } = await supabaseBrowser
+      .from("codes")
+      .delete()
+      .eq("ficha_id", fichaId);
+
+    if (deleteCodesError) {
+      console.error(deleteCodesError);
+      setError("Erro ao deletar Códigos da Ficha.");
+      return;
+    }
+
+    // Depois remove a própria ficha
     const { error: deleteError } = await supabaseBrowser
       .from("fichas")
       .delete()
