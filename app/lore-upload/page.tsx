@@ -388,10 +388,26 @@ export default function LoreUploadPage() {
 
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
 
+  
   return (
-    <div className="min-h-screen bg-black text-zinc-100">
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-        <header className="space-y-2">
+    <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
+      {/* 🔹 TOPO FIXO - VOLTAR À HOME E IR PARA CATÁLOGO */}
+      <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
+        <div className="flex items-center gap-4">
+          <a href="/" className="text-xs text-gray-300 hover:text-white">
+            ← Voltar à Home
+          </a>
+          <a
+            href="/lore-admin"
+            className="text-[11px] text-gray-400 hover:text-white"
+          >
+            Ir para Catálogo
+          </a>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
+<header className="space-y-2">
           <h1 className="text-2xl font-semibold">Upload de Texto</h1>
           <p className="text-sm text-zinc-400">
             Envie o texto de um episódio, capítulo ou documento. A Lore Machine
@@ -555,7 +571,7 @@ export default function LoreUploadPage() {
             </div>
           )}
         </section>
-      </div>
+      </main>
 
       {/* Modal de edição de ficha */}
       {editingFicha && (
