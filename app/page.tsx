@@ -123,7 +123,7 @@ function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
 
   const allowedNonSystem = Math.max(
     0,
-    MAX_MESSAGES_PER_SESSION - systemMessages.length,
+    MAX_MESSAGES_PER_SESSION - systemMessages.length
   );
   const tailNonSystem = nonSystem.slice(-allowedNonSystem);
 
@@ -140,7 +140,7 @@ function buildTitleFromQuestion(text: string): string {
     .filter(Boolean);
 
   const keywords = raw.filter(
-    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase()),
+    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())
   );
 
   if (keywords.length === 0) {
@@ -149,7 +149,7 @@ function buildTitleFromQuestion(text: string): string {
 
   const picked = keywords.slice(0, 4);
   const titled = picked.map(
-    (w) => w.charAt(0).toUpperCase() + w.slice(1),
+    (w) => w.charAt(0).toUpperCase() + w.slice(1)
   );
 
   return titled.join(" · ");
@@ -188,7 +188,7 @@ export default function Page() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
-    null,
+    null
   );
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -210,6 +210,9 @@ export default function Page() {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
+  // intervalo que controla o "digitar" da resposta
+  const typingIntervalRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id);
@@ -225,7 +228,7 @@ export default function Page() {
       }));
       window.localStorage.setItem(
         SESSION_STORAGE_KEY,
-        JSON.stringify(sanitized),
+        JSON.stringify(sanitized)
       );
     } catch (err) {
       console.error("Falha ao salvar histórico no localStorage", err);
@@ -242,7 +245,7 @@ export default function Page() {
     const q = normalize(historySearchTerm);
     const inTitle = normalize(s.title).includes(q);
     const inMessages = s.messages.some((m) =>
-      normalize(m.content).includes(q),
+      normalize(m.content).includes(q)
     );
     return inTitle || inMessages;
   });
@@ -268,7 +271,7 @@ export default function Page() {
       } catch (err) {
         console.error(err);
         setCatalogError(
-          "Não foi possível carregar o catálogo do AntiVerso agora.",
+          "Não foi possível carregar o catálogo do AntiVerso agora."
         );
       } finally {
         setLoadingCatalog(false);
@@ -303,7 +306,7 @@ export default function Page() {
               {applyBoldInline(item)}
             </li>
           ))}
-        </ul>,
+        </ul>
       );
       currentList = [];
     };
@@ -320,7 +323,7 @@ export default function Page() {
               className="text-sm font-semibold mt-3 mb-1 text-gray-100"
             >
               {applyBoldInline(content)}
-            </h3>,
+            </h3>
           );
         }
         return;
@@ -344,7 +347,7 @@ export default function Page() {
           className="mb-2 last:mb-0 leading-relaxed text-gray-100"
         >
           {applyBoldInline(line)}
-        </p>,
+        </p>
       );
     });
 
@@ -381,6 +384,12 @@ export default function Page() {
     const value = input.trim();
     if (!value || loading || !activeSession) return;
 
+    // se já houver um streaming rolando, interrompe
+    if (typingIntervalRef.current !== null) {
+      window.clearInterval(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+
     const newUserMessage: ChatMessage = {
       id:
         typeof crypto !== "undefined"
@@ -390,18 +399,28 @@ export default function Page() {
       content: value,
     };
 
-    const activeId = activeSession.id;
+    const placeholderId =
+      typeof crypto !== "undefined"
+        ? crypto.randomUUID()
+        : `${Date.now()}-assistant-placeholder`;
+
+    const placeholderAssistant: ChatMessage = {
+      id: placeholderId,
+      role: "assistant",
+      content: "",
+    };
 
     setInput("");
 
-    // Atualiza sessão com a mensagem do usuário e ajusta o título
+    // adiciona mensagem do usuário + bolha vazia do Or
     setSessions((prev) =>
       prev.map((s) => {
-        if (s.id !== activeId) return s;
+        if (s.id !== activeSession.id) return s;
         const hadUserBefore = s.messages.some((m) => m.role === "user");
         const updatedMessages = trimMessagesForStorage([
           ...s.messages,
           newUserMessage,
+          placeholderAssistant,
         ]);
         let newTitle = s.title;
         if (!hadUserBefore && s.title === "Nova conversa") {
@@ -412,11 +431,11 @@ export default function Page() {
           title: newTitle,
           messages: updatedMessages,
         };
-      }),
+      })
     );
 
-    setLoading(true);
     setViewMode("chat");
+    setLoading(true);
 
     try {
       const systemPromptConsulta =
@@ -446,92 +465,73 @@ export default function Page() {
         body: JSON.stringify({ messages: payloadMessages }),
       });
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         throw new Error("Erro ao chamar /api/chat");
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
+      const data = await res.json();
+      const fullReply: string =
+        typeof data?.reply === "string"
+          ? data.reply
+          : "Algo deu errado ao gerar a resposta.";
 
-      // Cria mensagem vazia do assistant para receber o streaming
-      const assistantId =
-        typeof crypto !== "undefined"
-          ? crypto.randomUUID()
-          : `${Date.now()}-assistant`;
+      // efeito de "digitando" na bolha já existente
+      let index = 0;
+      const step = 10; // caracteres por tick
+      const delay = 20; // ms entre ticks
 
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== activeId) return s;
-          const assistantMsg: ChatMessage = {
-            id: assistantId,
-            role: "assistant",
-            content: "",
-          };
-          return {
-            ...s,
-            messages: trimMessagesForStorage([...s.messages, assistantMsg]),
-          };
-        }),
-      );
+      typingIntervalRef.current = window.setInterval(() => {
+        index += step;
+        const slice = fullReply.slice(0, index);
 
-      let fullText = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        if (!chunk) continue;
-
-        fullText += chunk;
-
-        const partial = fullText;
         setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id !== activeId) return s;
-            return {
-              ...s,
-              messages: s.messages.map((m) =>
-                m.id === assistantId ? { ...m, content: partial } : m,
-              ),
-            };
-          }),
+          prev.map((s) =>
+            s.id === activeSession.id
+              ? {
+                  ...s,
+                  messages: s.messages.map((m) =>
+                    m.id === placeholderId ? { ...m, content: slice } : m
+                  ),
+                }
+              : s
+          )
         );
 
         scrollToBottom();
-      }
 
-      // Trim final para não deixar o histórico crescer demais
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== activeId) return s;
-          return {
-            ...s,
-            messages: trimMessagesForStorage(s.messages),
-          };
-        }),
-      );
+        if (index >= fullReply.length) {
+          if (typingIntervalRef.current !== null) {
+            window.clearInterval(typingIntervalRef.current);
+            typingIntervalRef.current = null;
+          }
+          setLoading(false);
+        }
+      }, delay);
     } catch (err) {
       console.error(err);
-      const errorMsg: ChatMessage = {
-        id:
-          typeof crypto !== "undefined"
-            ? crypto.randomUUID()
-            : `${Date.now()}-error`,
-        role: "assistant",
-        content:
-          "Houve um erro ao falar com Or. Verifique se suas chaves estão corretas e tente novamente.",
-      };
+
+      if (typingIntervalRef.current !== null) {
+        window.clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+
+      const errorText =
+        "Houve um erro ao falar com Or. Verifique se suas chaves estão corretas e tente novamente.";
+
+      // em caso de erro, escreve a mensagem de erro na bolha placeholder
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === activeId
+          s.id === activeSession.id
             ? {
                 ...s,
-                messages: trimMessagesForStorage([...s.messages, errorMsg]),
+                messages: s.messages.map((m) =>
+                  m.id === placeholderId ? { ...m, content: errorText } : m
+                ),
               }
-            : s,
-        ),
+            : s
+        )
       );
-    } finally {
+
       setLoading(false);
     }
   }
@@ -570,8 +570,8 @@ export default function Page() {
     if (!activeSession) return;
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === activeSession.id ? { ...s, mode: newMode } : s,
-      ),
+        s.id === activeSession.id ? { ...s, mode: newMode } : s
+      )
     );
   }
 
@@ -599,8 +599,8 @@ export default function Page() {
     }
     setSessions((prev) =>
       prev.map((s) =>
-        s.id === renamingSessionId ? { ...s, title: newTitle } : s,
-      ),
+        s.id === renamingSessionId ? { ...s, title: newTitle } : s
+      )
     );
     setRenamingSessionId(null);
     setRenameDraft("");
@@ -679,14 +679,14 @@ export default function Page() {
 
   const totalPages = Math.max(
     1,
-    Math.ceil(filteredEntitiesAll.length / itemsPerPage),
+    Math.ceil(filteredEntitiesAll.length / itemsPerPage)
   );
   const safePage =
     currentPage > totalPages ? totalPages : Math.max(1, currentPage);
   const startIndex = (safePage - 1) * itemsPerPage;
   const pageEntities = filteredEntitiesAll.slice(
     startIndex,
-    startIndex + itemsPerPage,
+    startIndex + itemsPerPage
   );
 
   function getWorldName(worldId?: string | null): string | null {
@@ -715,7 +715,7 @@ export default function Page() {
               "px-2 py-1 rounded-md border",
               p === safePage
                 ? "bg-white/20 border-white text-white"
-                : "bg-transparent border-white/20 hover:bg-white/10",
+                : "bg-transparent border-white/20 hover:bg-white/10"
             )}
           >
             {p}
@@ -779,7 +779,7 @@ export default function Page() {
                           "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
-                            : "bg-transparent",
+                            : "bg-transparent"
                         )}
                       >
                         <button
@@ -814,9 +814,7 @@ export default function Page() {
                                 )}
                               </div>
                               <div className="text-[10px] text-gray-500 truncate">
-                                {new Date(
-                                  session.createdAt,
-                                ).toLocaleString()}
+                                {new Date(session.createdAt).toLocaleString()}
                               </div>
                             </div>
                           </div>
@@ -912,7 +910,7 @@ export default function Page() {
                   "px-2 py-1 rounded-full border text-xs",
                   mode === "consulta"
                     ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
-                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10",
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
                 )}
               >
                 Consulta
@@ -923,7 +921,7 @@ export default function Page() {
                   "px-2 py-1 rounded-full border text-xs",
                   mode === "criativo"
                     ? "bg-purple-600/30 border-purple-400 text-purple-100"
-                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10",
+                    : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10"
                 )}
               >
                 Criativo
@@ -937,7 +935,7 @@ export default function Page() {
                   "px-2 py-1 rounded-full text-[11px]",
                   viewMode === "chat"
                     ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10",
+                    : "text-gray-300 hover:bg-white/10"
                 )}
               >
                 Chat
@@ -948,7 +946,7 @@ export default function Page() {
                   "px-2 py-1 rounded-full text-[11px]",
                   viewMode === "catalog"
                     ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10",
+                    : "text-gray-300 hover:bg-white/10"
                 )}
               >
                 Catálogo
@@ -970,7 +968,7 @@ export default function Page() {
                     key={msg.id}
                     className={clsx(
                       "flex",
-                      msg.role === "user" ? "justify-end" : "justify-start",
+                      msg.role === "user" ? "justify-end" : "justify-start"
                     )}
                   >
                     <div
@@ -978,7 +976,7 @@ export default function Page() {
                         "rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed",
                         msg.role === "user"
                           ? "bg-blue-600 text-white"
-                          : "bg-white/5 text-gray-100 border border-white/10",
+                          : "bg-white/5 text-gray-100 border border-white/10"
                       )}
                     >
                       {msg.role === "user" ? (
