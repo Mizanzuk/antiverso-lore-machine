@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, ChangeEvent } from "react";
@@ -20,17 +19,19 @@ type SuggestedFicha = {
   codigo: string;
 };
 
+// Prefixos fixos conhecidos por mundo
 const WORLD_PREFIX_MAP: Record<string, string> = {
+  antiverso: "AN",
   arquivos_vermelhos: "AV",
   torre_de_vera_cruz: "TVC",
-  evangelho_de_or: "EO",
-  culto_de_or: "CO",
   a_sala: "AS",
   aris: "ARIS",
-  antiverso: "AN",
+  evangelho_de_or: "EO",
+  culto_de_or: "CO",
   teste: "TS",
 };
 
+// Prefixos fixos conhecidos por tipo de ficha
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
   local: "LO",
@@ -50,35 +51,38 @@ function normalizeTipo(tipo: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
     .trim();
-}
-
-function getWorldPrefix(world?: World | null): string {
-  if (!world) return "XX";
-
-  const idKey = (world.id || "").toLowerCase().trim();
-  if (WORLD_PREFIX_MAP[idKey]) return WORLD_PREFIX_MAP[idKey];
-
-  const nameKey = (world.nome || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-
-  if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
-
-  const parts = nameKey.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) {
-    return parts[0].slice(0, 3).toUpperCase();
-  }
-  const initials = parts.map((p) => p[0]).join("");
-  return initials.toUpperCase().slice(0, 4) || "XX";
 }
 
 function getTypePrefix(tipo: string): string {
   const key = normalizeTipo(tipo);
   if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
   return key.slice(0, 2).toUpperCase() || "FX";
+}
+
+function getWorldPrefix(world?: World | null): string {
+  if (!world) return "XX";
+
+  // primeiro tenta pelo id exato
+  const idKey = world.id.toLowerCase();
+  if (WORLD_PREFIX_MAP[idKey]) return WORLD_PREFIX_MAP[idKey];
+
+  // depois tenta pelo nome normalizado
+  const nameKey = (world.nome || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
+
+  // fallback: pega iniciais do nome
+  const parts = nameKey.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 3).toUpperCase();
+  }
+  const initials = parts.map((p) => p[0]).join("").toUpperCase();
+  return initials.slice(0, 4) || "XX";
 }
 
 function normalizeEpisode(unitNumber: string): string {
@@ -114,7 +118,7 @@ export default function LoreUploadPage() {
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
-  // Carrega mundos
+  // Carrega mundos ao montar
   useEffect(() => {
     const fetchWorlds = async () => {
       const { data, error } = await supabaseBrowser
@@ -126,9 +130,10 @@ export default function LoreUploadPage() {
         console.error("Erro ao carregar mundos:", error);
         setError("Erro ao carregar mundos.");
       } else if (data) {
-        setWorlds(data as World[]);
-        if (!selectedWorldId && data.length > 0) {
-          setSelectedWorldId((data[0] as any).id);
+        const asWorlds = data as World[];
+        setWorlds(asWorlds);
+        if (!selectedWorldId && asWorlds.length > 0) {
+          setSelectedWorldId(asWorlds[0].id);
         }
       }
     };
@@ -245,12 +250,13 @@ export default function LoreUploadPage() {
       }
 
       const data = await response.json();
-
       const extracted = Array.isArray(data.fichas) ? data.fichas : [];
+
       const world = worlds.find((w) => w.id === selectedWorldId) || null;
       const worldPrefix = getWorldPrefix(world);
       const episode = normalizeEpisode(unitNumber);
 
+      // Contadores por prefixo de tipo para gerar números sequenciais locais
       const typeCounters: Record<string, number> = {};
 
       const mapped: SuggestedFicha[] = extracted.map((raw: any) => {
@@ -259,8 +265,8 @@ export default function LoreUploadPage() {
             ? (crypto as any).randomUUID()
             : Math.random().toString(36).slice(2);
 
-        const tipoNormalizado = normalizeTipo(raw.tipo || "conceito");
-        const typePrefix = getTypePrefix(tipoNormalizado);
+        const tipo = raw.tipo || "conceito";
+        const typePrefix = getTypePrefix(tipo);
         const currentCount = (typeCounters[typePrefix] || 0) + 1;
         typeCounters[typePrefix] = currentCount;
 
@@ -270,11 +276,11 @@ export default function LoreUploadPage() {
             : "";
 
         const tagsArray = Array.isArray(raw.tags) ? raw.tags : [];
-        const tagsStr = tagsArray.join(", ");
+        const tagsStr = tagsArray.join(", " );
 
         return {
           id,
-          tipo: raw.tipo || "conceito",
+          tipo,
           titulo: raw.titulo || "",
           resumo: raw.resumo || "",
           conteudo: raw.conteudo || "",
@@ -289,7 +295,6 @@ export default function LoreUploadPage() {
           typeof crypto !== "undefined" && (crypto as any).randomUUID
             ? (crypto as any).randomUUID()
             : Math.random().toString(36).slice(2);
-
         mapped.push(createEmptyFicha(id));
       }
 
@@ -376,28 +381,24 @@ export default function LoreUploadPage() {
   }
 
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-  const worldLabel = selectedWorld?.nome ?? selectedWorld?.id ?? "";
+  const worldPrefix = getWorldPrefix(selectedWorld);
+  const episode = normalizeEpisode(unitNumber || "");
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 flex flex-col">
+    <div className="h-screen bg-black text-zinc-100 flex flex-col">
       {/* TOPO FIXO */}
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
-        <div className="flex items-center gap-4">
-          <a href="/" className="text-xs text-gray-300 hover:text-white">
+        <div className="flex items-center gap-4 text-xs">
+          <a href="/" className="text-gray-300 hover:text-white">
             ← Voltar à Home
           </a>
           <a
             href="/lore-admin"
-            className="text-[11px] text-gray-400 hover:text-white"
+            className="text-gray-400 hover:text-white text-[11px]"
           >
             Ir para Catálogo
           </a>
         </div>
-        {worldLabel && (
-          <div className="text-[11px] text-zinc-500">
-            Mundo selecionado: <span className="text-zinc-200">{worldLabel}</span>
-          </div>
-        )}
       </header>
 
       {/* ÁREA SCROLLÁVEL */}
@@ -406,9 +407,9 @@ export default function LoreUploadPage() {
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold">Upload de Texto</h1>
             <p className="text-sm text-zinc-400">
-              Envie o texto de um episódio, capítulo ou documento. A Lore Machine
-              extrai automaticamente fichas pertencentes ao Mundo escolhido,
-              permitindo editar cada ficha antes de salvar no banco.
+              Envie o texto de um episódio, capítulo ou documento. A Lore
+              Machine extrai automaticamente fichas pertencentes ao Mundo
+              escolhido, permitindo editar cada ficha antes de salvar no banco.
             </p>
           </header>
 
@@ -489,7 +490,7 @@ export default function LoreUploadPage() {
           </div>
 
           {/* Fichas sugeridas */}
-          <section className="space-y-3">
+          <section className="space-y-3 pb-8">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
                 Fichas sugeridas ({suggestedFichas.length})
@@ -506,8 +507,8 @@ export default function LoreUploadPage() {
 
             {suggestedFichas.length === 0 && (
               <p className="text-xs text-zinc-500">
-                Nenhuma ficha sugerida ainda. Extraia fichas a partir de um texto
-                para começar.
+                Nenhuma ficha sugerida ainda. Extraia fichas a partir de um
+                texto para começar.
               </p>
             )}
 
@@ -528,7 +529,7 @@ export default function LoreUploadPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       {ficha.codigo && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 font-mono">
                           {ficha.codigo}
                         </span>
                       )}
@@ -570,7 +571,7 @@ export default function LoreUploadPage() {
         </div>
       </div>
 
-      {/* Modal de edição */}
+      {/* Modal de edição de ficha */}
       {editingFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
@@ -690,7 +691,7 @@ export default function LoreUploadPage() {
                       prev ? { ...prev, codigo: e.target.value } : prev,
                     )
                   }
-                  placeholder="Ex.: TS6-PS1"
+                  placeholder={worldPrefix && episode ? `${worldPrefix}${episode}-PS1` : "Ex.: TS6-PS1"}
                 />
               </div>
             </div>
