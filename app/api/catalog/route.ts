@@ -29,7 +29,7 @@ export async function GET() {
     const { data: entities, error: entitiesError } = await client
       .from("lore_entities")
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codes"
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo, codes"
       )
       .order("ano_diegese", { ascending: true })
       .limit(500);

@@ -53,18 +53,44 @@ ${c.content}`
         loreContext,
     };
 
-    const completion = await openai.chat.completions.create({
+    // STREAMING: usamos o SDK novo da OpenAI com `stream: true`
+    const stream = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [contextMessage, ...messages],
       temperature: 0.7,
       max_tokens: 900,
+      stream: true,
     });
 
-    const reply =
-      completion.choices[0]?.message?.content ??
-      "Não consegui gerar uma resposta no momento.";
+    const encoder = new TextEncoder();
 
-    return NextResponse.json({ reply, sources: loreResults ?? [] });
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta?.content;
+            if (!delta) continue;
+            controller.enqueue(encoder.encode(delta));
+          }
+        } catch (error) {
+          console.error("Erro durante o streaming da resposta:", error);
+          controller.enqueue(
+            encoder.encode(
+              "Desculpe, ocorreu um erro enquanto eu gerava a resposta."
+            )
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readableStream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json(

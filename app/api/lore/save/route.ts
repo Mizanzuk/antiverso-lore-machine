@@ -208,13 +208,29 @@ async function ensureCodeForFicha({
   // 4) Cria o registro em "codes" para ESSA ficha
   const { error: insertCodeError } = await supabaseAdmin.from("codes").insert({
     ficha_id: fichaId,
+    world_id: world.id,
     code: finalCode,
     label: null,
     description: null,
+    episode: episodeNumber,
   });
 
   if (insertCodeError) {
     console.error("Erro ao criar código automático para ficha:", insertCodeError);
+  } else {
+    // Também atualiza o campo principal "codigo" da ficha,
+    // para que o painel Admin/Catálogo consiga exibir e editar.
+    const { error: updateFichaError } = await supabaseAdmin
+      .from("fichas")
+      .update({ codigo: finalCode })
+      .eq("id", fichaId);
+
+    if (updateFichaError) {
+      console.error(
+        "Erro ao atualizar campo 'codigo' da ficha após criar código automático:",
+        updateFichaError,
+      );
+    }
   }
 }
 
@@ -519,6 +535,20 @@ async function createManualCodeForFicha({
 
   if (insertError) {
     console.error("Erro ao inserir código manual:", insertError);
+  } else {
+    // Atualiza também o campo principal "codigo" da ficha,
+    // para que o Admin/Catálogo reflitam o código manual escolhido.
+    const { error: updateFichaError } = await supabaseAdmin
+      .from("fichas")
+      .update({ codigo: code })
+      .eq("id", fichaId);
+
+    if (updateFichaError) {
+      console.error(
+        "Erro ao atualizar campo 'codigo' da ficha após inserir código manual:",
+        updateFichaError,
+      );
+    }
   }
 }
 
