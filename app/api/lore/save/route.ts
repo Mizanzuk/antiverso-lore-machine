@@ -11,7 +11,7 @@ type IncomingFicha = {
   tags?: string[];
   aparece_em?: string;
   codigo?: string;
-  ano_diegese?: number | null;
+  // ano_diegese?: number | null; // deixamos no tipo só se você quiser usar no futuro
 };
 
 type WorldRow = {
@@ -33,7 +33,6 @@ function slugify(value: string): string {
 }
 
 const WORLD_PREFIX_MAP: Record<string, string> = {
-  // ids dos mundos principais
   arquivos_vermelhos: "AV",
   torre_de_vera_cruz: "TVC",
   evangelho_de_or: "EO",
@@ -56,7 +55,6 @@ function getWorldPrefix(world: WorldRow): string {
 
   if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
 
-  // fallback: primeiras letras de cada palavra do nome
   const parts = nameKey.split(/\s+/).filter(Boolean);
   if (parts.length === 1) {
     return parts[0].slice(0, 3).toUpperCase();
@@ -87,15 +85,12 @@ function getTypePrefix(tipo: string): string {
     .trim();
 
   if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
-
-  // fallback: primeiras 2 letras
   return key.slice(0, 2).toUpperCase() || "FX";
 }
 
 function normalizeEpisode(unitNumber: string): string {
   const onlyDigits = (unitNumber || "").replace(/\D+/g, "");
   if (!onlyDigits) return "0";
-  // remove zeros à esquerda
   return String(parseInt(onlyDigits, 10));
 }
 
@@ -113,7 +108,6 @@ async function generateAutomaticCode(opts: {
 
   const basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
 
-  // busca códigos existentes com mesmo prefixo, para descobrir o próximo número
   const { data: existing, error } = await supabaseAdmin!
     .from("codes")
     .select("code")
@@ -158,10 +152,7 @@ async function generateAutomaticCode(opts: {
     .eq("id", fichaId);
 
   if (updateFichaError) {
-    console.error(
-      "Erro ao atualizar campo 'codigo' na tabela 'fichas':",
-      updateFichaError,
-    );
+    console.error("Erro ao atualizar 'codigo' na tabela 'fichas':", updateFichaError);
   }
 
   return finalCode;
@@ -178,7 +169,6 @@ async function applyCodeForFicha(opts: {
 
   const trimmed = (manualCode ?? "").trim();
 
-  // Se o usuário enviou um código manual não vazio, usamos ele.
   if (trimmed.length > 0) {
     const { error: insertManualError } = await supabaseAdmin!.from("codes").insert({
       ficha_id: fichaId,
@@ -197,16 +187,12 @@ async function applyCodeForFicha(opts: {
       .eq("id", fichaId);
 
     if (updateFichaError) {
-      console.error(
-        "Erro ao atualizar campo 'codigo' da ficha (manual):",
-        updateFichaError,
-      );
+      console.error("Erro ao atualizar 'codigo' da ficha (manual):", updateFichaError);
     }
 
     return trimmed;
   }
 
-  // Caso contrário, gera automaticamente
   return generateAutomaticCode({ fichaId, world, tipo, unitNumber });
 }
 
@@ -234,7 +220,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Buscar mundo
     const { data: worldRow, error: worldError } = await supabaseAdmin!
       .from("worlds")
       .select("id, nome, descricao, tipo")
@@ -254,9 +239,7 @@ export async function POST(req: NextRequest) {
 
     for (const ficha of fichas) {
       const titulo = (ficha.titulo || "").trim();
-      if (!titulo) {
-        continue;
-      }
+      if (!titulo) continue;
 
       const tipoNormalizado = (ficha.tipo || "conceito")
         .toLowerCase()
@@ -278,8 +261,8 @@ export async function POST(req: NextRequest) {
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
           aparece_em: ficha.aparece_em ?? null,
-          ano_diegese: ficha.ano_diegese ?? null,
-          codigo: null, // será preenchido após gerar/aplicar código
+          // codigo será preenchido depois
+          codigo: null,
         })
         .select("id")
         .single();
@@ -299,11 +282,7 @@ export async function POST(req: NextRequest) {
         manualCode: ficha.codigo,
       });
 
-      saved.push({
-        fichaId,
-        titulo,
-        codigo: finalCode,
-      });
+      saved.push({ fichaId, titulo, codigo: finalCode });
     }
 
     return NextResponse.json({
