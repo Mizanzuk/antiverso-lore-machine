@@ -279,7 +279,7 @@ export default function LoreUploadPage() {
             : "";
 
         const tagsArray = Array.isArray(raw.tags) ? raw.tags : [];
-        const tagsStr = tagsArray.join(", "");
+        const tagsStr = tagsArray.join(", ");
 
         return {
           id,
