@@ -66,6 +66,8 @@ function normalize(str: string | null | undefined) {
   return (str ?? "").toLowerCase();
 }
 
+// ---------------- STOPWORDS + TÍTULO ----------------
+
 const SESSION_STORAGE_KEY = "antiverso-lore-sessions-v2";
 const MAX_MESSAGES_PER_SESSION = 32;
 const MAX_SESSIONS = 40;
@@ -113,6 +115,27 @@ const STOPWORDS = new Set([
   "está",
   "estao",
   "estão",
+  "quero",
+  "queria",
+  "querer",
+  "novo",
+  "nova",
+  "novas",
+  "novos",
+  "historia",
+  "história",
+  "historias",
+  "histórias",
+  "contar",
+  "conta",
+  "coisa",
+  "coisas",
+  "lista",
+  "listas",
+  "faca",
+  "facas",
+  "ideia",
+  "ideias",
 ]);
 
 function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
@@ -147,13 +170,27 @@ function buildTitleFromQuestion(text: string): string {
     return "Nova conversa";
   }
 
-  const picked = keywords.slice(0, 4);
+  // evita repetições
+  const uniqueKeywords = [...new Set(keywords)];
+
+  // no máximo 3 palavras-chave
+  const picked = uniqueKeywords.slice(0, 3);
   const titled = picked.map(
     (w) => w.charAt(0).toUpperCase() + w.slice(1)
   );
 
-  return titled.join(" · ");
+  let title = titled.join(" · ");
+
+  // limita o tamanho para não brigar com o selo
+  const MAX_LEN = 32;
+  if (title.length > MAX_LEN) {
+    title = title.slice(0, MAX_LEN - 1).trimEnd() + "…";
+  }
+
+  return title || "Nova conversa";
 }
+
+// ----------------------------------------------------
 
 export default function Page() {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -771,9 +808,7 @@ export default function Page() {
                     const sessionMode: ChatMode =
                       (session.mode as ChatMode) ?? "consulta";
                     const modeLabel =
-                      sessionMode === "consulta"
-                        ? "Consulta"
-                        : "Criativo";
+                      sessionMode === "consulta" ? "Consulta" : "Criativo";
                     return (
                       <div
                         key={session.id}
@@ -793,7 +828,7 @@ export default function Page() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 truncate">
+                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
                                 {isRenaming ? (
                                   <input
                                     className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
@@ -1006,7 +1041,17 @@ export default function Page() {
                   </div>
                 ))}
 
-                {messages.length === 0 && (
+                {/* indicador "Or está escrevendo..." */}
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Or está escrevendo…</span>
+                    </div>
+                  </div>
+                )}
+
+                {messages.length === 0 && !loading && (
                   <p className="text-center text-gray-500 text-sm mt-8">
                     Comece uma conversa com Or escrevendo abaixo.
                   </p>
