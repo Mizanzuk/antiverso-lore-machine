@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { clsx } from "clsx";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type ChatMessage = {
   id: string;
@@ -52,6 +53,8 @@ type CatalogResponse = {
   entities: LoreEntity[];
   types: { id: string; label: string }[];
 };
+
+type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 function createIntroMessage(): ChatMessage {
   return {
@@ -136,25 +139,6 @@ const STOPWORDS = new Set([
   "facas",
   "ideia",
   "ideias",
-  "pode",
-  "poder",
-  "fazer",
-  "faco",
-  "faço",
-  "fiz",
-  "feito",
-  "usar",
-  "uso",
-  "ajudar",
-  "explicar",
-  "mostrar",
-  "gerar",
-  "criar",
-  "montar",
-  "continuar",
-  "seguir",
-  "comecar",
-  "começar",
 ]);
 
 function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
@@ -212,6 +196,12 @@ function buildTitleFromQuestion(text: string): string {
 // ----------------------------------------------------
 
 export default function Page() {
+  const [view, setView] = useState<ViewState>("loading");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -267,6 +257,30 @@ export default function Page() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const typingIntervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      setView("loading");
+      const {
+        data: { session },
+        error,
+      } = await supabaseBrowser.auth.getSession();
+
+      if (error) {
+        console.error(error);
+        setView("loggedOut");
+        return;
+      }
+
+      if (session) {
+        setView("loggedIn");
+      } else {
+        setView("loggedOut");
+      }
+    };
+
+    checkSession();
+  }, []);
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
@@ -588,6 +602,47 @@ export default function Page() {
     }
   }
 
+  async function handleLogin(e: FormEvent) {
+    e.preventDefault();
+    setAuthSubmitting(true);
+    setAuthError(null);
+
+    const { data, error } = await supabaseBrowser.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    setAuthSubmitting(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    if (data?.session) {
+      setView("loggedIn");
+    } else {
+      setView("loggedOut");
+    }
+  }
+
+  async function handleLogout() {
+    await supabaseBrowser.auth.signOut();
+    setView("loggedOut");
+    setEmail("");
+    setPassword("");
+    setSessions([
+      {
+        id: "default",
+        title: "Nova conversa",
+        mode: "consulta",
+        createdAt: Date.now(),
+        messages: [getIntroMessage()],
+      },
+    ]);
+    setActiveSessionId(null);
+  }
+
   function scrollToBottom() {
     const el = viewportRef.current;
     if (!el) return;
@@ -777,6 +832,73 @@ export default function Page() {
     );
   };
 
+  if (view === "loading") {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="text-xs text-neutral-500">Carregando…</div>
+      </div>
+    );
+  }
+
+  if (view === "loggedOut") {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <form
+          onSubmit={handleLogin}
+          className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80"
+        >
+          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">
+            AntiVerso Lore Machine
+          </h1>
+          <p className="text-[11px] text-neutral-500 mb-4">
+            Acesse com seu e-mail e senha de admin para usar o Chat, Catálogo e Upload.
+          </p>
+
+          {authError && (
+            <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">
+              {authError}
+            </div>
+          )}
+
+          <div className="space-y-2 mb-3">
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
+                E-mail
+              </label>
+              <input
+                type="email"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
+                Senha
+              </label>
+              <input
+                type="password"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={authSubmitting}
+            className="w-full mt-1 text-[11px] px-3 py-1.5 rounded border border-emerald-500 bg-emerald-600/80 hover:bg-emerald-400 hover:border-emerald-400 hover:text-black transition-colors disabled:opacity-60"
+          >
+            {authSubmitting ? "Entrando…" : "Entrar"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex bg-[#050509] text-gray-100">
       {/* Sidebar */}
@@ -832,7 +954,7 @@ export default function Page() {
                       <div
                         key={session.id}
                         className={clsx(
-                          "group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                          "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
                             : "bg-transparent"
@@ -845,9 +967,9 @@ export default function Page() {
                             setViewMode("chat");
                           }}
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 leading-snug break-words max-w-[200px]">
+                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
                                 {isRenaming ? (
                                   <input
                                     className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
@@ -889,7 +1011,7 @@ export default function Page() {
                             </span>
                           </div>
                         </button>
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1">
                           <button
                             className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
                             onClick={(e) => {
@@ -952,7 +1074,15 @@ export default function Page() {
         </div>
 
         <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500">
-          <p>Logado como Ivan.</p>
+          <div className="flex items-center justify-between gap-2">
+            <p>Área protegida do AntiVerso.</p>
+            <button
+              onClick={handleLogout}
+              className="px-2 py-1 rounded-full border border-white/20 text-[10px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </aside>
 
