@@ -637,7 +637,7 @@ export default function Page() {
         title: "Nova conversa",
         mode: "consulta",
         createdAt: Date.now(),
-        messages: [getIntroMessage()],
+        messages: [createIntroMessage()],
       },
     ]);
     setActiveSessionId(null);
