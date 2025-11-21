@@ -136,6 +136,25 @@ const STOPWORDS = new Set([
   "facas",
   "ideia",
   "ideias",
+  "pode",
+  "poder",
+  "fazer",
+  "faco",
+  "faço",
+  "fiz",
+  "feito",
+  "usar",
+  "uso",
+  "ajudar",
+  "explicar",
+  "mostrar",
+  "gerar",
+  "criar",
+  "montar",
+  "continuar",
+  "seguir",
+  "comecar",
+  "começar",
 ]);
 
 function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
@@ -813,7 +832,7 @@ export default function Page() {
                       <div
                         key={session.id}
                         className={clsx(
-                          "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                          "group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
                             : "bg-transparent"
@@ -826,9 +845,9 @@ export default function Page() {
                             setViewMode("chat");
                           }}
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
+                              <div className="text-[11px] font-medium text-gray-100 leading-snug break-words max-w-[200px]">
                                 {isRenaming ? (
                                   <input
                                     className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
@@ -870,7 +889,7 @@ export default function Page() {
                             </span>
                           </div>
                         </button>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
                             onClick={(e) => {
