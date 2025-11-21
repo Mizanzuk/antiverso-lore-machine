@@ -522,6 +522,19 @@ export default function LoreAdminPage() {
     );
     if (!ok) return;
 
+    // Primeiro, apagar códigos associados a esta ficha (para não violar FK)
+    const { error: deleteCodesError } = await supabaseBrowser
+      .from("codes")
+      .delete()
+      .eq("ficha_id", fichaId);
+
+    if (deleteCodesError) {
+      console.error(deleteCodesError);
+      setError("Erro ao deletar códigos vinculados à Ficha.");
+      return;
+    }
+
+    // Depois, apagar a ficha em si
     const { error: deleteError } = await supabaseBrowser
       .from("fichas")
       .delete()
