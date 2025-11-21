@@ -161,16 +161,16 @@ export function LoreMachineShell({
                   key={ficha.id}
                   onClick={() => handleSelectFicha(ficha.id)}
                   className={[
-                    "w-full text-left px-2.5 py-2 rounded-lg transition-colors",
+                    "w-full text-left px-2.5 py-2 rounded-lg transition-colors min-h-[56px] flex flex-col justify-center",
                     isActive
                       ? "bg-emerald-900/40 border border-emerald-500/40 text-neutral-50"
                       : "text-neutral-300 hover:bg-neutral-900/70",
                   ].join(" ")}
                 >
-                  <div className="text-[13px] font-medium truncate">
+                  <div className="text-[13px] font-medium leading-tight break-words">
                     {ficha.titulo}
                   </div>
-                  <div className="text-[11px] text-neutral-500 truncate">
+                  <div className="text-[11px] text-neutral-500 leading-snug break-words">
                     {ficha.tipo} · {ficha.slug}
                   </div>
                 </button>
