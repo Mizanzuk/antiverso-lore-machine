@@ -261,6 +261,7 @@ export async function POST(req: NextRequest) {
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
           aparece_em: ficha.aparece_em ?? null,
+          episodio: normalizeEpisode(unitNumber),
           // codigo será preenchido depois
           codigo: null,
         })
