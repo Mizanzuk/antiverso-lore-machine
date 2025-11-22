@@ -185,31 +185,137 @@ function buildTitleFromQuestion(text: string): string {
   // Normaliza espaços
   const compact = raw.replace(/\s+/g, " ");
 
-  const words = compact.split(" ");
-  const MAX_WORDS = 8;
+  // Versão normalizada (minúscula, sem acentos) para filtrar
+  const normalized = compact
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
-  let base = words.slice(0, MAX_WORDS).join(" ");
-  if (words.length > MAX_WORDS) {
-    base = base.trimEnd() + "…";
+  const rawWords = compact.split(" ");
+  const normWords = normalized.split(" ");
+
+  const stopwords = new Set([
+    "o",
+    "a",
+    "os",
+    "as",
+    "um",
+    "uma",
+    "uns",
+    "umas",
+    "de",
+    "do",
+    "da",
+    "dos",
+    "das",
+    "em",
+    "no",
+    "na",
+    "nos",
+    "nas",
+    "para",
+    "pra",
+    "pro",
+    "pela",
+    "pelas",
+    "pelo",
+    "pelos",
+    "que",
+    "qual",
+    "quais",
+    "como",
+    "onde",
+    "quando",
+    "porque",
+    "por",
+    "e",
+    "ou",
+    "com",
+    "sem",
+    "sobre",
+    "sao",
+    "sao",
+    "sou",
+    "ser",
+    "estar",
+    "me",
+    "mim",
+    "minha",
+    "meu",
+    "meus",
+    "minhas",
+    "voce",
+    "voces",
+    "tu",
+    "pode",
+    "podes",
+    "poderia",
+    "podemos",
+    "poderiam",
+    "falar",
+    "dizer",
+    "explicar",
+    "contar",
+    "queria",
+    "quero",
+    "gostaria",
+    "ajuda",
+    "mais",
+    "menos",
+    "muito",
+    "muita",
+    "muitos",
+    "muitas",
+    "primeiro",
+    "primeira",
+    "segundo",
+    "sobre",
+  ]);
+
+  const keywords: string[] = [];
+  const MAX_KEYWORDS = 4;
+
+  for (let i = 0; i < normWords.length; i++) {
+    if (keywords.length >= MAX_KEYWORDS) break;
+
+    const n = normWords[i];
+    const ascii = n.replace(/[^a-z0-9]/g, "");
+
+    if (!ascii || ascii.length < 3) continue;
+    if (stopwords.has(ascii)) continue;
+
+    const original = rawWords[i].replace(/^["'“”‘’]+/, "");
+    if (!original) continue;
+
+    const capitalized =
+      original.charAt(0).toUpperCase() + original.slice(1);
+
+    if (
+      !keywords.some(
+        (k) => k.toLowerCase() === capitalized.toLowerCase()
+      )
+    ) {
+      keywords.push(capitalized);
+    }
   }
 
-  base = base.trim();
-  if (!base) {
-    return "Nova conversa";
+  let title: string;
+
+  if (keywords.length > 0) {
+    title = keywords.join(" · ");
+  } else {
+    // fallback: usa um pedaço da pergunta original
+    title = compact;
   }
 
-  // Deixa em formato de frase (primeira letra maiúscula)
-  const firstChar = base.charAt(0).toUpperCase();
-  const rest = base.slice(1);
-  let title = firstChar + rest;
-
-  // Limite de caracteres para não brigar com o selo
+  // Limite de caracteres geral
   const MAX_LEN = 60;
   if (title.length > MAX_LEN) {
     title = title.slice(0, MAX_LEN - 1).trimEnd() + "…";
   }
 
-  return title;
+  return title || "Nova conversa";
+}
 }
 
 
