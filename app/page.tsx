@@ -1024,89 +1024,86 @@ export default function Page() {
                       <div
                         key={session.id}
                         className={clsx(
-                          "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                          "group flex items-stretch gap-2 rounded-md px-2 py-2 cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
                             : "bg-transparent"
                         )}
                       >
+                        {/* Coluna esquerda: título e data, ocupa todo o espaço disponível */}
                         <button
-                          className="flex-1 text-left"
+                          className="flex-1 min-w-0 text-left"
                           onClick={() => {
                             setActiveSessionId(session.id);
                             setViewMode("chat");
                           }}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
-                                {isRenaming ? (
-                                  <input
-                                    className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
-                                    value={renameDraft}
-                                    onChange={(e) =>
-                                      setRenameDraft(e.target.value)
+                          <div className="flex flex-col gap-0.5">
+                            <div className="text-[11px] text-gray-100 truncate">
+                              {isRenaming ? (
+                                <input
+                                  className="w-full bg-transparent border border-white/30 rounded px-1 py-[2px] text-[11px] text-gray-100"
+                                  value={renameDraft}
+                                  onChange={(e) =>
+                                    setRenameDraft(e.target.value)
+                                  }
+                                  onBlur={confirmRenameSession}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      confirmRenameSession();
+                                    } else if (e.key === "Escape") {
+                                      cancelRenameSession();
                                     }
-                                    onBlur={confirmRenameSession}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        confirmRenameSession();
-                                      } else if (e.key === "Escape") {
-                                        cancelRenameSession();
-                                      }
-                                    }}
-                                    autoFocus
-                                  />
-                                ) : (
-                                  session.title
-                                )}
-                              </div>
-                              <div className="text-[10px] text-gray-500 truncate">
-                                {new Date(
-                                  session.createdAt
-                                ).toLocaleString()}
-                              </div>
-                            </div>
-
-                            {/* Selo de modo da conversa */}
-                            <span
-                              className={clsx(
-                                "ml-1 flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border",
-                                sessionMode === "consulta"
-                                  ? "border-emerald-400 text-emerald-200 bg-emerald-500/10"
-                                  : "border-purple-400 text-purple-200 bg-purple-500/10"
+                                  }}
+                                  autoFocus
+                                />
+                              ) : (
+                                session.title
                               )}
-                            >
-                              {modeLabel}
-                            </span>
+                            </div>
+                            <div className="text-[10px] text-gray-500 truncate">
+                              {new Date(session.createdAt).toLocaleString()}
+                            </div>
                           </div>
                         </button>
-                        <div className="flex items-center gap-1">
-                          <button
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startRenameSession(session.id, session.title);
-                            }}
-                            aria-label="Renomear conversa"
+
+                        {/* Coluna direita: selo + botões, sempre alinhados à direita */}
+                        <div className="flex flex-col items-end justify-center gap-1 ml-1 shrink-0">
+                          <span
+                            className={clsx(
+                              "flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border",
+                              sessionMode === "consulta"
+                                ? "border-emerald-400 text-emerald-200 bg-emerald-500/10"
+                                : "border-purple-400 text-purple-200 bg-purple-500/10"
+                            )}
                           >
-                            ✎
-                          </button>
-                          <button
-                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteSession(session.id);
-                            }}
-                            aria-label="Excluir conversa"
-                          >
-                            ×
-                          </button>
+                            {modeLabel}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRenameSession(session.id, session.title);
+                              }}
+                              aria-label="Renomear conversa"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteSession(session.id);
+                              }}
+                              aria-label="Excluir conversa"
+                            >
+                              ×
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
-                  })}
-                </div>
               </>
             )}
           </div>
