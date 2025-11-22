@@ -87,7 +87,7 @@ export default function LoreAdminPage() {
     tipo: string;
     ordem: string;
     has_episodes: boolean;
-  }>({ 
+  }>({
     id: "",
     nome: "",
     descricao: "",
@@ -1617,24 +1617,22 @@ export default function LoreAdminPage() {
             </div>
 
             <div className="flex items-center gap-2 pt-1">
-              <input
-                id="has_episodes"
-                type="checkbox"
-                className="h-3 w-3 rounded border border-neutral-700 bg-black/60"
-                checked={worldForm.has_episodes}
-                onChange={(e) =>
+              <button
+                type="button"
+                onClick={() =>
                   setWorldForm((prev) => ({
                     ...prev,
-                    has_episodes: e.target.checked,
+                    has_episodes: !prev.has_episodes,
                   }))
                 }
-              />
-              <label
-                htmlFor="has_episodes"
-                className="text-[11px] text-neutral-500 select-none"
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  worldForm.has_episodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-neutral-700 text-neutral-400 bg-black/40"
+                }`}
               >
-                Este mundo possui episódios?
-              </label>
+                Este mundo possui episódios
+              </button>
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
