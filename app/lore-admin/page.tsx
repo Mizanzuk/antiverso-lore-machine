@@ -351,7 +351,13 @@ export default function LoreAdminPage() {
     let saveError = null;
 
     if (worldFormMode === "create") {
-      const { error } = await supabaseBrowser.from("worlds").insert([payload]);
+      const { error } = await supabaseBrowser.from("worlds").insert([
+        {
+          ...payload,
+          tipo: "mundo_ficcional",
+          ordem: worldForm.ordem ? Number(worldForm.ordem) : null,
+        },
+      ]);
       saveError = error;
     } else {
       const { error } = await supabaseBrowser
