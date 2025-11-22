@@ -316,7 +316,6 @@ function buildTitleFromQuestion(text: string): string {
 
   return title || "Nova conversa";
 }
-}
 
 
 // ----------------------------------------------------
