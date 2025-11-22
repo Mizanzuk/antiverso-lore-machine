@@ -350,8 +350,26 @@ export default function LoreAdminPage() {
     let saveError = null;
 
     if (worldFormMode === "create") {
+      // Gera um id estável e url-safe baseado no nome do mundo
+      const baseId = worldForm.nome
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const existingIds = new Set(worlds.map((w) => w.id as string));
+      let newId = baseId || "mundo_novo";
+      let suffix = 2;
+      while (existingIds.has(newId)) {
+        newId = `${baseId || "mundo_novo"}_${suffix}`;
+        suffix++;
+      }
+
       const { error } = await supabaseBrowser.from("worlds").insert([
         {
+          id: newId,
           ...payload,
           tipo: "mundo_ficcional",
           ordem: worldForm.ordem ? Number(worldForm.ordem) : null,
