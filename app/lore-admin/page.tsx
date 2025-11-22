@@ -109,6 +109,7 @@ export default function LoreAdminPage() {
     ordem_cronologica: string;
     aparece_em: string;
     codigo: string;
+    imagem_url: string;
   }>({
     id: "",
     titulo: "",
@@ -121,6 +122,7 @@ export default function LoreAdminPage() {
     ordem_cronologica: "",
     aparece_em: "",
     codigo: "",
+    imagem_url: "",
   });
 
   const [codeFormMode, setCodeFormMode] =
@@ -412,6 +414,7 @@ export default function LoreAdminPage() {
       ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
+      imagem_url: "",
     });
   }
 
@@ -431,6 +434,7 @@ export default function LoreAdminPage() {
         : "",
       aparece_em: ficha.aparece_em ?? "",
       codigo: ficha.codigo ?? "",
+      imagem_url: ficha.imagem_url ?? "",
     });
   }
 
@@ -487,6 +491,7 @@ export default function LoreAdminPage() {
         : null,
       aparece_em: fichaForm.aparece_em.trim() || null,
       codigo: fichaForm.codigo.trim() || null,
+      imagem_url: fichaForm.imagem_url.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1395,6 +1400,20 @@ export default function LoreAdminPage() {
               </div>
             )}
 
+            {fichaViewModal.imagem_url && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Imagem</div>
+                <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={fichaViewModal.imagem_url}
+                    alt={fichaViewModal.titulo || "imagem da ficha"}
+                    className="w-full max-h-80 object-contain"
+                  />
+                </div>
+              </div>
+            )}
+
             {fichaViewModal.conteudo && (
               <div className="space-y-1">
                 <div className="text-[11px] text-neutral-500">
@@ -1751,6 +1770,26 @@ export default function LoreAdminPage() {
                 }
                 placeholder="separe por vírgulas ou espaço, como preferir"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Imagem (URL)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.imagem_url}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    imagem_url: e.target.value,
+                  }))
+                }
+                placeholder="https://… (link de imagem)"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Por enquanto, cole aqui o link direto da imagem (pode ser do Supabase Storage, CDN, etc.).
+              </p>
             </div>
 
             <div className="space-y-1">
