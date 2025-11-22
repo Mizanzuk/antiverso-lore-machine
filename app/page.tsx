@@ -1377,30 +1377,6 @@ export default function Page() {
               </button>
             </div>
 
-            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
-              <button
-                onClick={() => setViewMode("chat")}
-                className={clsx(
-                  "px-2 py-1 rounded-full text-[11px]",
-                  viewMode === "chat"
-                    ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
-                )}
-              >
-                Chat
-              </button>
-              <button
-                onClick={() => setViewMode("catalog")}
-                className={clsx(
-                  "px-2 py-1 rounded-full text-[11px]",
-                  viewMode === "catalog"
-                    ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
-                )}
-              >
-                Catálogo
-              </button>
-            </div>
           </div>
         </header>
 
@@ -1589,7 +1565,7 @@ export default function Page() {
             className="max-w-2xl mx-auto flex items-end gap-2"
           >
             <textarea
-              className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-32 min-h-[44px]"
+              className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-40 min-h-[64px]"
               placeholder="Escreva aqui para Or. Ex: 'Quero criar uma nova história para Arquivos Vermelhos sobre um caso em rodovia'..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
