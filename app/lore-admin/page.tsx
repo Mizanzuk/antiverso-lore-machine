@@ -370,8 +370,14 @@ export default function LoreAdminPage() {
     setIsSavingWorld(false);
 
     if (saveError) {
-      console.error(saveError);
-      setError("Erro ao salvar Mundo.");
+      console.error("Erro ao salvar Mundo:", saveError);
+      const anyErr: any = saveError;
+      const msg =
+        anyErr?.message ||
+        anyErr?.hint ||
+        anyErr?.details ||
+        JSON.stringify(anyErr);
+      setError(`Erro ao salvar Mundo: ${msg}`);
       return;
     }
 
