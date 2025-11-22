@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, ChangeEvent } from "react";
-import { supabaseBrowser } from "@/lib/supabase-browser";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type World = {
   id: string;
