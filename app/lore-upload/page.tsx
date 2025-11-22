@@ -6,6 +6,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 type World = {
   id: string;
   nome: string | null;
+  has_episodes?: boolean | null;
 };
 
 type SuggestedFicha = {
@@ -148,6 +149,8 @@ export default function LoreUploadPage() {
       const nome = window.prompt("Nome do novo mundo:");
       if (!nome) return;
 
+      const hasEpisodes = window.confirm("Este mundo possui episódios");
+
       const baseId = nome
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
@@ -171,9 +174,10 @@ export default function LoreUploadPage() {
             nome,
             descricao: "",
             tipo: "mundo_ficcional",
+            has_episodes: hasEpisodes,
           },
         ])
-        .select("id, nome")
+        .select("id, nome, has_episodes")
         .single();
 
       if (error) {
