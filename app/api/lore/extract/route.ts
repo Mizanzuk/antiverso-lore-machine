@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
+import { supabaseAdmin } from "@/lib/supabase";
 
-// Tipos permitidos (no futuro podem vir do banco)
+export const dynamic = "force-dynamic";
+
+type ExtractedFicha = {
+  tipo: string;
+  titulo: string;
+  resumo: string;
+  conteudo: string;
+  tags: string[];
+  ano_diegese: number | null;
+  aparece_em: string;
+};
+
 const allowedTypes = [
   "personagem",
   "local",
@@ -14,18 +26,11 @@ const allowedTypes = [
   "epistemologia",
 ];
 
-export const dynamic = "force-dynamic";
-
-type ExtractedFicha = {
-  id_temp: string;
-  tipo: string;
-  titulo: string;
-  resumo: string;
-  conteudo: string;
-  tags: string[];
-  ano_diegese: number | null;
-  aparece_em: string;
-};
+function normalizeEpisode(unitNumber: string): string {
+  const onlyDigits = (unitNumber || "").replace(/\D+/g, "");
+  if (!onlyDigits) return "0";
+  return String(parseInt(onlyDigits, 10));
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,124 +44,166 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
-    const worldId = String(body.worldId ?? "").trim();
-    const documentName = String(body.documentName ?? "").trim();
-    const text = String(body.text ?? "").trim();
+    const body = await req.json().catch(() => ({}));
+    const { worldId, unitNumber, text, documentName } = body as {
+      worldId?: string;
+      unitNumber?: string;
+      text?: string;
+      documentName?: string | null;
+    };
 
-    if (!text) {
+    if (!text || typeof text !== "string" || !text.trim()) {
       return NextResponse.json(
-        { error: "Texto vazio. Envie um texto para análise." },
+        { error: "Campo 'text' é obrigatório no corpo da requisição." },
         { status: 400 },
       );
     }
 
-    const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
+    // 1) Salvar o texto bruto como Roteiro
+    let roteiroId: string | null = null;
 
-    const systemInstructions = `
-Você é Or, guardião do AntiVerso.
+    if (supabaseAdmin) {
+      const episodio =
+        typeof unitNumber === "string"
+          ? normalizeEpisode(unitNumber)
+          : normalizeEpisode(String(unitNumber ?? ""));
 
-Sua tarefa é analisar textos e extrair as entidades relevantes para o lore,
-classificando-as de acordo com os tipos permitidos.
+      const titulo =
+        typeof documentName === "string" && documentName.trim()
+          ? documentName.trim()
+          : "Roteiro sem título";
 
-Nunca invente tipos fora da lista abaixo.
+      try {
+        const { data, error } = await supabaseAdmin
+          .from("roteiros")
+          .insert({
+            world_id: worldId ?? null,
+            titulo,
+            conteudo: text,
+            episodio,
+          })
+          .select("id")
+          .single();
 
-Tipos permitidos:
-${typeInstructions}
+        if (error) {
+          console.error("Erro ao salvar roteiro em 'roteiros':", error);
+        } else if (data?.id) {
+          roteiroId = data.id;
+        }
+      } catch (err) {
+        console.error("Erro inesperado ao inserir em 'roteiros':", err);
+      }
+    }
 
-Sempre devolva um JSON com a estrutura:
+    // 2) Chamar o modelo para extrair fichas estruturadas
+    const systemPrompt = `
+Você é um assistente especialista em análise de narrativa e worldbuilding.
+
+Dado um texto de entrada, você deve extrair uma lista de FICHAS DE LORE estruturadas.
+Cada ficha representa um elemento importante da história (personagens, locais, conceitos, eventos, etc.).
+
+Regras importantes:
+- Use apenas os tipos permitidos: ${allowedTypes.join(", ")}.
+- Não crie fichas óbvias demais ou irrelevantes.
+- Se tiver dúvida entre "conceito" e outro tipo, prefira um dos tipos mais específicos (personagem, local, evento, etc.).
+- Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estão lá.
+- Se o texto for muito curto, crie no máximo 1 a 3 fichas.
+
+O formato de saída DEVE ser estritamente JSON com a seguinte forma:
 
 {
   "fichas": [
     {
-      "tipo": um valor exato entre os tipos permitidos,
-      "titulo": nome curto da entidade,
-      "resumo": descrição resumida,
-      "conteudo": explicação mais detalhada sobre a entidade,
-      "tags": lista de palavras-chave (strings),
-      "ano_diegese": ano da narrativa (se houver),
-      "aparece_em": explicação breve de onde essa entidade aparece
+      "tipo": "personagem | local | midia | agencia | empresa | conceito | regra_de_mundo | evento | epistemologia",
+      "titulo": "nome curto da ficha",
+      "resumo": "resumo em 1 ou 2 frases, em português",
+      "conteudo": "descrição mais longa da ficha, em português",
+      "tags": ["lista", "de", "tags"],
+      "ano_diegese": 1993 ou null,
+      "aparece_em": "onde essa ficha aparece no texto (capítulo, episódio, cena, etc.)"
     }
   ]
 }
 
-Se não encontrar nenhuma entidade válida, devolva "fichas": [].
-`;
+NUNCA retorne comentários fora desse JSON.
+`.trim();
 
     const userPrompt = `
-Mundo de destino: ${worldId || "desconhecido"}
-Nome do documento: ${documentName || "sem nome"}
-
-Texto a analisar (em português):
+Texto base para extração de lore:
 
 """${text}"""
-`;
 
-    const completion = await openai!.chat.completions.create({
+Extraia as fichas seguindo exatamente o formato JSON especificado.
+`.trim();
+
+    const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
-      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 1500,
       messages: [
-        { role: "system", content: systemInstructions },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.2,
-      max_tokens: 1600,
+      response_format: { type: "json_object" },
     });
 
-    const raw = completion.choices[0]?.message?.content ?? "";
+    const rawContent =
+      completion.choices[0]?.message?.content ?? '{"fichas": []}';
 
-    let parsed: any | null = null;
+    let parsed: any;
     try {
-      parsed = raw ? JSON.parse(raw) : null;
+      parsed = JSON.parse(rawContent);
     } catch (err) {
-      console.error("Falha ao fazer JSON.parse da resposta de extração:", err);
-      return NextResponse.json(
-        {
-          error:
-            "A resposta da IA não veio em JSON válido. Tente novamente com um texto menor ou revise o conteúdo.",
-        },
-        { status: 500 },
+      console.error(
+        "Falha ao fazer JSON.parse da resposta de /api/lore/extract:",
+        err,
+        rawContent,
       );
+      parsed = { fichas: [] };
     }
 
-    const fichas = Array.isArray(parsed?.fichas) ? parsed.fichas : [];
+    const rawFichas = Array.isArray(parsed.fichas) ? parsed.fichas : [];
 
-    // Normaliza os campos
-    const cleanFichas: ExtractedFicha[] = fichas.map(
-      (f: any, index: number): ExtractedFicha => ({
-        id_temp: `ficha_${index + 1}`,
-        tipo: typeof f.tipo === "string" ? f.tipo : "conceito",
-        titulo: String(f.titulo ?? "").trim(),
-        resumo: String(f.resumo ?? "").trim(),
-        conteudo: String(f.conteudo ?? "").trim(),
-        tags: Array.isArray(f.tags) ? f.tags.map((t: any) => String(t)) : [],
-        ano_diegese:
-          typeof f.ano_diegese === "number" ? f.ano_diegese : null,
-        aparece_em: String(f.aparece_em ?? "").trim(),
-      }),
-    );
+    const cleanFichas: ExtractedFicha[] = rawFichas
+      .filter((f: any) => f && f.tipo && f.titulo)
+      .map((f: any) => {
+        const tipo = String(f.tipo || "").toLowerCase().trim();
+        const normalizedTipo = allowedTypes.includes(tipo) ? tipo : "conceito";
+
+        return {
+          tipo: normalizedTipo,
+          titulo: String(f.titulo ?? "").trim(),
+          resumo: String(f.resumo ?? "").trim(),
+          conteudo: String(f.conteudo ?? "").trim(),
+          tags: Array.isArray(f.tags)
+            ? f.tags.map((t: any) => String(t))
+            : [],
+          ano_diegese:
+            typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+          aparece_em: String(f.aparece_em ?? "").trim(),
+        };
+      });
 
     // Compatibilidade com a UI atual: agrupa por tipo
     const personagens = cleanFichas.filter(
-      (f: ExtractedFicha) => f.tipo.toLowerCase() === "personagem",
+      (f) => f.tipo.toLowerCase() === "personagem",
     );
     const locais = cleanFichas.filter(
-      (f: ExtractedFicha) => f.tipo.toLowerCase() === "local",
+      (f) => f.tipo.toLowerCase() === "local",
     );
     const empresas = cleanFichas.filter(
-      (f: ExtractedFicha) => f.tipo.toLowerCase() === "empresa",
+      (f) => f.tipo.toLowerCase() === "empresa",
     );
     const agencias = cleanFichas.filter(
-      (f: ExtractedFicha) => f.tipo.toLowerCase() === "agencia",
+      (f) => f.tipo.toLowerCase() === "agencia",
     );
     const midias = cleanFichas.filter(
-      (f: ExtractedFicha) => f.tipo.toLowerCase() === "midia",
+      (f) => f.tipo.toLowerCase() === "midia",
     );
 
     return NextResponse.json({
-      worldId,
-      documentName,
-      fichas: cleanFichas, // modelo novo, mais geral
+      fichas: cleanFichas,
+      roteiroId,
       personagens,
       locais,
       empresas,
