@@ -355,7 +355,6 @@ export default function LoreUploadPage() {
       setIsExtracting(false);
     }
   }
-
   async function handleSaveFichas() {
     setError(null);
     setSuccessMessage(null);
@@ -874,11 +873,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.aparece_em}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, aparece_em: e.target.value }
-                        : prev
-                    )
-                  }
-                />: prev,
+                      prev ? { ...prev, aparece_em: e.target.value } : prev
                     )
                   }
                   placeholder="Ex.: Episódio 6 — A Geladeira"
