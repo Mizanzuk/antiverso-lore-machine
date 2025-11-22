@@ -115,6 +115,7 @@ export default function LoreUploadPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
@@ -130,7 +131,7 @@ export default function LoreUploadPage() {
     const fetchWorlds = async () => {
       const { data, error } = await supabaseBrowser
         .from("worlds")
-        .select("id, nome")
+        .select("id, nome, has_episodes")
         .order("ordem", { ascending: true });
 
       if (error) {
@@ -322,7 +323,7 @@ export default function LoreUploadPage() {
           apareceEm = world?.nome ? `Mundo: ${world.nome}` : raw.aparece_em || "";
         } else {
           apareceEm = world?.nome
-            ? `Mundo: ${world.nome}\nEpisódio: ${episode}`
+            ? `Mundo: ${world.nome}\n\nEpisódio: ${episode}`
             : `Episódio: ${episode}`;
         }
 
@@ -356,6 +357,79 @@ export default function LoreUploadPage() {
   }
 
   async function handleSaveFichas() {
+    setError(null);
+    setSuccessMessage(null);
+
+    if (!selectedWorldId) {
+      setError("Selecione um Mundo antes de salvar fichas.");
+      return;
+    }
+    if (!unitNumber.trim()) {
+      setError("Informe o número do episódio/capítulo.");
+      return;
+    }
+    if (suggestedFichas.length === 0) {
+      setError("Não há fichas para salvar.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+
+      const fichasPayload = suggestedFichas
+        .filter((f) => f.titulo.trim())
+        .map((f) => {
+          const tagsArray = f.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean);
+
+          return {
+            tipo: f.tipo || "conceito",
+            titulo: f.titulo.trim(),
+            resumo: f.resumo.trim() || "",
+            conteudo: f.conteudo.trim() || "",
+            tags: tagsArray,
+            aparece_em: f.aparece_em.trim() || null,
+            codigo: f.codigo.trim() || undefined,
+          };
+        });
+
+      if (fichasPayload.length === 0) {
+        setError("Nenhuma ficha possui título preenchido.");
+        setIsSaving(false);
+        return;
+      }
+
+      const response = await fetch("/api/lore/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          worldId: selectedWorldId,
+          unitNumber,
+          fichas: fichasPayload,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Erro HTTP em /api/lore/save:", response.status);
+        setError("Erro ao salvar fichas. Verifique os dados e tente novamente.");
+        setIsSaving(false);
+        return;
+      }
+
+      const data = await response.json();
+      console.log("Fichas salvas:", data);
+
+      setSuggestedFichas([]);
+      setSuccessMessage("Fichas salvas com sucesso.");
+    } catch (err) {
+      console.error("Erro inesperado em handleSaveFichas:", err);
+      setError("Erro inesperado ao salvar fichas.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
     setError(null);
 
     if (!selectedWorldId) {
@@ -464,6 +538,11 @@ export default function LoreUploadPage() {
           {error && (
             <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
               {error}
+            </div>
+          )}
+          {successMessage && !error && (
+            <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+              {successMessage}
             </div>
           )}
 
@@ -790,12 +869,16 @@ export default function LoreUploadPage() {
                 <label className="text-xs uppercase tracking-wide text-zinc-400">
                   Aparece em
                 </label>
-                <input
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                <textarea
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[72px]"
                   value={editingFicha.aparece_em}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, aparece_em: e.target.value } : prev,
+                      prev ? { ...prev, aparece_em: e.target.value }
+                        : prev
+                    )
+                  }
+                />: prev,
                     )
                   }
                   placeholder="Ex.: Episódio 6 — A Geladeira"
