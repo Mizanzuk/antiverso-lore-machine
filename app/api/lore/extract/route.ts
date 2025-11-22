@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Salvar o texto bruto como Roteiro
+    // 1) Salvar texto bruto como Roteiro
     let roteiroId: string | null = null;
 
     if (supabaseAdmin) {
@@ -95,7 +95,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Chamar o modelo para extrair fichas estruturadas
+    // 2) Chamar modelo para extrair fichas estruturadas (tipos "normais")
+    const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
+
     const systemPrompt = `
 Você é um assistente especialista em análise de narrativa e worldbuilding.
 
@@ -103,7 +105,7 @@ Dado um texto de entrada, você deve extrair uma lista de FICHAS DE LORE estrutu
 Cada ficha representa um elemento importante da história (personagens, locais, conceitos, eventos, etc.).
 
 Regras importantes:
-- Use apenas os tipos permitidos: ${allowedTypes.join(", ")}.
+- Use apenas os tipos permitidos: ${typeInstructions}.
 - Não crie fichas óbvias demais ou irrelevantes.
 - Se tiver dúvida entre "conceito" e outro tipo, prefira um dos tipos mais específicos (personagem, local, evento, etc.).
 - Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estão lá.
@@ -184,7 +186,33 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
         };
       });
 
-    // Compatibilidade com a UI atual: agrupa por tipo
+    // 3) Criar ficha especial do tipo "roteiro" com o texto completo
+    const episodio =
+      typeof unitNumber === "string"
+        ? normalizeEpisode(unitNumber)
+        : normalizeEpisode(String(unitNumber ?? ""));
+
+    const tituloRoteiro =
+      typeof documentName === "string" && documentName.trim()
+        ? documentName.trim()
+        : "Roteiro sem título";
+
+    const roteiroFicha: ExtractedFicha = {
+      tipo: "roteiro",
+      titulo: tituloRoteiro,
+      resumo: episodio
+        ? `Roteiro completo do episódio ${episodio}.`
+        : "Roteiro completo do texto base.",
+      conteudo: text,
+      tags: ["roteiro", "texto_base"],
+      ano_diegese: null,
+      aparece_em: episodio ? `Episódio ${episodio}` : "",
+    };
+
+    // Coloca o roteiro no começo da lista de fichas
+    cleanFichas.unshift(roteiroFicha);
+
+    // Compatibilidade com a UI atual: agrupa por tipo (sem separar "roteiro")
     const personagens = cleanFichas.filter(
       (f) => f.tipo.toLowerCase() === "personagem",
     );
@@ -208,7 +236,7 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
       locais,
       empresas,
       agencias,
-      midias, // campos antigos, para a UI atual não quebrar
+      midias,
     });
   } catch (err) {
     console.error("Erro inesperado em /api/lore/extract:", err);
