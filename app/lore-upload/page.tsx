@@ -119,6 +119,12 @@ export default function LoreUploadPage() {
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
+  const [showNewWorldModal, setShowNewWorldModal] = useState(false);
+  const [newWorldName, setNewWorldName] = useState("");
+  const [newWorldDescription, setNewWorldDescription] = useState("");
+  const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
+  const [isCreatingWorld, setIsCreatingWorld] = useState(false);
+
   // Carrega mundos ao montar
   useEffect(() => {
     const fetchWorlds = async () => {
@@ -146,41 +152,55 @@ export default function LoreUploadPage() {
     const value = e.target.value;
 
     if (value === "create_new") {
-      const nome = window.prompt("Nome do novo mundo:");
-      if (!nome) return;
+      setShowNewWorldModal(true);
+      setNewWorldName("");
+      setNewWorldDescription("");
+      setNewWorldHasEpisodes(true);
+    } else {
+      setSelectedWorldId(value);
+    }
+  }
 
-      const hasEpisodes = window.confirm("Este mundo possui episódios");
+  async function handleCreateWorldFromModal() {
+    const nome = newWorldName.trim();
+    if (!nome) {
+      alert("Digite o nome do novo mundo.");
+      return;
+    }
 
-      const baseId = nome
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
+    // Gera um id estável e url-safe baseado no nome
+    const baseId = nome
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
 
-      const existingIds = new Set(worlds.map((w) => w.id));
-      let newId = baseId || "mundo_novo";
-      let suffix = 2;
-      while (existingIds.has(newId)) {
-        newId = `${baseId || "mundo_novo"}_${suffix}`;
-        suffix++;
-      }
+    const existingIds = new Set(worlds.map((w) => w.id));
+    let newId = baseId || "mundo_novo";
+    let suffix = 2;
+    while (existingIds.has(newId)) {
+      newId = `${baseId || "mundo_novo"}_${suffix}`;
+      suffix++;
+    }
 
+    try {
+      setIsCreatingWorld(true);
       const { data, error } = await supabaseBrowser
         .from("worlds")
         .insert([
           {
             id: newId,
             nome,
-            descricao: "",
+            descricao: newWorldDescription.trim(),
             tipo: "mundo_ficcional",
-            has_episodes: hasEpisodes,
+            has_episodes: newWorldHasEpisodes,
           },
         ])
         .select("id, nome, has_episodes")
         .single();
 
-      if (error) {
+      if (error || !data) {
         console.error("Erro ao criar mundo:", error);
         alert("Erro ao criar mundo. Veja o console.");
         return;
@@ -189,9 +209,15 @@ export default function LoreUploadPage() {
       const criado = data as World;
       setWorlds((prev) => [...prev, criado]);
       setSelectedWorldId(criado.id);
-    } else {
-      setSelectedWorldId(value);
+      setShowNewWorldModal(false);
+    } finally {
+      setIsCreatingWorld(false);
     }
+  }
+
+  function handleCancelWorldModal() {
+    if (isCreatingWorld) return;
+    setShowNewWorldModal(false);
   }
 
   function handleEditFicha(fichaId: string) {
@@ -592,6 +618,81 @@ export default function LoreUploadPage() {
           </section>
         </div>
       </div>
+
+
+      {/* Modal de criação de novo mundo */}
+      {showNewWorldModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-zinc-400">Novo Mundo</div>
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="text-[11px] text-zinc-500 hover:text-zinc-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Nome</label>
+              <input
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs"
+                value={newWorldName}
+                onChange={(e) => setNewWorldName(e.target.value)}
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">
+                Descrição
+              </label>
+              <textarea
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]"
+                value={newWorldDescription}
+                onChange={(e) => setNewWorldDescription(e.target.value)}
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setNewWorldHasEpisodes((prev) => !prev)
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  newWorldHasEpisodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-zinc-700 text-zinc-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateWorldFromModal}
+                disabled={isCreatingWorld}
+                className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium"
+              >
+                {isCreatingWorld ? "Criando..." : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de edição de ficha */}
       {editingFicha && (
