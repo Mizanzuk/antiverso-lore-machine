@@ -1,101 +1,46 @@
 "use client";
 
 import { useEffect, useState, ChangeEvent } from "react";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { supabaseBrowser } from "../lib/supabase-browser";
 
 type World = {
   id: string;
   nome: string | null;
+  descricao_curta?: string | null;
+  descricao_longa?: string | null;
+  ordem?: number | null;
+  prefixo?: string | null;
   has_episodes?: boolean | null;
 };
 
 type SuggestedFicha = {
-  id: string; // id local, só para controle no front
+  id: string;
   tipo: string;
   titulo: string;
   resumo: string;
   conteudo: string;
   tags: string;
   aparece_em: string;
-  codigo: string;
+  codigo?: string;
 };
 
-// Prefixos fixos conhecidos por mundo
-const WORLD_PREFIX_MAP: Record<string, string> = {
-  antiverso: "AN",
-  arquivos_vermelhos: "AV",
-  torre_de_vera_cruz: "TVC",
-  a_sala: "AS",
-  aris: "ARIS",
-  evangelho_de_or: "EO",
-  culto_de_or: "CO",
-  teste: "TS",
+type ApiFicha = {
+  tipo?: string;
+  titulo?: string;
+  resumo?: string;
+  conteudo?: string;
+  tags?: string[];
+  aparece_em?: string;
 };
 
-// Prefixos fixos conhecidos por tipo de ficha
-const TYPE_PREFIX_MAP: Record<string, string> = {
-  personagem: "PS",
-  local: "LO",
-  conceito: "CC",
-  evento: "EV",
-  midia: "MD",
-  "mídia": "MD",
-  empresa: "EM",
-  agencia: "AG",
-  "agência": "AG",
-  registro_anomalo: "RA",
-  "registro anômalo": "RA",
+type ExtractResponse = {
+  fichas: ApiFicha[];
 };
-
-function normalizeTipo(tipo: string): string {
-  return tipo
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "_")
-    .trim();
-}
-
-function getTypePrefix(tipo: string): string {
-  const key = normalizeTipo(tipo);
-  if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
-  return key.slice(0, 2).toUpperCase() || "FX";
-}
-
-function getWorldPrefix(world?: World | null): string {
-  if (!world) return "XX";
-
-  // primeiro tenta pelo id exato
-  const idKey = world.id.toLowerCase();
-  if (WORLD_PREFIX_MAP[idKey]) return WORLD_PREFIX_MAP[idKey];
-
-  // depois tenta pelo nome normalizado
-  const nameKey = (world.nome || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  if (WORLD_PREFIX_MAP[nameKey]) return WORLD_PREFIX_MAP[nameKey];
-
-  // fallback: pega iniciais do nome
-  const parts = nameKey.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) {
-    return parts[0].slice(0, 3).toUpperCase();
-  }
-  const initials = parts.map((p) => p[0]).join("").toUpperCase();
-  return initials.slice(0, 4) || "XX";
-}
-
-function normalizeEpisode(unitNumber: string): string {
-  const onlyDigits = (unitNumber || "").replace(/\D+/g, "");
-  if (!onlyDigits) return "0";
-  return String(parseInt(onlyDigits, 10));
-}
 
 function createEmptyFicha(id: string): SuggestedFicha {
   return {
     id,
-    tipo: "conceito",
+    tipo: "",
     titulo: "",
     resumo: "",
     conteudo: "",
@@ -105,6 +50,44 @@ function createEmptyFicha(id: string): SuggestedFicha {
   };
 }
 
+function normalizeEpisode(raw: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    return trimmed.padStart(2, "0");
+  }
+  return trimmed;
+}
+
+function getWorldPrefix(world: World | null): string {
+  if (!world) return "";
+  if (world.prefixo && world.prefixo.trim()) {
+    return world.prefixo.trim();
+  }
+  const nome = (world.nome || world.id || "").toUpperCase();
+  const cleaned = nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9\s]/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV";
+  if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC";
+  if (cleaned.startsWith("EVANGELHO DE OR")) return "EO";
+  if (cleaned.startsWith("ANTIVERSO")) return "ANT";
+  if (cleaned.startsWith("ARIS")) return "ARIS";
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 1) {
+    return words[0].slice(0, 3).toUpperCase();
+  }
+  const initials = words.map((w) => w[0]).join("");
+  return initials.slice(0, 4).toUpperCase();
+}
+
 export default function LoreUploadPage() {
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string>("");
@@ -112,13 +95,14 @@ export default function LoreUploadPage() {
   const [documentName, setDocumentName] = useState<string>("");
   const [text, setText] = useState<string>("");
 
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
+
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [showNewWorldModal, setShowNewWorldModal] = useState(false);
   const [newWorldName, setNewWorldName] = useState("");
@@ -126,132 +110,110 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
-  // Carrega mundos ao montar
   useEffect(() => {
-    const fetchWorlds = async () => {
+    async function fetchWorlds() {
       const { data, error } = await supabaseBrowser
         .from("worlds")
-        .select("id, nome")
+        .select("*")
         .order("ordem", { ascending: true });
 
       if (error) {
-        console.error("Erro ao carregar mundos:", error);
-        setError("Erro ao carregar mundos.");
-      } else if (data) {
-        const asWorlds = data as World[];
-        setWorlds(asWorlds);
-        if (!selectedWorldId && asWorlds.length > 0) {
-          setSelectedWorldId(asWorlds[0].id);
-        }
+        console.error(error);
+        setError("Erro ao carregar Mundos.");
+        return;
       }
-    };
+
+      const typed = (data || []) as World[];
+
+      if (typed.length > 0) {
+        setWorlds(typed);
+        setSelectedWorldId(typed[0].id);
+      } else {
+        setWorlds([]);
+        setSelectedWorldId("");
+      }
+    }
 
     fetchWorlds();
-  }, [selectedWorldId]);
+  }, []);
 
-  async function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
+  function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
 
     if (value === "create_new") {
       setShowNewWorldModal(true);
-      setNewWorldName("");
-      setNewWorldDescription("");
-      setNewWorldHasEpisodes(true);
-    } else {
-      setSelectedWorldId(value);
-    }
-  }
-
-  async function handleCreateWorldFromModal() {
-    const nome = newWorldName.trim();
-    if (!nome) {
-      alert("Digite o nome do novo mundo.");
       return;
     }
 
-    // Gera um id estável e url-safe baseado no nome
-    const baseId = nome
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
+    setSelectedWorldId(value);
+  }
 
-    const existingIds = new Set(worlds.map((w) => w.id));
-    let newId = baseId || "mundo_novo";
-    let suffix = 2;
-    while (existingIds.has(newId)) {
-      newId = `${baseId || "mundo_novo"}_${suffix}`;
-      suffix++;
+  async function handleCreateWorldFromModal() {
+    if (!newWorldName.trim()) {
+      setError("Dê um nome ao novo Mundo.");
+      return;
     }
 
+    setIsCreatingWorld(true);
+    setError(null);
+    setSuccessMessage(null);
+
     try {
-      setIsCreatingWorld(true);
       const { data, error } = await supabaseBrowser
         .from("worlds")
         .insert([
           {
-            id: newId,
-            nome,
-            descricao: newWorldDescription.trim(),
-            tipo: "mundo_ficcional",
+            nome: newWorldName.trim(),
+            descricao_curta: newWorldDescription.trim() || null,
             has_episodes: newWorldHasEpisodes,
           },
         ])
-        .select("id, nome, has_episodes")
-        .single();
+        .select("*");
 
-      if (error || !data) {
-        console.error("Erro ao criar mundo:", error);
-        alert("Erro ao criar mundo. Veja o console.");
+      if (error) {
+        console.error(error);
+        setError("Erro ao criar novo Mundo.");
         return;
       }
 
-      const criado = data as World;
-      setWorlds((prev) => [...prev, criado]);
-      setSelectedWorldId(criado.id);
-      setShowNewWorldModal(false);
+      const inserted = (data?.[0] || null) as World | null;
+
+      if (inserted) {
+        setWorlds((prev) => [...prev, inserted]);
+        setSelectedWorldId(inserted.id);
+        setShowNewWorldModal(false);
+        setNewWorldName("");
+        setNewWorldDescription("");
+        setNewWorldHasEpisodes(true);
+        setSuccessMessage("Novo Mundo criado com sucesso.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Erro inesperado ao criar Mundo.");
     } finally {
       setIsCreatingWorld(false);
     }
   }
 
   function handleCancelWorldModal() {
-    if (isCreatingWorld) return;
     setShowNewWorldModal(false);
-  }
-
-  function handleEditFicha(fichaId: string) {
-    const ficha = suggestedFichas.find((f) => f.id === fichaId) || null;
-    if (!ficha) return;
-    setEditingFicha({ ...ficha });
-  }
-
-  function handleRemoveFicha(fichaId: string) {
-    setSuggestedFichas((prev) => prev.filter((f) => f.id !== fichaId));
-  }
-
-  function handleClearAll() {
-    setSuggestedFichas([]);
-  }
-
-  function applyEditingFicha() {
-    if (!editingFicha) return;
-    setSuggestedFichas((prev) =>
-      prev.map((f) => (f.id === editingFicha.id ? editingFicha : f)),
-    );
-    setEditingFicha(null);
+    setNewWorldName("");
+    setNewWorldDescription("");
+    setNewWorldHasEpisodes(true);
   }
 
   async function handleExtractFichas() {
     setError(null);
     setSuccessMessage(null);
 
-    if (!selectedWorldId) {
+    const world = worlds.find((w) => w.id === selectedWorldId) || null;
+    const worldHasEpisodes = world?.has_episodes !== false;
+
+    if (!selectedWorldId || !world) {
       setError("Selecione um Mundo antes de extrair fichas.");
       return;
     }
-    if (!unitNumber.trim()) {
+    if (worldHasEpisodes && !unitNumber.trim()) {
       setError("Informe o número do episódio/capítulo.");
       return;
     }
@@ -260,99 +222,105 @@ export default function LoreUploadPage() {
       return;
     }
 
+    setIsExtracting(true);
+
     try {
-      setIsExtracting(true);
+      const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
+      const worldName =
+        selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
 
       const response = await fetch("/api/lore/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          worldId: selectedWorldId,
-          unitNumber,
           text,
-          documentName: documentName || null,
+          worldId: selectedWorldId,
+          worldName,
+          documentName: documentName.trim() || null,
+          unitNumber,
         }),
       });
 
       if (!response.ok) {
-        console.error("Erro HTTP em /api/lore/extract:", response.status);
-        setError("Erro ao extrair fichas. Tente novamente.");
-        setIsExtracting(false);
+        console.error("Falha ao extrair fichas:", response.statusText);
+        const errorData = await response.json().catch(() => null);
+        const msg =
+          errorData?.error ||
+          `Erro ao extrair fichas (status ${response.status}).`;
+        setError(msg);
         return;
       }
 
-      const data = await response.json();
-      const extracted = Array.isArray(data.fichas) ? data.fichas : [];
+      const data = (await response.json()) as ExtractResponse;
+      const rawFichas = data.fichas || [];
 
-      const world = worlds.find((w) => w.id === selectedWorldId) || null;
-      const worldPrefix = getWorldPrefix(world);
-      const episode = normalizeEpisode(unitNumber);
+      const selected = worlds.find((w) => w.id === selectedWorldId) || null;
+      const prefix = getWorldPrefix(selected);
+      const normalizedEpisode = normalizeEpisode(unitNumber || "");
+      let fichaCounter = 1;
 
-      // Contadores por prefixo de tipo para gerar números sequenciais locais
-      const typeCounters: Record<string, number> = {};
+      const mapped: SuggestedFicha[] = rawFichas.map((rawFicha) => {
+        const base = createEmptyFicha(
+          `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        );
 
-      const mapped: SuggestedFicha[] = extracted.map((raw: any) => {
-        const id =
-          typeof crypto !== "undefined" && (crypto as any).randomUUID
-            ? (crypto as any).randomUUID()
-            : Math.random().toString(36).slice(2);
+        const titulo = rawFicha.titulo?.trim() || base.titulo;
+        const tipo = rawFicha.tipo?.trim() || base.tipo;
+        const resumo = rawFicha.resumo?.trim() || base.resumo;
+        const conteudo = rawFicha.conteudo?.trim() || base.conteudo;
+        const tagsArray = rawFicha.tags || [];
+        const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
 
-        const tipo = raw.tipo || "conceito";
-        const typePrefix = getTypePrefix(tipo);
-        const currentCount = (typeCounters[typePrefix] || 0) + 1;
-        typeCounters[typePrefix] = currentCount;
+        const tagsString = tagsArray.join(", ");
 
-        const codigo =
-          worldPrefix && episode
-            ? `${worldPrefix}${episode}-${typePrefix}${currentCount}`
-            : "";
+        const worldNameForAparece =
+          selected?.nome || selected?.id || "Mundo Desconhecido";
 
-        const tagsArray = Array.isArray(raw.tags) ? raw.tags : [];
-        const tagsStr = tagsArray.join(", ");
+        const appearsParts: string[] = [];
 
-        // "aparece_em" agora é sempre derivado de Mundo + Episódio,
-        // ignorando o texto genérico vindo da extração.
-        const hasEpisodes =
-          typeof world?.has_episodes === "boolean"
-            ? world.has_episodes
-            : true;
+        if (worldNameForAparece) {
+          appearsParts.push(`Mundo: ${worldNameForAparece}`);
+        }
 
-        let apareceEm = "";
-        if (!world?.nome && !episode) {
-          apareceEm = raw.aparece_em || "";
-} else if (!hasEpisodes || !episode || episode === "0") {
-  apareceEm = world?.nome
-    ? `Mundo: ${world.nome}\n\n`
-    : raw.aparece_em || "";
-} else {
-  apareceEm = world?.nome
-    ? `Mundo: ${world.nome}\n\nEpisódio: ${episode}`
-    : raw.aparece_em || "";
-}
+        if (normalizedEpisode) {
+          appearsParts.push(`Episódio/Capítulo: ${normalizedEpisode}`);
+        }
+
+        if (documentName.trim()) {
+          appearsParts.push(`Documento: ${documentName.trim()}`);
+        }
+
+        if (!normalizedEpisode && !documentName.trim() && apareceEmRaw) {
+          appearsParts.push(apareceEmRaw);
+        }
+
+        const appearsEmValue = appearsParts.join("\n\n");
+
+        let codigoGerado = "";
+        if (prefix && normalizedEpisode) {
+          const counterStr = String(fichaCounter).padStart(2, "0");
+          codigoGerado = `${prefix}${normalizedEpisode}-PS${counterStr}`;
+          fichaCounter += 1;
+        }
 
         return {
-          id,
+          ...base,
           tipo,
-          titulo: raw.titulo || "",
-          resumo: raw.resumo || "",
-          conteudo: raw.conteudo || "",
-          tags: tagsStr,
-          aparece_em: apareceEm,
-          codigo,
+          titulo,
+          resumo,
+          conteudo,
+          tags: tagsString,
+          aparece_em: appearsEmValue,
+          codigo: codigoGerado,
         };
       });
 
-      if (mapped.length === 0) {
-        const id =
-          typeof crypto !== "undefined" && (crypto as any).randomUUID
-            ? (crypto as any).randomUUID()
-            : Math.random().toString(36).slice(2);
-        mapped.push(createEmptyFicha(id));
-      }
-
       setSuggestedFichas(mapped);
+      setSuccessMessage(
+        `Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`
+      );
     } catch (err) {
-      console.error("Erro inesperado em handleExtractFichas:", err);
+      console.error("Erro inesperado ao extrair fichas:", err);
       setError("Erro inesperado ao extrair fichas.");
     } finally {
       setIsExtracting(false);
@@ -363,61 +331,45 @@ export default function LoreUploadPage() {
     setError(null);
     setSuccessMessage(null);
 
-    if (!selectedWorldId) {
-      setError("Selecione um Mundo antes de salvar fichas.");
-      return;
-    }
-    if (!unitNumber.trim()) {
-      setError("Informe o número do episódio/capítulo.");
-      return;
-    }
     if (suggestedFichas.length === 0) {
       setError("Não há fichas para salvar.");
       return;
     }
 
+    if (!selectedWorldId) {
+      setError("Selecione um Mundo antes de salvar fichas.");
+      return;
+    }
+
+    setIsSaving(true);
+
     try {
-      setIsSaving(true);
-
-      const fichasPayload = suggestedFichas
-        .filter((f) => f.titulo.trim())
-        .map((f) => {
-          const tagsArray = f.tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean);
-
-          return {
-            tipo: f.tipo || "conceito",
-            titulo: f.titulo.trim(),
-            resumo: f.resumo.trim() || "",
-            conteudo: f.conteudo.trim() || "",
-            tags: tagsArray,
-            aparece_em: f.aparece_em.trim() || null,
-            codigo: f.codigo.trim() || undefined,
-          };
-        });
-
-      if (fichasPayload.length === 0) {
-        setError("Nenhuma ficha possui título preenchido.");
-        setIsSaving(false);
-        return;
-      }
+      const payload = suggestedFichas.map((f) => ({
+        tipo: f.tipo,
+        titulo: f.titulo,
+        resumo: f.resumo,
+        conteudo: f.conteudo,
+        tags: f.tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+        aparece_em: f.aparece_em,
+        codigo: f.codigo,
+        world_id: selectedWorldId,
+      }));
 
       const response = await fetch("/api/lore/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          worldId: selectedWorldId,
-          unitNumber,
-          fichas: fichasPayload,
-        }),
+        body: JSON.stringify({ fichas: payload }),
       });
 
       if (!response.ok) {
-        console.error("Erro HTTP em /api/lore/save:", response.status);
-        setError("Erro ao salvar fichas. Verifique os dados e tente novamente.");
-        setIsSaving(false);
+        const errorData = await response.json().catch(() => null);
+        const msg =
+          errorData?.error ||
+          `Erro ao salvar fichas (status ${response.status}).`;
+        setError(msg);
         return;
       }
 
@@ -425,18 +377,47 @@ export default function LoreUploadPage() {
       console.log("Fichas salvas:", data);
 
       setSuggestedFichas([]);
+      setText("");
+      setDocumentName("");
+      setUnitNumber("");
+
       setSuccessMessage("Fichas salvas com sucesso!");
     } catch (err) {
-      console.error("Erro inesperado em handleSaveFichas:", err);
+      console.error("Erro inesperado ao salvar fichas:", err);
       setError("Erro inesperado ao salvar fichas.");
     } finally {
       setIsSaving(false);
     }
   }
 
+  function handleEditFicha(id: string) {
+    const ficha = suggestedFichas.find((f) => f.id === id);
+    if (!ficha) return;
+    setEditingFicha({ ...ficha });
+  }
+
+  function applyEditingFicha() {
+    if (!editingFicha) return;
+
+    setSuggestedFichas((prev) =>
+      prev.map((f) => (f.id === editingFicha.id ? { ...editingFicha } : f))
+    );
+    setEditingFicha(null);
+  }
+
+  function handleRemoveFicha(id: string) {
+    setSuggestedFichas((prev) => prev.filter((f) => f.id !== id));
+  }
+
+  function handleClearAll() {
+    setSuggestedFichas([]);
+    setSuccessMessage(null);
+  }
+
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const worldPrefix = getWorldPrefix(selectedWorld);
   const episode = normalizeEpisode(unitNumber || "");
+  const worldHasEpisodes = selectedWorld?.has_episodes !== false;
 
   return (
     <div className="h-screen bg-black text-zinc-100 flex flex-col">
@@ -472,7 +453,6 @@ export default function LoreUploadPage() {
               {error}
             </div>
           )}
-
           {successMessage && !error && (
             <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
               {successMessage}
@@ -507,8 +487,19 @@ export default function LoreUploadPage() {
                 className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
                 value={unitNumber}
                 onChange={(e) => setUnitNumber(e.target.value)}
-                placeholder="Ex.: 6"
+                placeholder={
+                  worldHasEpisodes
+                    ? "Ex.: 6"
+                    : "Este mundo não utiliza episódios"
+                }
+                disabled={!worldHasEpisodes}
               />
+              {!worldHasEpisodes && (
+                <p className="text-[11px] text-zinc-500">
+                  Este mundo não utiliza episódios. Você pode deixar este campo
+                  em branco.
+                </p>
+              )}
             </div>
           </section>
 
@@ -727,7 +718,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.titulo}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, titulo: e.target.value } : prev,
+                      prev ? { ...prev, titulo: e.target.value } : prev
                     )
                   }
                 />
@@ -742,7 +733,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.tipo}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, tipo: e.target.value } : prev,
+                      prev ? { ...prev, tipo: e.target.value } : prev
                     )
                   }
                   placeholder="Ex.: personagem, local, conceito, evento..."
@@ -758,7 +749,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.resumo}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, resumo: e.target.value } : prev,
+                      prev ? { ...prev, resumo: e.target.value } : prev
                     )
                   }
                 />
@@ -773,7 +764,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.conteudo}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, conteudo: e.target.value } : prev,
+                      prev ? { ...prev, conteudo: e.target.value } : prev
                     )
                   }
                 />
@@ -788,7 +779,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.tags}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, tags: e.target.value } : prev,
+                      prev ? { ...prev, tags: e.target.value } : prev
                     )
                   }
                   placeholder="Ex.: religião, protagonista, fé"
@@ -804,10 +795,10 @@ export default function LoreUploadPage() {
                   value={editingFicha.aparece_em}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, aparece_em: e.target.value } : prev,
+                      prev ? { ...prev, aparece_em: e.target.value } : prev
                     )
                   }
-                  placeholder="Ex.: Mundo: Arquivos Vermelhos / Episódio: 6"
+                  placeholder="Ex.: Episódio 6 — A Geladeira"
                 />
               </div>
 
@@ -820,7 +811,7 @@ export default function LoreUploadPage() {
                   value={editingFicha.codigo}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
-                      prev ? { ...prev, codigo: e.target.value } : prev,
+                      prev ? { ...prev, codigo: e.target.value } : prev
                     )
                   }
                   placeholder={
