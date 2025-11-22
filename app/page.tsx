@@ -201,7 +201,6 @@ export default function Page() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -274,47 +273,14 @@ export default function Page() {
       }
 
       if (session) {
-        setUserId(session.user.id);
         setView("loggedIn");
       } else {
-        setUserId(null);
         setView("loggedOut");
       }
     };
 
     checkSession();
   }, []);
-
-  // Carrega histórico remoto de chat do Supabase quando logado
-  useEffect(() => {
-    if (view !== "loggedIn" || !userId) return;
-
-    const fetchRemoteSessions = async () => {
-      try {
-        const { data, error } = await supabaseBrowser
-          .from("chat_states")
-          .select("data")
-          .eq("user_id", userId)
-          .limit(1);
-
-        if (error) {
-          console.error("Falha ao carregar histórico remoto", error);
-          return;
-        }
-
-        if (data && data.length > 0 && data[0]?.data) {
-          const remote = data[0].data as ChatSession[];
-          if (Array.isArray(remote) && remote.length > 0) {
-            setSessions(remote);
-          }
-        }
-      } catch (err) {
-        console.error("Erro inesperado ao carregar histórico remoto", err);
-      }
-    };
-
-    fetchRemoteSessions();
-  }, [view, userId]);
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) {
@@ -337,39 +303,6 @@ export default function Page() {
       console.error("Falha ao salvar histórico no localStorage", err);
     }
   }, [sessions]);
-
-  // Salva histórico remoto no Supabase sempre que sessões mudarem
-  useEffect(() => {
-    if (view !== "loggedIn" || !userId) return;
-
-    const syncRemote = async () => {
-      try {
-        const sanitized = sessions.map((s) => ({
-          ...s,
-          messages: trimMessagesForStorage(s.messages),
-        }));
-
-        const { error } = await supabaseBrowser
-          .from("chat_states")
-          .upsert(
-            {
-              user_id: userId,
-              data: sanitized,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id" }
-          );
-
-        if (error) {
-          console.error("Falha ao salvar histórico remoto", error);
-        }
-      } catch (err) {
-        console.error("Erro inesperado ao salvar histórico remoto", err);
-      }
-    };
-
-    syncRemote();
-  }, [sessions, view, userId]);
 
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
@@ -687,17 +620,14 @@ export default function Page() {
     }
 
     if (data?.session) {
-      setUserId(data.session.user.id);
       setView("loggedIn");
     } else {
-      setUserId(null);
       setView("loggedOut");
     }
   }
 
   async function handleLogout() {
     await supabaseBrowser.auth.signOut();
-    setUserId(null);
     setView("loggedOut");
     setEmail("");
     setPassword("");
@@ -707,7 +637,7 @@ export default function Page() {
         title: "Nova conversa",
         mode: "consulta",
         createdAt: Date.now(),
-        messages: [createIntroMessage()],
+        messages: [getIntroMessage()],
       },
     ]);
     setActiveSessionId(null);
@@ -1039,7 +969,7 @@ export default function Page() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 whitespace-normal break-words">
+                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
                                 {isRenaming ? (
                                   <input
                                     className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
@@ -1106,6 +1036,7 @@ export default function Page() {
                       </div>
                     );
                   })}
+                </div>
               </>
             )}
           </div>
