@@ -74,7 +74,6 @@ export default function LoreAdminPage() {
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
-
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
   const [worldFormMode, setWorldFormMode] =
@@ -107,8 +106,7 @@ export default function LoreAdminPage() {
     resumo: string;
     conteudo: string;
     tags: string;
-    ano_diegese: string;
-    ordem_cronologica: string;
+    ano_diegese: string; // agora usado como "Data do evento"
     aparece_em: string;
     codigo: string;
     imagem_url: string;
@@ -121,7 +119,6 @@ export default function LoreAdminPage() {
     conteudo: "",
     tags: "",
     ano_diegese: "",
-    ordem_cronologica: "",
     aparece_em: "",
     codigo: "",
     imagem_url: "",
@@ -274,7 +271,6 @@ export default function LoreAdminPage() {
     setSelectedFichaId(null);
     setCodes([]);
   }
-
 
   async function fetchCodes(fichaId: string) {
     setError(null);
@@ -447,7 +443,6 @@ export default function LoreAdminPage() {
       conteudo: "",
       tags: "",
       ano_diegese: "",
-      ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
       imagem_url: "",
@@ -465,9 +460,6 @@ export default function LoreAdminPage() {
       conteudo: ficha.conteudo ?? "",
       tags: ficha.tags ?? "",
       ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
-      ordem_cronologica: ficha.ordem_cronologica
-        ? String(ficha.ordem_cronologica)
-        : "",
       aparece_em: ficha.aparece_em ?? "",
       codigo: ficha.codigo ?? "",
       imagem_url: ficha.imagem_url ?? "",
@@ -485,7 +477,6 @@ export default function LoreAdminPage() {
       conteudo: "",
       tags: "",
       ano_diegese: "",
-      ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
       imagem_url: "",
@@ -516,15 +507,11 @@ export default function LoreAdminPage() {
       resumo: fichaForm.resumo.trim() || null,
       conteudo: fichaForm.conteudo.trim() || null,
       tags: fichaForm.tags.trim() || null,
+      // continua usando ano_diegese como campo bruto de "Data do evento"
       ano_diegese: fichaForm.ano_diegese.trim()
         ? Number.isNaN(Number(fichaForm.ano_diegese.trim()))
           ? fichaForm.ano_diegese.trim()
           : Number(fichaForm.ano_diegese.trim())
-        : null,
-      ordem_cronologica: fichaForm.ordem_cronologica.trim()
-        ? Number.isNaN(Number(fichaForm.ordem_cronologica.trim()))
-          ? fichaForm.ordem_cronologica.trim()
-          : Number(fichaForm.ordem_cronologica.trim())
         : null,
       aparece_em: fichaForm.aparece_em.trim() || null,
       codigo: fichaForm.codigo.trim() || null,
@@ -1164,10 +1151,8 @@ export default function LoreAdminPage() {
               </div>
             ))}
           </div>
-
         </section>
 
-        
         {/* Detalhes da Ficha */}
         <section className="flex-1 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
@@ -1276,6 +1261,17 @@ export default function LoreAdminPage() {
                 </div>
               )}
 
+              {selectedFicha.ano_diegese && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">
+                    Data do evento
+                  </div>
+                  <div className="text-[12px] text-neutral-200">
+                    {selectedFicha.ano_diegese}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] text-neutral-500">Códigos</div>
@@ -1344,7 +1340,6 @@ export default function LoreAdminPage() {
           )}
         </section>
       </main>
-
 
       {/* Modais de leitura – Mundo */}
       {worldViewModal && (
@@ -1500,6 +1495,17 @@ export default function LoreAdminPage() {
               </div>
             )}
 
+            {fichaViewModal.ano_diegese && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Data do evento
+                </div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.ano_diegese}
+                </div>
+              </div>
+            )}
+
             {selectedFichaId === fichaViewModal.id && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -1538,33 +1544,6 @@ export default function LoreAdminPage() {
                         </div>
                       </div>
                     ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-
-            {(fichaViewModal.ano_diegese ||
-              fichaViewModal.ordem_cronologica) && (
-              <div className="grid grid-cols-2 gap-3">
-                {fichaViewModal.ano_diegese && (
-                  <div className="space-y-1">
-                    <div className="text-[11px] text-neutral-500">
-                      Ano da diegese
-                    </div>
-                    <div className="text-[12px] text-neutral-200">
-                      {fichaViewModal.ano_diegese}
-                    </div>
-                  </div>
-                )}
-                {fichaViewModal.ordem_cronologica && (
-                  <div className="space-y-1">
-                    <div className="text-[11px] text-neutral-500">
-                      Ordem cronológica
-                    </div>
-                    <div className="text-[12px] text-neutral-200">
-                      {fichaViewModal.ordem_cronologica}
-                    </div>
                   </div>
                 )}
               </div>
@@ -1737,31 +1716,12 @@ export default function LoreAdminPage() {
                   placeholder="delegada-cintia, aris-042-corredor"
                 />
               </div>
-              
-<div className="w-48 space-y-1">
+
+              <div className="w-48 space-y-1">
                 <label className="text-[11px] text-neutral-500">
                   Tipo (categoria)
                 </label>
-   
-            <div className="space-y-1">
-              <label className="text-[11px] text-neutral-500">Código da ficha</label>
-              <input
-                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                value={fichaForm.codigo}
-                onChange={(e) =>
-                  setFichaForm((prev) => ({
-                    ...prev,
-                    codigo: e.target.value,
-                  }))
-                }
-                placeholder="Deixe em branco para usar o código gerado automaticamente (ex: AV7-PS3)…"
-              />
-              <p className="text-[10px] text-neutral-500 mt-0.5">
-                A Lore Machine pode gerar esse código automaticamente com base no Mundo, episódio e tipo.
-                Aqui você pode ajustar manualmente se precisar.
-              </p>
-            </div>
-             <select
+                <select
                   className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                   value={fichaForm.tipo}
                   onChange={(e) => {
@@ -1800,11 +1760,32 @@ export default function LoreAdminPage() {
             </div>
 
             <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Código da ficha
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.codigo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    codigo: e.target.value,
+                  }))
+                }
+                placeholder="Deixe em branco para usar o código gerado automaticamente (ex: AV7-PS3)…"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                A Lore Machine pode gerar esse código automaticamente com base no Mundo, episódio e tipo.
+                Aqui você pode ajustar manualmente se precisar.
+              </p>
+            </div>
+
+            <div className="space-y-1">
               <label className="text-[11px] text-neutral-500">Resumo</label>
               <textarea
                 className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
                 value={fichaForm.resumo}
-  onChange={(e) =>
+                onChange={(e) =>
                   setFichaForm((prev) => ({
                     ...prev,
                     resumo: e.target.value,
@@ -1883,39 +1864,24 @@ export default function LoreAdminPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Ano da diegese
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={fichaForm.ano_diegese}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      ano_diegese: e.target.value,
-                    }))
-                  }
-                  placeholder="ex: 1993"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Ordem cronológica
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                  value={fichaForm.ordem_cronologica}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      ordem_cronologica: e.target.value,
-                    }))
-                  }
-                  placeholder="ex: 10, 20, 30…"
-                />
-              </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Data do evento
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.ano_diegese}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    ano_diegese: e.target.value,
+                  }))
+                }
+                placeholder={`ex: "9 jan 2014", "anos 90", "entre 2003 e 2005"…`}
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Use um ano, uma data completa ou uma estimativa (ex: &quot;nos anos 90&quot;).
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
