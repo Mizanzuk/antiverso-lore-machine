@@ -19,6 +19,7 @@ type WorldRow = {
   nome: string | null;
   descricao?: string | null;
   tipo?: string | null;
+  has_episodes?: boolean | null;
 };
 
 // --- Helpers ---
@@ -237,7 +238,7 @@ export async function POST(req: NextRequest) {
 
     const { data: worldRow, error: worldError } = await supabaseAdmin!
       .from("worlds")
-      .select("id, nome, descricao, tipo")
+      .select("id, nome, descricao, tipo, has_episodes")
       .eq("id", worldId)
       .single();
 
@@ -275,7 +276,25 @@ export async function POST(req: NextRequest) {
           resumo: ficha.resumo ?? "",
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
-          aparece_em: ficha.aparece_em ?? null,
+          // "aparece_em" agora é preenchido automaticamente a partir de Mundo + Episódio
+          aparece_em: (() => {
+            const episode = normalizeEpisode(unitNumber);
+            const worldName = (world.nome || "").trim();
+            const hasEpisodes =
+              typeof world.has_episodes === "boolean"
+                ? world.has_episodes
+                : true;
+
+            if (!worldName && !episode) return null;
+
+            if (!hasEpisodes || !episode || episode === "0") {
+              return worldName ? `Mundo: ${worldName}` : null;
+            }
+
+            return worldName
+              ? `Mundo: ${worldName}\nEpisódio: ${episode}`
+              : `Episódio: ${episode}`;
+          })(),
           episodio: normalizeEpisode(unitNumber),
           // codigo será preenchido depois
           codigo: null,
