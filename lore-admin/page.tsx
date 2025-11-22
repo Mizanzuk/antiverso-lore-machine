@@ -19,6 +19,7 @@ const KNOWN_TIPOS = [
   "epistemologia",
   "evento",
   "regra_de_mundo",
+  "roteiro",
 ];
 
 function getWorldPrefix(worldName: string | null | undefined): string {
@@ -85,12 +86,14 @@ export default function LoreAdminPage() {
     descricao: string;
     tipo: string;
     ordem: string;
-  }>({
+    has_episodes: boolean;
+  }>({ 
     id: "",
     nome: "",
     descricao: "",
     tipo: "",
     ordem: "",
+    has_episodes: true,
   });
 
   const [fichaFormMode, setFichaFormMode] =
@@ -108,6 +111,7 @@ export default function LoreAdminPage() {
     ordem_cronologica: string;
     aparece_em: string;
     codigo: string;
+    imagem_url: string;
   }>({
     id: "",
     titulo: "",
@@ -120,6 +124,7 @@ export default function LoreAdminPage() {
     ordem_cronologica: "",
     aparece_em: "",
     codigo: "",
+    imagem_url: "",
   });
 
   const [codeFormMode, setCodeFormMode] =
@@ -270,6 +275,7 @@ export default function LoreAdminPage() {
     setCodes([]);
   }
 
+
   async function fetchCodes(fichaId: string) {
     setError(null);
     const { data, error: codesError } = await supabaseBrowser
@@ -295,6 +301,7 @@ export default function LoreAdminPage() {
       descricao: "",
       tipo: "",
       ordem: "",
+      has_episodes: true,
     });
   }
 
@@ -306,6 +313,8 @@ export default function LoreAdminPage() {
       descricao: world.descricao ?? "",
       tipo: world.tipo ?? "",
       ordem: world.ordem ? String(world.ordem) : "",
+      has_episodes:
+        typeof world.has_episodes === "boolean" ? world.has_episodes : true,
     });
   }
 
@@ -317,6 +326,7 @@ export default function LoreAdminPage() {
       descricao: "",
       tipo: "",
       ordem: "",
+      has_episodes: true,
     });
   }
 
@@ -334,6 +344,7 @@ export default function LoreAdminPage() {
     const payload: any = {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
+      has_episodes: worldForm.has_episodes,
       updated_at: new Date().toISOString(),
     };
 
@@ -410,6 +421,7 @@ export default function LoreAdminPage() {
       ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
+      imagem_url: "",
     });
   }
 
@@ -429,6 +441,7 @@ export default function LoreAdminPage() {
         : "",
       aparece_em: ficha.aparece_em ?? "",
       codigo: ficha.codigo ?? "",
+      imagem_url: ficha.imagem_url ?? "",
     });
   }
 
@@ -446,6 +459,7 @@ export default function LoreAdminPage() {
       ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
+      imagem_url: "",
     });
   }
 
@@ -485,6 +499,7 @@ export default function LoreAdminPage() {
         : null,
       aparece_em: fichaForm.aparece_em.trim() || null,
       codigo: fichaForm.codigo.trim() || null,
+      imagem_url: fichaForm.imagem_url.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -505,7 +520,11 @@ export default function LoreAdminPage() {
 
     if (saveError) {
       console.error(saveError);
-      setError("Erro ao salvar Ficha.");
+      setError(
+        `Erro ao salvar Ficha: ${
+          (saveError as any)?.message || JSON.stringify(saveError)
+        }`,
+      );
       return;
     }
 
@@ -522,6 +541,19 @@ export default function LoreAdminPage() {
     );
     if (!ok) return;
 
+    // Primeiro, apagar códigos associados a esta ficha (para não violar FK)
+    const { error: deleteCodesError } = await supabaseBrowser
+      .from("codes")
+      .delete()
+      .eq("ficha_id", fichaId);
+
+    if (deleteCodesError) {
+      console.error(deleteCodesError);
+      setError("Erro ao deletar códigos vinculados à Ficha.");
+      return;
+    }
+
+    // Depois, apagar a ficha em si
     const { error: deleteError } = await supabaseBrowser
       .from("fichas")
       .delete()
@@ -843,7 +875,7 @@ export default function LoreAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-neutral-100 flex flex-col">
+    <div className="h-screen bg-black text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a
@@ -1029,6 +1061,8 @@ export default function LoreAdminPage() {
                   ? "Eventos"
                   : tipo === "regra_de_mundo"
                   ? "Regras de mundo"
+                  : tipo === "roteiro"
+                  ? "Roteiros"
                   : tipo}
               </button>
             ))}
@@ -1101,6 +1135,7 @@ export default function LoreAdminPage() {
               </div>
             ))}
           </div>
+
         </section>
 
         
@@ -1156,6 +1191,20 @@ export default function LoreAdminPage() {
                   <div className="text-[11px] text-neutral-500">Código</div>
                   <div className="text-[12px] text-neutral-300">
                     {selectedFicha.codigo}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.imagem_url && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Imagem</div>
+                  <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={selectedFicha.imagem_url}
+                      alt={selectedFicha.titulo || "imagem da ficha"}
+                      className="w-full max-h-80 object-contain"
+                    />
                   </div>
                 </div>
               )}
@@ -1377,6 +1426,20 @@ export default function LoreAdminPage() {
               </div>
             )}
 
+            {fichaViewModal.imagem_url && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Imagem</div>
+                <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={fichaViewModal.imagem_url}
+                    alt={fichaViewModal.titulo || "imagem da ficha"}
+                    className="w-full max-h-80 object-contain"
+                  />
+                </div>
+              </div>
+            )}
+
             {fichaViewModal.conteudo && (
               <div className="space-y-1">
                 <div className="text-[11px] text-neutral-500">
@@ -1551,6 +1614,27 @@ export default function LoreAdminPage() {
                 }
                 placeholder="Resumo do Mundo…"
               />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                id="has_episodes"
+                type="checkbox"
+                className="h-3 w-3 rounded border border-neutral-700 bg-black/60"
+                checked={worldForm.has_episodes}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    has_episodes: e.target.checked,
+                  }))
+                }
+              />
+              <label
+                htmlFor="has_episodes"
+                className="text-[11px] text-neutral-500 select-none"
+              >
+                Este mundo possui episódios?
+              </label>
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
@@ -1733,6 +1817,26 @@ export default function LoreAdminPage() {
                 }
                 placeholder="separe por vírgulas ou espaço, como preferir"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Imagem (URL)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.imagem_url}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    imagem_url: e.target.value,
+                  }))
+                }
+                placeholder="https://… (link de imagem)"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Por enquanto, cole aqui o link direto da imagem (pode ser do Supabase Storage, CDN, etc.).
+              </p>
             </div>
 
             <div className="space-y-1">
