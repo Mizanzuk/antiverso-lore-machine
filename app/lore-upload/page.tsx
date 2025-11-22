@@ -115,6 +115,7 @@ export default function LoreUploadPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
@@ -244,6 +245,7 @@ export default function LoreUploadPage() {
 
   async function handleExtractFichas() {
     setError(null);
+    setSuccessMessage(null);
 
     if (!selectedWorldId) {
       setError("Selecione um Mundo antes de extrair fichas.");
@@ -306,7 +308,7 @@ export default function LoreUploadPage() {
             : "";
 
         const tagsArray = Array.isArray(raw.tags) ? raw.tags : [];
-        const tagsStr = tagsArray.join(", " );
+        const tagsStr = tagsArray.join(", ");
 
         // "aparece_em" agora é sempre derivado de Mundo + Episódio,
         // ignorando o texto genérico vindo da extração.
@@ -319,7 +321,7 @@ export default function LoreUploadPage() {
         if (!world?.nome && !episode) {
           apareceEm = raw.aparece_em || "";
         } else if (!hasEpisodes || !episode || episode === "0") {
-          apareceEm = world?.nome ? `Mundo: ${world.nome}` : raw.aparece_em || "";
+          apareceEn = world?.nome ? `Mundo: ${world.nome}` : raw.aparece_em || "";
         } else {
           apareceEm = world?.nome
             ? `Mundo: ${world.nome}\nEpisódio: ${episode}`
@@ -357,6 +359,7 @@ export default function LoreUploadPage() {
 
   async function handleSaveFichas() {
     setError(null);
+    setSuccessMessage(null);
 
     if (!selectedWorldId) {
       setError("Selecione um Mundo antes de salvar fichas.");
@@ -420,6 +423,7 @@ export default function LoreUploadPage() {
       console.log("Fichas salvas:", data);
 
       setSuggestedFichas([]);
+      setSuccessMessage("Fichas salvas com sucesso!");
     } catch (err) {
       console.error("Erro inesperado em handleSaveFichas:", err);
       setError("Erro inesperado ao salvar fichas.");
@@ -464,6 +468,12 @@ export default function LoreUploadPage() {
           {error && (
             <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
               {error}
+            </div>
+          )}
+
+          {successMessage && !error && (
+            <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+              {successMessage}
             </div>
           )}
 
@@ -619,7 +629,6 @@ export default function LoreUploadPage() {
         </div>
       </div>
 
-
       {/* Modal de criação de novo mundo */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
@@ -646,9 +655,7 @@ export default function LoreUploadPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">
-                Descrição
-              </label>
+              <label className="text-[11px] text-zinc-500">Descrição</label>
               <textarea
                 className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]"
                 value={newWorldDescription}
@@ -790,15 +797,15 @@ export default function LoreUploadPage() {
                 <label className="text-xs uppercase tracking-wide text-zinc-400">
                   Aparece em
                 </label>
-                <input
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                <textarea
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[72px]"
                   value={editingFicha.aparece_em}
                   onChange={(e) =>
                     setEditingFicha((prev) =>
                       prev ? { ...prev, aparece_em: e.target.value } : prev,
                     )
                   }
-                  placeholder="Ex.: Episódio 6 — A Geladeira"
+                  placeholder="Ex.: Mundo: Arquivos Vermelhos / Episódio: 6"
                 />
               </div>
 
@@ -814,7 +821,11 @@ export default function LoreUploadPage() {
                       prev ? { ...prev, codigo: e.target.value } : prev,
                     )
                   }
-                  placeholder={worldPrefix && episode ? `${worldPrefix}${episode}-PS1` : "Ex.: TS6-PS1"}
+                  placeholder={
+                    worldPrefix && episode
+                      ? `${worldPrefix}${episode}-PS1`
+                      : "Ex.: TS6-PS1"
+                  }
                 />
               </div>
             </div>
