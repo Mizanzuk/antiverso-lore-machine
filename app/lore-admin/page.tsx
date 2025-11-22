@@ -452,6 +452,7 @@ export default function LoreAdminPage() {
       ordem_cronologica: "",
       aparece_em: "",
       codigo: "",
+      imagem_url: "",
     });
   }
 
