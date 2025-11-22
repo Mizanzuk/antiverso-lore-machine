@@ -320,13 +320,15 @@ export default function LoreUploadPage() {
         let apareceEm = "";
         if (!world?.nome && !episode) {
           apareceEm = raw.aparece_em || "";
-        } else if (!hasEpisodes || !episode || episode === "0") {
-          apareceEn = world?.nome ? `Mundo: ${world.nome}` : raw.aparece_em || "";
-        } else {
-          apareceEm = world?.nome
-            ? `Mundo: ${world.nome}\nEpisódio: ${episode}`
-            : `Episódio: ${episode}`;
-        }
+} else if (!hasEpisodes || !episode || episode === "0") {
+  apareceEm = world?.nome
+    ? `Mundo: ${world.nome}\n\n`
+    : raw.aparece_em || "";
+} else {
+  apareceEm = world?.nome
+    ? `Mundo: ${world.nome}\n\nEpisódio: ${episode}`
+    : raw.aparece_em || "";
+}
 
         return {
           id,
