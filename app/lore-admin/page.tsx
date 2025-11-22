@@ -86,12 +86,14 @@ export default function LoreAdminPage() {
     descricao: string;
     tipo: string;
     ordem: string;
+    has_episodes: boolean;
   }>({
     id: "",
     nome: "",
     descricao: "",
     tipo: "",
     ordem: "",
+    has_episodes: true,
   });
 
   const [fichaFormMode, setFichaFormMode] =
@@ -299,6 +301,7 @@ export default function LoreAdminPage() {
       descricao: "",
       tipo: "",
       ordem: "",
+      has_episodes: true,
     });
   }
 
@@ -310,6 +313,8 @@ export default function LoreAdminPage() {
       descricao: world.descricao ?? "",
       tipo: world.tipo ?? "",
       ordem: world.ordem ? String(world.ordem) : "",
+      has_episodes:
+        typeof world.has_episodes === "boolean" ? world.has_episodes : true,
     });
   }
 
@@ -321,6 +326,7 @@ export default function LoreAdminPage() {
       descricao: "",
       tipo: "",
       ordem: "",
+      has_episodes: true,
     });
   }
 
@@ -338,6 +344,7 @@ export default function LoreAdminPage() {
     const payload: any = {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
+      has_episodes: worldForm.has_episodes,
       updated_at: new Date().toISOString(),
     };
 
@@ -1607,6 +1614,25 @@ export default function LoreAdminPage() {
                 }
                 placeholder="Resumo do Mundo…"
               />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    has_episodes: !prev.has_episodes,
+                  }))
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  worldForm.has_episodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-neutral-700 text-neutral-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
