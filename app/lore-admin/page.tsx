@@ -19,6 +19,7 @@ const KNOWN_TIPOS = [
   "epistemologia",
   "evento",
   "regra_de_mundo",
+  "roteiro",
 ];
 
 function getWorldPrefix(worldName: string | null | undefined): string {
@@ -71,8 +72,6 @@ export default function LoreAdminPage() {
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
   const [codes, setCodes] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
-
-  const [roteiros, setRoteiros] = useState<any[]>([]);
 
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
 
@@ -143,7 +142,6 @@ export default function LoreAdminPage() {
 
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
-  const [roteiroViewModal, setRoteiroViewModal] = useState<any | null>(null);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -225,11 +223,9 @@ export default function LoreAdminPage() {
         const first = list[0];
         setSelectedWorldId(first.id as string);
         await fetchFichas(first);
-        await fetchRoteiros(first);
       } else if (selectedWorldId) {
         const current = list.find((w) => w.id === selectedWorldId) || null;
         await fetchFichas(current);
-        await fetchRoteiros(current);
       }
 
       setIsLoadingData(false);
@@ -247,7 +243,6 @@ export default function LoreAdminPage() {
       setFichas([]);
       setSelectedFichaId(null);
       setCodes([]);
-      setRoteiros([]);
       return;
     }
 
@@ -276,37 +271,6 @@ export default function LoreAdminPage() {
     setCodes([]);
   }
 
-
-  async function fetchRoteiros(world: any | null) {
-    setError(null);
-
-    if (!world) {
-      setRoteiros([]);
-      return;
-    }
-
-    const isRoot =
-      (world?.nome || "").trim().toLowerCase() === "antiverso";
-
-    let query = supabaseBrowser
-      .from("roteiros")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (!isRoot) {
-      query = query.eq("world_id", world.id);
-    }
-
-    const { data, error: roteirosError } = await query;
-
-    if (roteirosError) {
-      console.error(roteirosError);
-      setError("Erro ao carregar roteiros.");
-      return;
-    }
-
-    setRoteiros(data || []);
-  }
 
   async function fetchCodes(fichaId: string) {
     setError(null);
@@ -425,7 +389,6 @@ export default function LoreAdminPage() {
       setSelectedWorldId(null);
       setFichas([]);
       setCodes([]);
-      setRoteiros([]);
     }
 
     await fetchAllData();
@@ -969,7 +932,6 @@ export default function LoreAdminPage() {
                 onClick={() => {
                   setSelectedWorldId(world.id as string);
                   fetchFichas(world);
-                  fetchRoteiros(world);
                 }}
                 onDoubleClick={() => setWorldViewModal(world)}
               >
@@ -1082,6 +1044,8 @@ export default function LoreAdminPage() {
                   ? "Eventos"
                   : tipo === "regra_de_mundo"
                   ? "Regras de mundo"
+                  : tipo === "roteiro"
+                  ? "Roteiros"
                   : tipo}
               </button>
             ))}
@@ -1155,54 +1119,6 @@ export default function LoreAdminPage() {
             ))}
           </div>
 
-          {/* Roteiros do Mundo */}
-          <div className="border-t border-neutral-800 pt-3 mt-2">
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-                Roteiros
-              </h3>
-            </div>
-
-            {selectedWorldId == null && (
-              <div className="text-[11px] text-neutral-600">
-                Selecione um Mundo para ver os roteiros.
-              </div>
-            )}
-
-            {selectedWorldId != null && roteiros.length === 0 && (
-              <div className="text-[11px] text-neutral-600">
-                Nenhum roteiro salvo para este Mundo até agora.
-              </div>
-            )}
-
-            {selectedWorldId != null && roteiros.length > 0 && (
-              <div className="max-h-40 overflow-auto space-y-1 pr-1">
-                {roteiros.map((roteiro) => (
-                  <div
-                    key={roteiro.id}
-                    className="border border-neutral-800 rounded-md px-2 py-1 text-[11px] cursor-pointer hover:border-emerald-500 hover:bg-emerald-500/5 transition-colors"
-                    onDoubleClick={() => setRoteiroViewModal(roteiro)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium text-neutral-100">
-                        {roteiro.titulo || "Roteiro sem título"}
-                      </div>
-                      {roteiro.episodio && (
-                        <div className="text-[10px] text-neutral-400 ml-2">
-                          EP {roteiro.episodio}
-                        </div>
-                      )}
-                    </div>
-                    {roteiro.conteudo && (
-                      <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
-                        {String(roteiro.conteudo).slice(0, 200)}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </section>
 
         
@@ -1602,50 +1518,6 @@ export default function LoreAdminPage() {
           </div>
         </div>
       )}
-
-      {/* Modais de leitura – Roteiro */}
-      {roteiroViewModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-[11px] text-neutral-400">
-                Roteiro – texto original
-              </div>
-              <button
-                type="button"
-                onClick={() => setRoteiroViewModal(null)}
-                className="text-[11px] text-neutral-500 hover:text-neutral-200"
-              >
-                fechar
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-[11px] text-neutral-500">Título</div>
-              <div className="text-sm text-neutral-100 font-medium">
-                {roteiroViewModal.titulo || "Roteiro sem título"}
-              </div>
-            </div>
-
-            {roteiroViewModal.episodio && (
-              <div className="space-y-1">
-                <div className="text-[11px] text-neutral-500">Episódio</div>
-                <div className="text-[12px] text-neutral-200">
-                  {roteiroViewModal.episodio}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <div className="text-[11px] text-neutral-500">Conteúdo</div>
-              <div className="text-[12px] text-neutral-200 whitespace-pre-line">
-                {roteiroViewModal.conteudo}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
 
       {/* Modais de edição – Mundo */}
       {worldFormMode !== "idle" && (
