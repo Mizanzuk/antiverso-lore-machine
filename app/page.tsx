@@ -176,41 +176,42 @@ function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
 }
 
 function buildTitleFromQuestion(text: string): string {
-  const raw = (text || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
+  const raw = (text || "").trim();
 
-  const keywords = raw.filter(
-    (w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())
-  );
-
-  if (keywords.length === 0) {
+  if (!raw) {
     return "Nova conversa";
   }
 
-  // evita repetições
-  const uniqueKeywords = [...new Set(keywords)];
+  // Normaliza espaços
+  const compact = raw.replace(/\s+/g, " ");
 
-  // no máximo 3 palavras-chave
-  const picked = uniqueKeywords.slice(0, 3);
-  const titled = picked.map(
-    (w) => w.charAt(0).toUpperCase() + w.slice(1)
-  );
+  const words = compact.split(" ");
+  const MAX_WORDS = 8;
 
-  let title = titled.join(" · ");
+  let base = words.slice(0, MAX_WORDS).join(" ");
+  if (words.length > MAX_WORDS) {
+    base = base.trimEnd() + "…";
+  }
 
-  // limita o tamanho para não brigar com o selo
-  const MAX_LEN = 32;
+  base = base.trim();
+  if (!base) {
+    return "Nova conversa";
+  }
+
+  // Deixa em formato de frase (primeira letra maiúscula)
+  const firstChar = base.charAt(0).toUpperCase();
+  const rest = base.slice(1);
+  let title = firstChar + rest;
+
+  // Limite de caracteres para não brigar com o selo
+  const MAX_LEN = 60;
   if (title.length > MAX_LEN) {
     title = title.slice(0, MAX_LEN - 1).trimEnd() + "…";
   }
 
-  return title || "Nova conversa";
+  return title;
 }
+
 
 // ----------------------------------------------------
 
