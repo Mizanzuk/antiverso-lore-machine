@@ -345,7 +345,6 @@ export default function LoreAdminPage() {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
       has_episodes: worldForm.has_episodes,
-      updated_at: new Date().toISOString(),
     };
 
     let saveError = null;
