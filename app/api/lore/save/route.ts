@@ -75,6 +75,7 @@ const TYPE_PREFIX_MAP: Record<string, string> = {
   "agência": "AG",
   registro_anomalo: "RA",
   "registro anômalo": "RA",
+  roteiro: "RT",
 };
 
 function getTypePrefix(tipo: string): string {
@@ -103,10 +104,24 @@ async function generateAutomaticCode(opts: {
   const { fichaId, world, tipo, unitNumber } = opts;
 
   const worldPrefix = getWorldPrefix(world);
-  const typePrefix = getTypePrefix(tipo);
+  const normalizedTipo = tipo
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim();
   const episode = normalizeEpisode(unitNumber);
 
-  const basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
+  let basePrefix: string;
+  let appendSequence = true;
+
+  if (normalizedTipo === "roteiro") {
+    // Código especial para roteiros: {PREFIXO}{EP}-Roteiro (sem sufixo numérico)
+    basePrefix = `${worldPrefix}${episode}-Roteiro`;
+    appendSequence = false;
+  } else {
+    const typePrefix = getTypePrefix(tipo);
+    basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
+  }
 
   const { data: existing, error } = await supabaseAdmin!
     .from("codes")
@@ -119,7 +134,7 @@ async function generateAutomaticCode(opts: {
 
   let nextNumber = 1;
 
-  if (existing && existing.length > 0) {
+  if (appendSequence && existing && existing.length > 0) {
     for (const row of existing) {
       const code: string = (row as any).code || "";
       const match = code.match(/(\d+)$/);
@@ -132,7 +147,7 @@ async function generateAutomaticCode(opts: {
     }
   }
 
-  const finalCode = `${basePrefix}${nextNumber}`;
+  const finalCode = appendSequence ? `${basePrefix}${nextNumber}` : basePrefix;
 
   const { error: insertCodeError } = await supabaseAdmin!.from("codes").insert({
     ficha_id: fichaId,
