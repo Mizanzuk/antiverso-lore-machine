@@ -234,7 +234,6 @@ function buildTitleFromQuestion(text: string): string {
     "sem",
     "sobre",
     "sao",
-    "sao",
     "sou",
     "ser",
     "estar",
@@ -269,7 +268,14 @@ function buildTitleFromQuestion(text: string): string {
     "primeiro",
     "primeira",
     "segundo",
+    "lista",
+    "listar",
+    "faça",
+    "faca",
+    "estao",
+    "estão",
     "sobre",
+    "principais",
   ]);
 
   const keywords: string[] = [];
@@ -299,6 +305,27 @@ function buildTitleFromQuestion(text: string): string {
     }
   }
 
+  // Regra extra: tenta sempre incluir a última palavra relevante (ex.: ARIS)
+  const lastIndex = normWords.length - 1;
+  if (lastIndex >= 0) {
+    const lastNorm = normWords[lastIndex];
+    const lastAscii = lastNorm.replace(/[^a-z0-9]/g, "");
+    if (lastAscii && lastAscii.length >= 3 && !stopwords.has(lastAscii)) {
+      const lastOriginal = rawWords[lastIndex].replace(/^["'“”‘’]+/, "");
+      if (lastOriginal) {
+        const lastCap =
+          lastOriginal.charAt(0).toUpperCase() + lastOriginal.slice(1);
+        if (
+          !keywords.some(
+            (k) => k.toLowerCase() === lastCap.toLowerCase()
+          )
+        ) {
+          keywords.push(lastCap);
+        }
+      }
+    }
+  }
+
   let title: string;
 
   if (keywords.length > 0) {
@@ -316,6 +343,7 @@ function buildTitleFromQuestion(text: string): string {
 
   return title || "Nova conversa";
 }
+
 
 
 // ----------------------------------------------------
