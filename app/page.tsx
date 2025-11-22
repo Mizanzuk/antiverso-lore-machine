@@ -139,6 +139,25 @@ const STOPWORDS = new Set([
   "facas",
   "ideia",
   "ideias",
+  "pode",
+  "poder",
+  "fazer",
+  "faco",
+  "faço",
+  "fiz",
+  "feito",
+  "usar",
+  "uso",
+  "ajudar",
+  "explicar",
+  "mostrar",
+  "gerar",
+  "criar",
+  "montar",
+  "continuar",
+  "seguir",
+  "comecar",
+  "começar",
 ]);
 
 function trimMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
@@ -201,6 +220,8 @@ export default function Page() {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -260,22 +281,30 @@ export default function Page() {
 
   useEffect(() => {
     const checkSession = async () => {
-      setView("loading");
-      const {
-        data: { session },
-        error,
-      } = await supabaseBrowser.auth.getSession();
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabaseBrowser.auth.getSession();
 
-      if (error) {
-        console.error(error);
-        setView("loggedOut");
-        return;
-      }
+        if (error) {
+          console.error(error);
+          setView("loggedOut");
+          setUserId(null);
+          return;
+        }
 
-      if (session) {
-        setView("loggedIn");
-      } else {
+        if (session) {
+          setView("loggedIn");
+          setUserId(session.user.id);
+        } else {
+          setView("loggedOut");
+          setUserId(null);
+        }
+      } catch (err) {
+        console.error(err);
         setView("loggedOut");
+        setUserId(null);
       }
     };
 
@@ -303,6 +332,70 @@ export default function Page() {
       console.error("Falha ao salvar histórico no localStorage", err);
     }
   }, [sessions]);
+
+  useEffect(() => {
+    if (view !== "loggedIn" || !userId || remoteLoaded) return;
+
+    const loadRemote = async () => {
+      try {
+        const { data, error } = await supabaseBrowser
+          .from("chat_states")
+          .select("data")
+          .eq("user_id", userId)
+          .limit(1);
+
+        if (error) {
+          console.error("Erro ao carregar histórico remoto", error);
+          return;
+        }
+
+        if (data && data.length > 0 && data[0]?.data) {
+          const remote = data[0].data as ChatSession[];
+          if (Array.isArray(remote) && remote.length > 0) {
+            setSessions(remote);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao carregar histórico remoto", err);
+      } finally {
+        setRemoteLoaded(true);
+      }
+    };
+
+    loadRemote();
+  }, [view, userId, remoteLoaded]);
+
+  useEffect(() => {
+    if (view !== "loggedIn" || !userId) return;
+
+    const saveRemote = async () => {
+      try {
+        const sanitized = sessions.map((s) => ({
+          ...s,
+          messages: trimMessagesForStorage(s.messages),
+        }));
+
+        const { error } = await supabaseBrowser
+          .from("chat_states")
+          .upsert(
+            {
+              user_id: userId,
+              data: sanitized,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          );
+
+        if (error) {
+          console.error("Erro ao salvar histórico remoto", error);
+        }
+      } catch (err) {
+        console.error("Erro ao salvar histórico remoto", err);
+      }
+    };
+
+    saveRemote();
+  }, [sessions, view, userId]);
 
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
@@ -607,40 +700,62 @@ export default function Page() {
     setAuthSubmitting(true);
     setAuthError(null);
 
-    const { data, error } = await supabaseBrowser.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const {
+        data,
+        error,
+      } = await supabaseBrowser.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setAuthSubmitting(false);
+      if (error) {
+        console.error(error);
+        setAuthError(error.message);
+        setView("loggedOut");
+        setUserId(null);
+        return;
+      }
 
-    if (error) {
-      setAuthError(error.message);
-      return;
-    }
-
-    if (data?.session) {
-      setView("loggedIn");
-    } else {
+      if (data?.session) {
+        setView("loggedIn");
+        setUserId(data.session.user.id);
+      } else {
+        setView("loggedOut");
+        setUserId(null);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAuthError(err.message ?? "Erro ao fazer login");
       setView("loggedOut");
+      setUserId(null);
+    } finally {
+      setAuthSubmitting(false);
     }
   }
 
   async function handleLogout() {
-    await supabaseBrowser.auth.signOut();
-    setView("loggedOut");
-    setEmail("");
-    setPassword("");
-    setSessions([
-      {
-        id: "default",
-        title: "Nova conversa",
-        mode: "consulta",
-        createdAt: Date.now(),
-        messages: [getIntroMessage()],
-      },
-    ]);
-    setActiveSessionId(null);
+    try {
+      await supabaseBrowser.auth.signOut();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setView("loggedOut");
+      setUserId(null);
+      setEmail("");
+      setPassword("");
+      setSessions([
+        {
+          id: "default",
+          title: "Nova conversa",
+          mode: "consulta",
+          createdAt: Date.now(),
+          messages: [createIntroMessage()],
+        },
+      ]);
+      setActiveSessionId(null);
+      setRemoteLoaded(false);
+    }
   }
 
   function scrollToBottom() {
@@ -954,7 +1069,7 @@ export default function Page() {
                       <div
                         key={session.id}
                         className={clsx(
-                          "group flex items-center gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
+                          "group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20",
                           isActive
                             ? "bg-white/10 border-white/30"
                             : "bg-transparent"
@@ -967,9 +1082,9 @@ export default function Page() {
                             setViewMode("chat");
                           }}
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-medium text-gray-100 truncate max-w-[150px]">
+                              <div className="text-[11px] font-medium text-gray-100 leading-snug break-words max-w-[200px]">
                                 {isRenaming ? (
                                   <input
                                     className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100"
@@ -1011,7 +1126,7 @@ export default function Page() {
                             </span>
                           </div>
                         </button>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]"
                             onClick={(e) => {
