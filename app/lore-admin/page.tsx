@@ -1188,6 +1188,20 @@ export default function LoreAdminPage() {
                 </div>
               )}
 
+              {selectedFicha.imagem_url && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Imagem</div>
+                  <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={selectedFicha.imagem_url}
+                      alt={selectedFicha.titulo || "imagem da ficha"}
+                      className="w-full max-h-80 object-contain"
+                    />
+                  </div>
+                </div>
+              )}
+
               {selectedFicha.resumo && (
                 <div className="space-y-1">
                   <div className="text-[11px] text-neutral-500">Resumo</div>
