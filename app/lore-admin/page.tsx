@@ -513,7 +513,11 @@ export default function LoreAdminPage() {
 
     if (saveError) {
       console.error(saveError);
-      setError("Erro ao salvar Ficha.");
+      setError(
+        `Erro ao salvar Ficha: ${
+          (saveError as any)?.message || JSON.stringify(saveError)
+        }`,
+      );
       return;
     }
 
