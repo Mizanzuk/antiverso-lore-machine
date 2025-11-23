@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
       const tipoNormalizado = (ficha.tipo || "conceito")
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
+        .replace(/[\u0300-\u036f]/g, "")
         .trim();
 
       const slug = slugify(titulo);
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
           resumo: ficha.resumo ?? "",
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
-          // Campos temporais: somente preenchidos (ou mantidos como null) para eventos
+          // Campos temporais (apenas fichas de tipo "evento" terão valores; demais ficam null)
           descricao_data,
           data_inicio,
           data_fim,
