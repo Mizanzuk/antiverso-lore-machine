@@ -9,6 +9,10 @@ type WorldFormMode = "idle" | "create" | "edit";
 type FichaFormMode = "idle" | "create" | "edit";
 type CodeFormMode = "idle" | "create" | "edit";
 
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 const KNOWN_TIPOS = [
   "personagem",
   "local",
@@ -125,7 +129,76 @@ export default function LoreAdminPage() {
     aparece_em: "",
     codigo: "",
     imagem_url: "",
-  });
+  })
+  const renderWikiText = (text: string | null | undefined) => {
+    if (!text) return null;
+
+    const currentFichaId = selectedFichaId;
+    const candidates = fichas
+      .filter(
+        (f) =>
+          f.id !== currentFichaId &&
+          typeof f.titulo === "string" &&
+          f.titulo.trim().length > 0,
+      )
+      .map((f) => ({
+        id: f.id as string,
+        titulo: (f.titulo as string).trim(),
+      }));
+
+    if (candidates.length === 0) {
+      return text;
+    }
+
+    const pattern = new RegExp(
+      `\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`,
+      "gi",
+    );
+
+    const elements: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    text.replace(pattern, (match, _group, offset) => {
+      if (typeof offset !== "number") return match;
+
+      if (offset > lastIndex) {
+        elements.push(text.slice(lastIndex, offset));
+      }
+
+      const target = candidates.find(
+        (c) => c.titulo.toLowerCase() === match.toLowerCase(),
+      );
+
+      if (target) {
+        elements.push(
+          <button
+            key={`${target.id}-${offset}`}
+            type="button"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
+            onClick={() => {
+              setSelectedFichaId(target.id);
+              setFichaFormMode("idle");
+            }}
+          >
+            {match}
+          </button>,
+        );
+      } else {
+        elements.push(match);
+      }
+
+      lastIndex = offset + match.length;
+      return match;
+    });
+
+    if (lastIndex < text.length) {
+      elements.push(text.slice(lastIndex));
+    }
+
+    return <>{elements}</>;
+  };
+
+;
 
   const [codeFormMode, setCodeFormMode] =
     useState<CodeFormMode>("idle");
@@ -330,94 +403,49 @@ export default function LoreAdminPage() {
     });
   }
 
-  
-async function handleSaveWorld(e: React.FormEvent) {
-  e.preventDefault();
-  setIsSavingWorld(true);
-  setError(null);
+  async function handleSaveWorld(e: React.FormEvent) {
+    e.preventDefault();
+    setIsSavingWorld(true);
+    setError(null);
 
-  const trimmedName = worldForm.nome.trim();
+    if (!worldForm.nome.trim()) {
+      setError("Mundo precisa de um nome.");
+      setIsSavingWorld(false);
+      return;
+    }
 
-  if (!trimmedName) {
-    setError("Mundo precisa de um nome.");
+    const payload: any = {
+      nome: worldForm.nome.trim(),
+      descricao: worldForm.descricao.trim() || null,
+      has_episodes: worldForm.has_episodes,
+    };
+
+    let saveError = null;
+
+    if (worldFormMode === "create") {
+      const { error } = await supabaseBrowser.from("worlds").insert([payload]);
+      saveError = error;
+    } else {
+      const { error } = await supabaseBrowser
+        .from("worlds")
+        .update(payload)
+        .eq("id", worldForm.id);
+      saveError = error;
+    }
+
     setIsSavingWorld(false);
-    return;
-  }
 
-  // Calcula uma ordem numérica segura.
-  const parsedOrdem = worldForm.ordem ? Number(worldForm.ordem) : NaN;
-  const currentMaxOrdem =
-    worlds && worlds.length
-      ? worlds.reduce(
-          (max, w) =>
-            typeof w.ordem === "number" && !Number.isNaN(w.ordem)
-              ? Math.max(max, w.ordem)
-              : max,
-          0,
-        )
-      : 0;
-  const ordemValue = !Number.isNaN(parsedOrdem)
-    ? parsedOrdem
-    : currentMaxOrdem + 1;
-
-  // Gera um id de texto (tabela worlds.id é TEXT)
-  const generatedId =
-    worldForm.id?.trim() ||
-    (typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `world_${Date.now()}`);
-
-  let saveError = null;
-
-  if (worldFormMode === "create") {
-    const payload: any = {
-      id: generatedId,
-      nome: trimmedName,
-      descricao: worldForm.descricao.trim() || null,
-      tipo: worldForm.tipo?.trim() || "mundo",
-      ordem: ordemValue,
-      has_episodes: worldForm.has_episodes,
-      meta: null,
-    };
-
-    const { error } = await supabaseBrowser.from("worlds").insert([payload]);
-    saveError = error;
-  } else {
-    const payload: any = {
-      nome: trimmedName,
-      descricao: worldForm.descricao.trim() || null,
-      has_episodes: worldForm.has_episodes,
-    };
-
-    const tipoValue = worldForm.tipo?.trim();
-    if (tipoValue) {
-      payload.tipo = tipoValue;
+    if (saveError) {
+      console.error(saveError);
+      setError("Erro ao salvar Mundo.");
+      return;
     }
 
-    if (!Number.isNaN(parsedOrdem)) {
-      payload.ordem = parsedOrdem;
-    }
-
-    const { error } = await supabaseBrowser
-      .from("worlds")
-      .update(payload)
-      .eq("id", worldForm.id);
-
-    saveError = error;
+    cancelWorldForm();
+    await fetchAllData();
   }
 
-  setIsSavingWorld(false);
-
-  if (saveError) {
-    console.error(saveError);
-    setError("Erro ao salvar Mundo.");
-    return;
-  }
-
-  cancelWorldForm();
-  await fetchAllData();
-}
-async function handleDeleteWorld(worldId: string) {
+  async function handleDeleteWorld(worldId: string) {
     setError(null);
 
     const ok = window.confirm(
@@ -1257,7 +1285,7 @@ async function handleDeleteWorld(worldId: string) {
                 <div className="space-y-1">
                   <div className="text-[11px] text-neutral-500">Resumo</div>
                   <div className="text-[12px] text-neutral-200 whitespace-pre-line">
-                    {selectedFicha.resumo}
+                    {renderWikiText(selectedFicha.resumo)}
                   </div>
                 </div>
               )}
@@ -1266,7 +1294,7 @@ async function handleDeleteWorld(worldId: string) {
                 <div className="space-y-1">
                   <div className="text-[11px] text-neutral-500">Conteúdo</div>
                   <div className="text-[12px] text-neutral-300 whitespace-pre-line">
-                    {selectedFicha.conteudo}
+                    {renderWikiText(selectedFicha.conteudo)}
                   </div>
                 </div>
               )}
