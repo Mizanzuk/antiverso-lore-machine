@@ -5,8 +5,21 @@ import { supabaseAdmin } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 type FichaMeta = {
-  periodo_diegese?: string | null;
-  ordem_cronologica?: number | null;
+  // Campos temporais específicos para fichas do tipo "evento"
+  descricao_data?: string | null;
+  data_inicio?: string | null;
+  data_fim?: string | null;
+  generalidade_data?:
+    | "dia"
+    | "mes"
+    | "ano"
+    | "decada"
+    | "intervalo"
+    | "desconhecida"
+    | null;
+  camada_temporal?: "diegese" | "relato" | "publicacao" | "meta" | null;
+
+  // Campos auxiliares
   referencias_temporais?: string[];
   aparece_em_detalhado?: {
     mundo?: string;
@@ -31,8 +44,17 @@ type ExtractedFicha = {
   resumo: string;
   conteudo: string;
   tags: string[];
+  // Campo legado, mantido apenas por compatibilidade com a UI atual
   ano_diegese: number | null;
   aparece_em: string;
+
+  // Campos temporais normalizados (principalmente para fichas do tipo "evento")
+  descricao_data?: string | null;
+  data_inicio?: string | null;
+  data_fim?: string | null;
+  generalidade_data?: string | null;
+  camada_temporal?: string | null;
+
   meta?: FichaMeta;
 };
 
@@ -130,8 +152,13 @@ Regras importantes:
 - Use apenas os tipos permitidos: ${typeInstructions}.
 - Não crie fichas óbvias demais ou irrelevantes.
 - Prefira tipos mais específicos (personagem, local, evento, etc.) em vez de "conceito" quando fizer sentido.
-- Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estejam lá.
+- Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estejam no texto.
 - Se o texto for muito curto, crie no máximo 1 a 3 fichas.
+
+Modelo mental importante sobre TEMPO:
+- Datas e eventos são tratados como FICHAS DO TIPO "evento".
+- Um mesmo texto pode gerar vários eventos diferentes (ex.: acidente em 2014, relato em 2024, publicação em 2025).
+- Personagens, locais, organizações etc. normalmente NÃO carregam datas próprias; as datas pertencem aos eventos.
 
 O formato de saída DEVE ser estritamente JSON com a seguinte forma:
 
@@ -143,11 +170,13 @@ O formato de saída DEVE ser estritamente JSON com a seguinte forma:
       "resumo": "resumo em 1 ou 2 frases, em português",
       "conteudo": "descrição mais longa da ficha, em português",
       "tags": ["lista", "de", "tags"],
-      "ano_diegese": 1993 ou null,
       "aparece_em": "onde essa ficha aparece no texto (capítulo, episódio, cena, etc.)",
+      "descricao_data": "frase original da data, quando essa ficha for um EVENTO (ex: '9 de janeiro de 2014', 'nos anos 90', 'entre 2003 e 2005'); caso não se aplique, use null",
+      "data_inicio": "data aproximada no formato AAAA-MM-DD para ordenar na linha do tempo (ex: '2014-01-09', '2014-01-01', '1990-01-01'); se não houver data, use null",
+      "data_fim": "apenas para intervalos; data final aproximada (ex: '1999-12-31' para 'anos 90', '2005-12-31' para 'entre 2003 e 2005'); caso não se aplique, use null",
+      "generalidade_data": "dia | mes | ano | decada | intervalo | desconhecida",
+      "camada_temporal": "diegese | relato | publicacao | meta | null",
       "meta": {
-        "periodo_diegese": "descrição textual do período na diegese (ex: 'início dos anos 1990')" ou null,
-        "ordem_cronologica": número inteiro representando a ordem relativa desse elemento dentro da cronologia do mundo, ou null,
         "referencias_temporais": ["frases ou pistas do texto que indicam o tempo"],
         "aparece_em_detalhado": [
           {
@@ -172,9 +201,19 @@ O formato de saída DEVE ser estritamente JSON com a seguinte forma:
   ]
 }
 
-Observações:
-- O campo "meta" é opcional, mas quando possível você deve preenchê-lo com as melhores inferências baseadas no texto.
-- Não invente anos específicos sem evidência; prefira deixar "ano_diegese" como null e usar apenas "periodo_diegese" textual se necessário.
+Regras específicas sobre EVENTOS:
+- Sempre que o texto contiver uma data ou referência temporal relevante, crie uma ficha do tipo "evento".
+- Cada referência de tempo importante deve gerar UM evento próprio.
+- Para fichas do tipo "evento", preencha SEMPRE:
+  - "descricao_data"
+  - "data_inicio" (e "data_fim" quando houver intervalo)
+  - "generalidade_data"
+  - "camada_temporal" (diegese, relato, publicacao ou meta), com o melhor chute possível baseado no contexto.
+- Para fichas que NÃO são eventos, esses campos normalmente devem ser null.
+
+Observações adicionais:
+- Não invente datas específicas sem evidência; prefira usar "generalidade_data" adequada e deixar "data_inicio"/"data_fim" como null quando não der para aproximar.
+- Evite criar eventos para menções de tempo irrelevantes (“um dia”, “certa vez”) a menos que sejam cruciais para a trama.
 - Mantenha o campo "meta" enxuto: no máximo 3 itens em cada lista (referencias_temporais, relacoes, fontes), e use frases curtas.
 - Evite repetir trechos longos do texto dentro de "meta"; use resumos breves.
 - Limite o tamanho total do JSON: priorize fichas principais (personagens, locais, eventos, roteiros) em vez de meta excessiva.
@@ -226,13 +265,25 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
         const rawMeta = f.meta && typeof f.meta === "object" ? f.meta : {};
 
         const meta: FichaMeta = {
-          periodo_diegese:
-            typeof rawMeta.periodo_diegese === "string"
-              ? rawMeta.periodo_diegese
+          descricao_data:
+            typeof rawMeta.descricao_data === "string"
+              ? rawMeta.descricao_data
               : null,
-          ordem_cronologica:
-            typeof rawMeta.ordem_cronologica === "number"
-              ? rawMeta.ordem_cronologica
+          data_inicio:
+            typeof rawMeta.data_inicio === "string"
+              ? rawMeta.data_inicio
+              : null,
+          data_fim:
+            typeof rawMeta.data_fim === "string"
+              ? rawMeta.data_fim
+              : null,
+          generalidade_data:
+            typeof rawMeta.generalidade_data === "string"
+              ? rawMeta.generalidade_data
+              : null,
+          camada_temporal:
+            typeof rawMeta.camada_temporal === "string"
+              ? rawMeta.camada_temporal
               : null,
           referencias_temporais: Array.isArray(rawMeta.referencias_temporais)
             ? rawMeta.referencias_temporais.map((r: any) => String(r))
@@ -276,8 +327,11 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
 
         // Remove campos vazios do meta para evitar ruído
         const hasAnyMetaValue =
-          meta.periodo_diegese ||
-          typeof meta.ordem_cronologica === "number" ||
+          meta.descricao_data ||
+          meta.data_inicio ||
+          meta.data_fim ||
+          meta.generalidade_data ||
+          meta.camada_temporal ||
           (meta.referencias_temporais &&
             meta.referencias_temporais.length > 0) ||
           (meta.aparece_em_detalhado &&
@@ -288,6 +342,27 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
           meta.nivel_sigilo ||
           meta.status;
 
+        // Também aceitamos que alguns modelos coloquem esses campos direto na ficha,
+        // então usamos o que vier em f.* como fallback.
+        const descricao_data =
+          typeof f.descricao_data === "string"
+            ? f.descricao_data
+            : meta.descricao_data ?? null;
+        const data_inicio =
+          typeof f.data_inicio === "string"
+            ? f.data_inicio
+            : meta.data_inicio ?? null;
+        const data_fim =
+          typeof f.data_fim === "string" ? f.data_fim : meta.data_fim ?? null;
+        const generalidade_data =
+          typeof f.generalidade_data === "string"
+            ? f.generalidade_data
+            : meta.generalidade_data ?? null;
+        const camada_temporal =
+          typeof f.camada_temporal === "string"
+            ? f.camada_temporal
+            : meta.camada_temporal ?? null;
+
         return {
           tipo: normalizedTipo,
           titulo: String(f.titulo ?? "").trim(),
@@ -296,9 +371,15 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
           tags: Array.isArray(f.tags)
             ? f.tags.map((t: any) => String(t))
             : [],
+          // Mantemos ano_diegese apenas como campo legado, sempre null por enquanto
           ano_diegese:
             typeof f.ano_diegese === "number" ? f.ano_diegese : null,
           aparece_em: String(f.aparece_em ?? "").trim(),
+          descricao_data,
+          data_inicio,
+          data_fim,
+          generalidade_data,
+          camada_temporal,
           meta: hasAnyMetaValue ? meta : undefined,
         };
       });
@@ -324,6 +405,11 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
       tags: ["roteiro", "texto_base"],
       ano_diegese: null,
       aparece_em: episodio ? `Episódio ${episodio}` : "",
+      descricao_data: null,
+      data_inicio: null,
+      data_fim: null,
+      generalidade_data: null,
+      camada_temporal: null,
     };
 
     // Coloca o roteiro no começo da lista de fichas
