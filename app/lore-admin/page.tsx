@@ -1,5 +1,3 @@
-// app/lore-admin/page.tsx (versão atualizada com blocos temporais detalhados)
-// Substitua o conteúdo inteiro de app/lore-admin/page.tsx por este arquivo.
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -118,11 +116,6 @@ export default function LoreAdminPage() {
     aparece_em: string;
     codigo: string;
     imagem_url: string;
-    data_inicio: string;
-    data_fim: string;
-    granularidade_data: string;
-    descricao_data: string;
-    camada_temporal: string;
   }>({
     id: "",
     titulo: "",
@@ -136,12 +129,67 @@ export default function LoreAdminPage() {
     aparece_em: "",
     codigo: "",
     imagem_url: "",
-    data_inicio: "",
-    data_fim: "",
-    granularidade_data: "",
-    descricao_data: "",
-    camada_temporal: "",
   })
+  const renderWikiText = (text: string | null | undefined) => {
+    if (!text) return null;
+
+    const currentFichaId = selectedFichaId;
+    const candidates = fichas
+      .filter(
+        (f) =>
+          f.id !== currentFichaId &&
+          typeof f.titulo === "string" &&
+          f.titulo.trim().length > 0,
+      )
+      .map((f) => ({
+        id: f.id as string,
+        titulo: (f.titulo as string).trim(),
+      }));
+
+    if (candidates.length === 0) {
+      return text;
+    }
+
+    const pattern = new RegExp(
+      `\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`,
+      "gi",
+    );
+
+    const elements: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    text.replace(pattern, (match, _group, offset) => {
+      if (typeof offset !== "number") return match;
+
+      if (offset > lastIndex) {
+        elements.push(text.slice(lastIndex, offset));
+      }
+
+      const target = candidates.find(
+        (c) => c.titulo.toLowerCase() === match.toLowerCase(),
+      );
+
+      if (target) {
+        elements.push(
+          <button
+            key={`${target.id}-${offset}`}
+            type="button"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
+            onClick={() => {
+              setSelectedFichaId(target.id);
+              setFichaFormMode("idle");
+            }}
+          >
+            {match}
+          </button>,
+        );
+      } else {
+        elements.push(match);
+      }
+
+      lastIndex = offset + match.length;
+      return match;
+    });
 
     if (lastIndex < text.length) {
       elements.push(text.slice(lastIndex));
@@ -370,13 +418,14 @@ export default function LoreAdminPage() {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
       has_episodes: worldForm.has_episodes,
-      updated_at: new Date().toISOString(),
     };
 
     let saveError = null;
 
     if (worldFormMode === "create") {
-      const { error } = await supabaseBrowser.from("worlds").insert([payload]);
+      const { error } = await supabaseBrowser
+        .from("worlds")
+        .insert([payload]);
       saveError = error;
     } else {
       const { error } = await supabaseBrowser
@@ -467,15 +516,10 @@ export default function LoreAdminPage() {
       aparece_em: ficha.aparece_em ?? "",
       codigo: ficha.codigo ?? "",
       imagem_url: ficha.imagem_url ?? "",
-      data_inicio: ficha.data_inicio ?? "",
-      data_fim: ficha.data_fim ?? "",
-      granularidade_data: ficha.granularidade_data ?? "",
-      descricao_data: ficha.descricao_data ?? "",
-      camada_temporal: ficha.camada_temporal ?? "",
     });
   }
 
-function cancelFichaForm() {
+  function cancelFichaForm() {
     setFichaFormMode("idle");
     setFichaForm({
       id: "",
@@ -490,13 +534,7 @@ function cancelFichaForm() {
       aparece_em: "",
       codigo: "",
       imagem_url: "",
-      data_inicio: "",
-      data_fim: "",
-      granularidade_data: "",
-      descricao_data: "",
-      camada_temporal: "",
-    })
-;
+    });
   }
 
   async function handleSaveFicha(e: React.FormEvent) {
@@ -536,11 +574,6 @@ function cancelFichaForm() {
       aparece_em: fichaForm.aparece_em.trim() || null,
       codigo: fichaForm.codigo.trim() || null,
       imagem_url: fichaForm.imagem_url.trim() || null,
-      data_inicio: fichaForm.data_inicio.trim() || null,
-      data_fim: fichaForm.data_fim.trim() || null,
-      granularidade_data: fichaForm.granularidade_data.trim() || null,
-      descricao_data: fichaForm.descricao_data.trim() || null,
-      camada_temporal: fichaForm.camada_temporal.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1556,90 +1589,29 @@ function cancelFichaForm() {
             )}
 
 
-            {(
-              fichaViewModal.descricao_data ||
-              fichaViewModal.data_inicio ||
-              fichaViewModal.data_fim ||
-              fichaViewModal.granularidade_data ||
-              fichaViewModal.camada_temporal ||
-              fichaViewModal.ano_diegese ||
+            {(fichaViewModal.ano_diegese ||
               fichaViewModal.ordem_cronologica) && (
-              <div className="mt-4 space-y-2">
-                <div className="text-[11px] text-neutral-500 uppercase tracking-wide">
-                  Tempo
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {fichaViewModal.descricao_data && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Descrição da data
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.descricao_data}
-                      </div>
+              <div className="grid grid-cols-2 gap-3">
+                {fichaViewModal.ano_diegese && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ano da diegese
                     </div>
-                  )}
-                  {fichaViewModal.data_inicio && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Data de início
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.data_inicio}
-                      </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ano_diegese}
                     </div>
-                  )}
-                  {fichaViewModal.data_fim && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Data de fim
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.data_fim}
-                      </div>
+                  </div>
+                )}
+                {fichaViewModal.ordem_cronologica && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ordem cronológica
                     </div>
-                  )}
-                  {fichaViewModal.granularidade_data && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Granularidade
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.granularidade_data}
-                      </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ordem_cronologica}
                     </div>
-                  )}
-                  {fichaViewModal.camada_temporal && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Camada temporal
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.camada_temporal}
-                      </div>
-                    </div>
-                  )}
-                  {fichaViewModal.ano_diegese && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Ano da diegese (legado)
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.ano_diegese}
-                      </div>
-                    </div>
-                  )}
-                  {fichaViewModal.ordem_cronologica && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-neutral-500">
-                        Ordem cronológica (legado)
-                      </div>
-                      <div className="text-[12px] text-neutral-200">
-                        {fichaViewModal.ordem_cronologica}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1647,7 +1619,7 @@ function cancelFichaForm() {
               <button
                 type="button"
                 onClick={() => setFichaViewModal(null)}
-   className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
               >
                 Fechar
               </button>
@@ -1956,138 +1928,46 @@ function cancelFichaForm() {
               />
             </div>
 
-            <div className="space-y-2">
-              <div className="text-[11px] text-neutral-500 uppercase tracking-wide">
-                Tempo
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ano da diegese
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ano_diegese}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ano_diegese: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 1993"
+                />
               </div>
-
-              <div className="space-y-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Descrição da data
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.descricao_data}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        descricao_data: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: Noite do evento, verão de 1993, alguns dias depois do acidente…"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Data de início
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      type="date"
-                      value={fichaForm.data_inicio}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          data_inicio: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Data de fim
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      type="date"
-                      value={fichaForm.data_fim}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          data_fim: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Granularidade da data
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      value={fichaForm.granularidade_data}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          granularidade_data: e.target.value,
-                        }))
-                      }
-                      placeholder="ex: dia, mês, ano, década, intervalo, desconhecida…"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Camada temporal
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      value={fichaForm.camada_temporal}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          camada_temporal: e.target.value,
-                        }))
-                      }
-                      placeholder="ex: diegese, relato, investigação, publicação…"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Ano da diegese (legado)
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      value={fichaForm.ano_diegese}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          ano_diegese: e.target.value,
-                        }))
-                      }
-                      placeholder="ex: 1993"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-neutral-500">
-                      Ordem cronológica (legado)
-                    </label>
-                    <input
-                      className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                      value={fichaForm.ordem_cronologica}
-                      onChange={(e) =>
-                        setFichaForm((prev) => ({
-                          ...prev,
-                          ordem_cronologica: e.target.value,
-                        }))
-                      }
-                      placeholder="ex: 10, 20, 30…"
-                    />
-                  </div>
-                </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ordem cronológica
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ordem_cronologica}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ordem_cronologica: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 10, 20, 30…"
+                />
               </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
- disabled={isSavingFicha}
+              <button
+                type="button"
+                onClick={cancelFichaForm}
+                disabled={isSavingFicha}
                 className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
               >
                 Cancelar
