@@ -11,7 +11,15 @@ type IncomingFicha = {
   tags?: string[];
   aparece_em?: string;
   codigo?: string;
-  // ano_diegese?: number | null; // deixamos no tipo só se você quiser usar no futuro
+
+  // Campos temporais (principalmente para fichas do tipo "evento")
+  descricao_data?: string | null;
+  data_inicio?: string | null;
+  data_fim?: string | null;
+  generalidade_data?: string | null;
+  camada_temporal?: string | null;
+
+  // ano_diegese?: number | null; // legado, mantido apenas para compatibilidade futura
 };
 
 type WorldRow = {
@@ -260,11 +268,35 @@ export async function POST(req: NextRequest) {
       const tipoNormalizado = (ficha.tipo || "conceito")
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[̀-ͯ]/g, "")
         .trim();
 
       const slug = slugify(titulo);
       const tagsStr = (ficha.tags || []).join(", ");
+
+      // Campos temporais: por doutrina, só fazem sentido para fichas do tipo "evento".
+      const isEvento = tipoNormalizado === "evento";
+
+      const descricao_data =
+        isEvento && typeof ficha.descricao_data === "string"
+          ? ficha.descricao_data
+          : null;
+      const data_inicio =
+        isEvento && typeof ficha.data_inicio === "string"
+          ? ficha.data_inicio
+          : null;
+      const data_fim =
+        isEvento && typeof ficha.data_fim === "string"
+          ? ficha.data_fim
+          : null;
+      const generalidade_data =
+        isEvento && typeof ficha.generalidade_data === "string"
+          ? ficha.generalidade_data
+          : null;
+      const camada_temporal =
+        isEvento && typeof ficha.camada_temporal === "string"
+          ? ficha.camada_temporal
+          : null;
 
       const { data: inserted, error: insertError } = await supabaseAdmin!
         .from("fichas")
@@ -276,6 +308,12 @@ export async function POST(req: NextRequest) {
           resumo: ficha.resumo ?? "",
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
+          // Campos temporais: somente preenchidos (ou mantidos como null) para eventos
+          descricao_data,
+          data_inicio,
+          data_fim,
+          generalidade_data,
+          camada_temporal,
           // "aparece_em" agora é preenchido automaticamente a partir de Mundo + Episódio
           aparece_em: (() => {
             const episode = normalizeEpisode(unitNumber);
