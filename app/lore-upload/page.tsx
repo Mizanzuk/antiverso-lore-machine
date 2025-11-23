@@ -22,6 +22,13 @@ type SuggestedFicha = {
   tags: string;
   aparece_em: string;
   codigo?: string;
+  // Campos temporais opcionais (principalmente para eventos)
+  ano_diegese?: number | null;
+  descricao_data?: string;
+  data_inicio?: string;
+  data_fim?: string;
+  granularidade_data?: string;
+  camada_temporal?: string;
 };
 
 type ApiFicha = {
@@ -31,6 +38,13 @@ type ApiFicha = {
   conteudo?: string;
   tags?: string[];
   aparece_em?: string;
+  // Campos temporais vindos da API de extração
+  ano_diegese?: number | null;
+  descricao_data?: string | null;
+  data_inicio?: string | null;
+  data_fim?: string | null;
+  granularidade_data?: string | null;
+  camada_temporal?: string | null;
 };
 
 type ExtractResponse = {
@@ -47,6 +61,12 @@ function createEmptyFicha(id: string): SuggestedFicha {
     tags: "",
     aparece_em: "",
     codigo: "",
+    ano_diegese: null,
+    descricao_data: "",
+    data_inicio: "",
+    data_fim: "",
+    granularidade_data: "",
+    camada_temporal: "",
   };
 }
 
@@ -291,6 +311,15 @@ export default function LoreUploadPage() {
         const tagsArray = rawFicha.tags || [];
         const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
 
+        // Campos temporais vindos da API (quando aplicável)
+        const anoDiegese =
+          typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
+        const descricaoData = rawFicha.descricao_data?.trim() || "";
+        const dataInicio = rawFicha.data_inicio?.trim() || "";
+        const dataFim = rawFicha.data_fim?.trim() || "";
+        const granularidadeData = rawFicha.granularidade_data?.trim() || "";
+        const camadaTemporal = rawFicha.camada_temporal?.trim() || "";
+
         const tagsString = tagsArray.join(", ");
 
         const worldNameForAparece =
@@ -332,6 +361,12 @@ export default function LoreUploadPage() {
           tags: tagsString,
           aparece_em: appearsEmValue,
           codigo: codigoGerado,
+          ano_diegese: anoDiegese,
+          descricao_data: descricaoData,
+          data_inicio: dataInicio,
+          data_fim: dataFim,
+          granularidade_data: granularidadeData,
+          camada_temporal: camadaTemporal,
         };
       });
 
@@ -384,6 +419,13 @@ export default function LoreUploadPage() {
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
+        aparece_em: f.aparece_em || undefined,
+        ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+        descricao_data: f.descricao_data || null,
+        data_inicio: f.data_inicio || null,
+        data_fim: f.data_fim || null,
+        granularidade_data: f.granularidade_data || null,
+        camada_temporal: f.camada_temporal || null,
       }));
 
       const payload = {
