@@ -32,6 +32,12 @@ type ExtractedFicha = {
   conteudo: string;
   tags: string[];
   ano_diegese: number | null;
+  // Campos temporais simplificados para linha do tempo
+  data_inicio?: string | null; // ISO 8601 (YYYY-MM-DD) ou apenas ano (YYYY-01-01)
+  data_fim?: string | null; // ISO 8601 (YYYY-MM-DD) ou apenas ano (YYYY-12-31)
+  granularidade_data?: string | null; // ex: "ano", "data", "intervalo", "aproximado"
+  descricao_data?: string | null; // descrição curta do período, opcional
+  camada_temporal?: string | null; // opcional, para futura expansão manual
   aparece_em: string;
   meta?: FichaMeta;
 };
@@ -144,6 +150,11 @@ O formato de saída DEVE ser estritamente JSON com a seguinte forma:
       "conteudo": "descrição mais longa da ficha, em português",
       "tags": ["lista", "de", "tags"],
       "ano_diegese": 1993 ou null,
+      "data_inicio": "data aproximada de início relevante para esta ficha no formato 'YYYY-MM-DD' ou apenas 'YYYY', ou null se não for possível inferir",
+      "data_fim": "data aproximada de fim relevante para esta ficha no formato 'YYYY-MM-DD' ou apenas 'YYYY', ou null se não for possível inferir (use null se a ficha representar algo pontual)",
+      "granularidade_data": "nível de precisão da data: 'data', 'ano', 'intervalo', 'aproximado' ou null",
+      "descricao_data": "frase curta descrevendo o recorte temporal principal da ficha (ex: 'infância de Angélica nos anos 1950'), ou null",
+      "camada_temporal": "opcional; por padrão use null ou 'linha_principal', a menos que o texto deixe muito claro que é flashback ou mito",
       "aparece_em": "onde essa ficha aparece no texto (capítulo, episódio, cena, etc.)",
       "meta": {
         "periodo_diegese": "descrição textual do período na diegese (ex: 'início dos anos 1990')" ou null,
@@ -174,7 +185,8 @@ O formato de saída DEVE ser estritamente JSON com a seguinte forma:
 
 Observações:
 - O campo "meta" é opcional, mas quando possível você deve preenchê-lo com as melhores inferências baseadas no texto.
-- Não invente anos específicos sem evidência; prefira deixar "ano_diegese" como null e usar apenas "periodo_diegese" textual se necessário.
+- Use os campos "ano_diegese", "data_inicio" e "data_fim" apenas quando houver pistas razoavelmente claras no texto. Em caso de dúvida, prefira granularidade "aproximado" e descreva o período em "descricao_data".
+- Não invente anos específicos sem evidência; quando a data estiver vaga (ex: "início dos anos 1990"), você pode deixar "ano_diegese" como null e usar apenas "periodo_diegese" textual em meta ou os campos de data aproximada.
 - NUNCA retorne comentários fora desse JSON.
 `.trim();
 
@@ -295,6 +307,26 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
             : [],
           ano_diegese:
             typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+          data_inicio:
+            typeof f.data_inicio === "string" && f.data_inicio.trim()
+              ? f.data_inicio.trim()
+              : null,
+          data_fim:
+            typeof f.data_fim === "string" && f.data_fim.trim()
+              ? f.data_fim.trim()
+              : null,
+          granularidade_data:
+            typeof f.granularidade_data === "string" && f.granularidade_data.trim()
+              ? f.granularidade_data.trim()
+              : null,
+          descricao_data:
+            typeof f.descricao_data === "string" && f.descricao_data.trim()
+              ? f.descricao_data.trim()
+              : null,
+          camada_temporal:
+            typeof f.camada_temporal === "string" && f.camada_temporal.trim()
+              ? f.camada_temporal.trim()
+              : null,
           aparece_em: String(f.aparece_em ?? "").trim(),
           meta: hasAnyMetaValue ? meta : undefined,
         };
