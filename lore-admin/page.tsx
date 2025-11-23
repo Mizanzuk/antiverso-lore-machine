@@ -403,7 +403,8 @@ export default function LoreAdminPage() {
     });
   }
 
-  async function handleSaveWorld(e: React.FormEvent) {
+  
+async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
     setIsSavingWorld(true);
     setError(null);
@@ -414,23 +415,30 @@ export default function LoreAdminPage() {
       return;
     }
 
+    // Monta payload básico (sem updated_at, pois a coluna não existe em `worlds`)
     const payload: any = {
       nome: worldForm.nome.trim(),
       descricao: worldForm.descricao.trim() || null,
       has_episodes: worldForm.has_episodes,
     };
 
-    let saveError = null;
+    let saveError: any = null;
 
     if (worldFormMode === "create") {
-      const { error } = await supabaseBrowser.from("worlds").insert([payload]);
-      saveError = error;
+      // Criação de novo mundo
+      const { error } = await supabaseBrowser
+        .from("worlds")
+        .insert([payload])
+        .select("id, nome, descricao, meta, ordem, has_episodes, tipo");
+      saveError = error ?? null;
     } else {
+      // Edição de mundo existente
       const { error } = await supabaseBrowser
         .from("worlds")
         .update(payload)
-        .eq("id", worldForm.id);
-      saveError = error;
+        .eq("id", worldForm.id)
+        .select("id, nome, descricao, meta, ordem, has_episodes, tipo");
+      saveError = error ?? null;
     }
 
     setIsSavingWorld(false);
