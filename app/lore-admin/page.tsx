@@ -2052,6 +2052,7 @@ async function handleSaveFicha(e: React.FormEvent) {
               </div>
             </div>
 
+            {fichaForm.tipo === "evento" && (
             <div className="mt-3 space-y-2">
               <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
                 Tempo (camadas)
@@ -2139,6 +2140,7 @@ async function handleSaveFicha(e: React.FormEvent) {
                 />
               </div>
             </div>
+            )}</div>
 
             <div className="flex justify-end gap-2 pt-1">
               <button
