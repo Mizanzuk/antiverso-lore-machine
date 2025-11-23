@@ -6,11 +6,11 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 type World = {
   id: string;
   nome: string | null;
-  descricao_curta?: string | null;
-  descricao_longa?: string | null;
+  descricao?: string | null;
   ordem?: number | null;
   prefixo?: string | null;
   has_episodes?: boolean | null;
+  descricao_longa?: string | null;
 };
 
 type SuggestedFicha = {
@@ -148,6 +148,7 @@ export default function LoreUploadPage() {
     setSelectedWorldId(value);
   }
 
+  
   async function handleCreateWorldFromModal() {
     if (!newWorldName.trim()) {
       setError("Dê um nome ao novo Mundo.");
@@ -159,15 +160,34 @@ export default function LoreUploadPage() {
     setSuccessMessage(null);
 
     try {
+      // Mesmo algoritmo do lore-admin para gerar IDs estáveis
+      const baseId = newWorldName
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const existingIds = new Set(worlds.map((w) => w.id as string));
+      let newId = baseId || "mundo_novo";
+      let suffix = 2;
+      while (existingIds.has(newId)) {
+        newId = `${baseId || "mundo_novo"}_${suffix}`;
+        suffix++;
+      }
+
+      const payload: any = {
+        id: newId,
+        nome: newWorldName.trim(),
+        descricao: newWorldDescription.trim() || null,
+        has_episodes: newWorldHasEpisodes,
+        tipo: "mundo_ficcional",
+      };
+
       const { data, error } = await supabaseBrowser
         .from("worlds")
-        .insert([
-          {
-            nome: newWorldName.trim(),
-            descricao_curta: newWorldDescription.trim() || null,
-            has_episodes: newWorldHasEpisodes,
-          },
-        ])
+        .insert([payload])
         .select("*");
 
       if (error) {
@@ -327,6 +347,7 @@ export default function LoreUploadPage() {
     }
   }
 
+  
   async function handleSaveFichas() {
     setError(null);
     setSuccessMessage(null);
@@ -336,15 +357,25 @@ export default function LoreUploadPage() {
       return;
     }
 
-    if (!selectedWorldId) {
+    const world = worlds.find((w) => w.id === selectedWorldId) || null;
+
+    if (!selectedWorldId || !world) {
       setError("Selecione um Mundo antes de salvar fichas.");
+      return;
+    }
+
+    const worldHasEpisodes = world.has_episodes !== false;
+    const normalizedUnitNumber = worldHasEpisodes ? unitNumber.trim() : "0";
+
+    if (worldHasEpisodes && !normalizedUnitNumber) {
+      setError("Informe o número do episódio/capítulo.");
       return;
     }
 
     setIsSaving(true);
 
     try {
-      const payload = suggestedFichas.map((f) => ({
+      const fichasPayload = suggestedFichas.map((f) => ({
         tipo: f.tipo,
         titulo: f.titulo,
         resumo: f.resumo,
@@ -353,10 +384,13 @@ export default function LoreUploadPage() {
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean),
-        aparece_em: f.aparece_em,
-        codigo: f.codigo,
-        world_id: selectedWorldId,
       }));
+
+      const payload = {
+        worldId: selectedWorldId,
+        unitNumber: normalizedUnitNumber || "0",
+        fichas: fichasPayload,
+      };
 
       const response = await fetch("/api/lore/save", {
         method: "POST",
@@ -367,14 +401,14 @@ export default function LoreUploadPage() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         const msg =
-          errorData?.error ||
+          (errorData && errorData.error) ||
           `Erro ao salvar fichas (status ${response.status}).`;
         setError(msg);
         return;
       }
 
-      const data = await response.json();
-      console.log("Fichas salvas:", data);
+      const dataResp = await response.json();
+      console.log("Fichas salvas:", dataResp);
 
       setSuggestedFichas([]);
       setText("");
