@@ -59,42 +59,6 @@ function getTipoPrefix(tipo: string | null | undefined): string {
   }
 }
 
-
-
-function generateWorldPayload(form: {
-  nome: string;
-  descricao: string;
-  has_episodes: boolean;
-}) {
-  const now = new Date().toISOString();
-
-  // Gera um UUID estável no cliente, com fallback caso randomUUID não exista
-  let id: string;
-  const globalCrypto = (typeof globalThis !== "undefined"
-    ? (globalThis as any).crypto
-    : undefined) as { randomUUID?: () => string } | undefined;
-
-  if (globalCrypto && typeof globalCrypto.randomUUID === "function") {
-    id = globalCrypto.randomUUID();
-  } else {
-    id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  const nome = form.nome.trim();
-  const descricao = form.descricao.trim();
-
-  return {
-    id,
-    nome,
-    descricao: descricao || null,
-    tipo: "mundo",
-    ordem: Date.now(),
-    has_episodes: form.has_episodes,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
 export default function LoreAdminPage() {
   const [view, setView] = useState<ViewState>("loading");
   const [email, setEmail] = useState("");
@@ -367,56 +331,93 @@ export default function LoreAdminPage() {
   }
 
   
-  async function handleSaveWorld(e: React.FormEvent) {
-    e.preventDefault();
-    setIsSavingWorld(true);
-    setError(null);
+async function handleSaveWorld(e: React.FormEvent) {
+  e.preventDefault();
+  setIsSavingWorld(true);
+  setError(null);
 
-    if (!worldForm.nome.trim()) {
-      setError("Mundo precisa de um nome.");
-      setIsSavingWorld(false);
-      return;
-    }
+  const trimmedName = worldForm.nome.trim();
 
-    let payload: any;
-    let saveError: any = null;
-
-    if (worldFormMode === "create") {
-      // Criação de mundo seguindo a mesma lógica do Upload:
-      // id, tipo, ordem, timestamps e has_episodes sempre definidos.
-      payload = generateWorldPayload(worldForm);
-      const { error } = await supabaseBrowser.from("worlds").insert([payload]);
-      saveError = error;
-    } else {
-      // Edição de mundo: apenas campos editáveis.
-      payload = {
-        nome: worldForm.nome.trim(),
-        descricao: worldForm.descricao.trim() || null,
-        has_episodes: worldForm.has_episodes,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabaseBrowser
-        .from("worlds")
-        .update(payload)
-        .eq("id", worldForm.id);
-      saveError = error;
-    }
-
+  if (!trimmedName) {
+    setError("Mundo precisa de um nome.");
     setIsSavingWorld(false);
-
-    if (saveError) {
-      console.error(saveError);
-      setError("Erro ao salvar Mundo.");
-      return;
-    }
-
-    cancelWorldForm();
-    await fetchAllData();
+    return;
   }
 
+  // Calcula uma ordem numérica segura.
+  const parsedOrdem = worldForm.ordem ? Number(worldForm.ordem) : NaN;
+  const currentMaxOrdem =
+    worlds && worlds.length
+      ? worlds.reduce(
+          (max, w) =>
+            typeof w.ordem === "number" && !Number.isNaN(w.ordem)
+              ? Math.max(max, w.ordem)
+              : max,
+          0,
+        )
+      : 0;
+  const ordemValue = !Number.isNaN(parsedOrdem)
+    ? parsedOrdem
+    : currentMaxOrdem + 1;
 
-  async function handleDeleteWorld(worldId: string) {
+  // Gera um id de texto (tabela worlds.id é TEXT)
+  const generatedId =
+    worldForm.id?.trim() ||
+    (typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `world_${Date.now()}`);
+
+  let saveError = null;
+
+  if (worldFormMode === "create") {
+    const payload: any = {
+      id: generatedId,
+      nome: trimmedName,
+      descricao: worldForm.descricao.trim() || null,
+      tipo: worldForm.tipo?.trim() || "mundo",
+      ordem: ordemValue,
+      has_episodes: worldForm.has_episodes,
+      meta: null,
+    };
+
+    const { error } = await supabaseBrowser.from("worlds").insert([payload]);
+    saveError = error;
+  } else {
+    const payload: any = {
+      nome: trimmedName,
+      descricao: worldForm.descricao.trim() || null,
+      has_episodes: worldForm.has_episodes,
+    };
+
+    const tipoValue = worldForm.tipo?.trim();
+    if (tipoValue) {
+      payload.tipo = tipoValue;
+    }
+
+    if (!Number.isNaN(parsedOrdem)) {
+      payload.ordem = parsedOrdem;
+    }
+
+    const { error } = await supabaseBrowser
+      .from("worlds")
+      .update(payload)
+      .eq("id", worldForm.id);
+
+    saveError = error;
+  }
+
+  setIsSavingWorld(false);
+
+  if (saveError) {
+    console.error(saveError);
+    setError("Erro ao salvar Mundo.");
+    return;
+  }
+
+  cancelWorldForm();
+  await fetchAllData();
+}
+async function handleDeleteWorld(worldId: string) {
     setError(null);
 
     const ok = window.confirm(
