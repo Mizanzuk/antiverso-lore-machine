@@ -4,6 +4,27 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type FichaMeta = {
+  periodo_diegese?: string | null;
+  ordem_cronologica?: number | null;
+  referencias_temporais?: string[];
+  aparece_em_detalhado?: {
+    mundo?: string;
+    codigo_mundo?: string | null;
+    episodio?: string | number | null;
+  }[];
+  relacoes?: {
+    tipo: string;
+    alvo_titulo?: string;
+    alvo_id?: string;
+  }[];
+  fontes?: string[];
+  notas_do_autor?: string;
+  nivel_sigilo?: "publico" | "interno" | "rascunho";
+  status?: "ativo" | "obsoleto" | "mesclado";
+  [key: string]: any;
+};
+
 type ExtractedFicha = {
   tipo: string;
   titulo: string;
@@ -12,6 +33,7 @@ type ExtractedFicha = {
   tags: string[];
   ano_diegese: number | null;
   aparece_em: string;
+  meta?: FichaMeta;
 };
 
 const allowedTypes = [
@@ -95,7 +117,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Chamar modelo para extrair fichas estruturadas (tipos "normais")
+    // 2) Chamar modelo para extrair fichas estruturadas
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
 
     const systemPrompt = `
@@ -107,8 +129,8 @@ Cada ficha representa um elemento importante da história (personagens, locais, 
 Regras importantes:
 - Use apenas os tipos permitidos: ${typeInstructions}.
 - Não crie fichas óbvias demais ou irrelevantes.
-- Se tiver dúvida entre "conceito" e outro tipo, prefira um dos tipos mais específicos (personagem, local, evento, etc.).
-- Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estão lá.
+- Prefira tipos mais específicos (personagem, local, evento, etc.) em vez de "conceito" quando fizer sentido.
+- Respeite ao máximo as informações presentes no texto; evite inventar detalhes que não estejam lá.
 - Se o texto for muito curto, crie no máximo 1 a 3 fichas.
 
 O formato de saída DEVE ser estritamente JSON com a seguinte forma:
@@ -122,12 +144,38 @@ O formato de saída DEVE ser estritamente JSON com a seguinte forma:
       "conteudo": "descrição mais longa da ficha, em português",
       "tags": ["lista", "de", "tags"],
       "ano_diegese": 1993 ou null,
-      "aparece_em": "onde essa ficha aparece no texto (capítulo, episódio, cena, etc.)"
+      "aparece_em": "onde essa ficha aparece no texto (capítulo, episódio, cena, etc.)",
+      "meta": {
+        "periodo_diegese": "descrição textual do período na diegese (ex: 'início dos anos 1990')" ou null,
+        "ordem_cronologica": número inteiro representando a ordem relativa desse elemento dentro da cronologia do mundo, ou null,
+        "referencias_temporais": ["frases ou pistas do texto que indicam o tempo"],
+        "aparece_em_detalhado": [
+          {
+            "mundo": "nome do mundo (se for possível inferir)",
+            "codigo_mundo": "prefixo do mundo (ex: AV, TVC) se estiver claro no texto, ou null",
+            "episodio": "número ou identificação do episódio/cena, se ficar claro (ex: 1, 'ARIS-042')"
+          }
+        ],
+        "relacoes": [
+          {
+            "tipo": "tipo de relação (ex: 'relacionado_a', 'participa_do_evento', 'membro_de')",
+            "alvo_titulo": "título ou nome do outro elemento relacionado, se existir",
+            "alvo_id": "id ou código, se estiver explícito no texto"
+          }
+        ],
+        "fontes": ["trechos curtos do texto original que justificam as informações principais da ficha"],
+        "notas_do_autor": "observações breves que ajudem o autor a lembrar do contexto futuro, se necessário",
+        "nivel_sigilo": "publico | interno | rascunho",
+        "status": "ativo | obsoleto | mesclado"
+      }
     }
   ]
 }
 
-NUNCA retorne comentários fora desse JSON.
+Observações:
+- O campo "meta" é opcional, mas quando possível você deve preenchê-lo com as melhores inferências baseadas no texto.
+- Não invente anos específicos sem evidência; prefira deixar "ano_diegese" como null e usar apenas "periodo_diegese" textual se necessário.
+- NUNCA retorne comentários fora desse JSON.
 `.trim();
 
     const userPrompt = `
@@ -172,6 +220,71 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
         const tipo = String(f.tipo || "").toLowerCase().trim();
         const normalizedTipo = allowedTypes.includes(tipo) ? tipo : "conceito";
 
+        const rawMeta = f.meta && typeof f.meta === "object" ? f.meta : {};
+
+        const meta: FichaMeta = {
+          periodo_diegese:
+            typeof rawMeta.periodo_diegese === "string"
+              ? rawMeta.periodo_diegese
+              : null,
+          ordem_cronologica:
+            typeof rawMeta.ordem_cronologica === "number"
+              ? rawMeta.ordem_cronologica
+              : null,
+          referencias_temporais: Array.isArray(rawMeta.referencias_temporais)
+            ? rawMeta.referencias_temporais.map((r: any) => String(r))
+            : [],
+          aparece_em_detalhado: Array.isArray(rawMeta.aparece_em_detalhado)
+            ? rawMeta.aparece_em_detalhado.map((item: any) => ({
+                mundo: item?.mundo ? String(item.mundo) : undefined,
+                codigo_mundo:
+                  item?.codigo_mundo != null
+                    ? String(item.codigo_mundo)
+                    : undefined,
+                episodio:
+                  item?.episodio != null && item.episodio !== ""
+                    ? item.episodio
+                    : undefined,
+              }))
+            : undefined,
+          relacoes: Array.isArray(rawMeta.relacoes)
+            ? rawMeta.relacoes.map((rel: any) => ({
+                tipo: rel?.tipo ? String(rel.tipo) : "",
+                alvo_titulo: rel?.alvo_titulo
+                  ? String(rel.alvo_titulo)
+                  : undefined,
+                alvo_id: rel?.alvo_id ? String(rel.alvo_id) : undefined,
+              }))
+            : undefined,
+          fontes: Array.isArray(rawMeta.fontes)
+            ? rawMeta.fontes.map((r: any) => String(r))
+            : undefined,
+          notas_do_autor:
+            typeof rawMeta.notas_do_autor === "string"
+              ? rawMeta.notas_do_autor
+              : undefined,
+          nivel_sigilo:
+            typeof rawMeta.nivel_sigilo === "string"
+              ? rawMeta.nivel_sigilo
+              : undefined,
+          status:
+            typeof rawMeta.status === "string" ? rawMeta.status : undefined,
+        };
+
+        // Remove campos vazios do meta para evitar ruído
+        const hasAnyMetaValue =
+          meta.periodo_diegese ||
+          typeof meta.ordem_cronologica === "number" ||
+          (meta.referencias_temporais &&
+            meta.referencias_temporais.length > 0) ||
+          (meta.aparece_em_detalhado &&
+            meta.aparece_em_detalhado.length > 0) ||
+          (meta.relacoes && meta.relacoes.length > 0) ||
+          (meta.fontes && meta.fontes.length > 0) ||
+          meta.notas_do_autor ||
+          meta.nivel_sigilo ||
+          meta.status;
+
         return {
           tipo: normalizedTipo,
           titulo: String(f.titulo ?? "").trim(),
@@ -183,6 +296,7 @@ Extraia as fichas seguindo exatamente o formato JSON especificado.
           ano_diegese:
             typeof f.ano_diegese === "number" ? f.ano_diegese : null,
           aparece_em: String(f.aparece_em ?? "").trim(),
+          meta: hasAnyMetaValue ? meta : undefined,
         };
       });
 
