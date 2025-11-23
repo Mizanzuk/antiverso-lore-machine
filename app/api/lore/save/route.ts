@@ -293,6 +293,10 @@ export async function POST(req: NextRequest) {
         isEvento && typeof ficha.generalidade_data === "string"
           ? ficha.generalidade_data
           : null;
+
+      // No banco, a coluna se chama "granularidade_data".
+      const granularidade_data = generalidade_data;
+
       const camada_temporal =
         isEvento && typeof ficha.camada_temporal === "string"
           ? ficha.camada_temporal
@@ -312,7 +316,7 @@ export async function POST(req: NextRequest) {
           descricao_data,
           data_inicio,
           data_fim,
-          generalidade_data,
+          granularidade_data,
           camada_temporal,
           // "aparece_em" agora é preenchido automaticamente a partir de Mundo + Episódio
           aparece_em: (() => {
