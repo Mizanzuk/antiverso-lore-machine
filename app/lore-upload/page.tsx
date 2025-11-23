@@ -361,7 +361,7 @@ export default function LoreUploadPage() {
       const response = await fetch("/api/lore/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fichas: payload }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
