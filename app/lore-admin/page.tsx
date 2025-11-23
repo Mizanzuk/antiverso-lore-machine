@@ -139,7 +139,7 @@ export default function LoreAdminPage() {
     granularidade_data: "",
     descricao_data: "",
     camada_temporal: "",
-  })
+  });
   const renderWikiText = (text: string | null | undefined) => {
     if (!text) return null;
 
@@ -506,6 +506,11 @@ export default function LoreAdminPage() {
       aparece_em: "",
       codigo: "",
       imagem_url: "",
+      data_inicio: "",
+      data_fim: "",
+      granularidade_data: "",
+      descricao_data: "",
+      camada_temporal: "",
     });
   }
 
