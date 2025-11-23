@@ -289,13 +289,12 @@ export async function POST(req: NextRequest) {
         isEvento && typeof ficha.data_fim === "string"
           ? ficha.data_fim
           : null;
-      const generalidade_data =
-        isEvento && typeof ficha.generalidade_data === "string"
-          ? ficha.generalidade_data
-          : null;
 
-      // No banco, a coluna se chama "granularidade_data".
-      const granularidade_data = generalidade_data;
+      // No payload, o campo já vem como "granularidade_data"; só faz sentido para eventos.
+      const granularidade_data =
+        isEvento && typeof (ficha as any).granularidade_data === "string"
+          ? (ficha as any).granularidade_data
+          : null;
 
       const camada_temporal =
         isEvento && typeof ficha.camada_temporal === "string"
