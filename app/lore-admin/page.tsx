@@ -116,6 +116,11 @@ export default function LoreAdminPage() {
     aparece_em: string;
     codigo: string;
     imagem_url: string;
+    data_inicio: string;
+    data_fim: string;
+    granularidade_data: string;
+    descricao_data: string;
+    camada_temporal: string;
   }>({
     id: "",
     titulo: "",
@@ -129,6 +134,11 @@ export default function LoreAdminPage() {
     aparece_em: "",
     codigo: "",
     imagem_url: "",
+    data_inicio: "",
+    data_fim: "",
+    granularidade_data: "",
+    descricao_data: "",
+    camada_temporal: "",
   })
   const renderWikiText = (text: string | null | undefined) => {
     if (!text) return null;
@@ -516,6 +526,11 @@ export default function LoreAdminPage() {
       aparece_em: ficha.aparece_em ?? "",
       codigo: ficha.codigo ?? "",
       imagem_url: ficha.imagem_url ?? "",
+      data_inicio: ficha.data_inicio ?? "",
+      data_fim: ficha.data_fim ?? "",
+      granularidade_data: ficha.granularidade_data ?? "",
+      descricao_data: ficha.descricao_data ?? "",
+      camada_temporal: ficha.camada_temporal ?? "",
     });
   }
 
@@ -534,10 +549,15 @@ export default function LoreAdminPage() {
       aparece_em: "",
       codigo: "",
       imagem_url: "",
+      data_inicio: "",
+      data_fim: "",
+      granularidade_data: "",
+      descricao_data: "",
+      camada_temporal: "",
     });
   }
 
-  async function handleSaveFicha(e: React.FormEvent) {
+async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedWorldId) {
       setError("Selecione um Mundo antes de salvar uma Ficha.");
@@ -574,6 +594,11 @@ export default function LoreAdminPage() {
       aparece_em: fichaForm.aparece_em.trim() || null,
       codigo: fichaForm.codigo.trim() || null,
       imagem_url: fichaForm.imagem_url.trim() || null,
+      data_inicio: fichaForm.data_inicio.trim() || null,
+      data_fim: fichaForm.data_fim.trim() || null,
+      granularidade_data: fichaForm.granularidade_data.trim() || null,
+      descricao_data: fichaForm.descricao_data.trim() || null,
+      camada_temporal: fichaForm.camada_temporal.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1615,6 +1640,65 @@ export default function LoreAdminPage() {
               </div>
             )}
 
+            {(fichaViewModal.data_inicio ||
+              fichaViewModal.data_fim ||
+              fichaViewModal.granularidade_data ||
+              fichaViewModal.descricao_data ||
+              fichaViewModal.camada_temporal) && (
+              <div className="mt-3 space-y-2">
+                <div className="text-[11px] text-neutral-500">
+                  Tempo (camadas)
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-[12px]">
+                  {fichaViewModal.data_inicio && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Data início
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.data_inicio}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.data_fim && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Data fim
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.data_fim}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.granularidade_data && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Granularidade
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.granularidade_data}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.camada_temporal && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Camada temporal
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.camada_temporal}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {fichaViewModal.descricao_data && (
+                  <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                    {fichaViewModal.descricao_data}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
@@ -1959,6 +2043,94 @@ export default function LoreAdminPage() {
                     }))
                   }
                   placeholder="ex: 10, 20, 30…"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
+                Tempo (camadas)
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data início
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_inicio}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_inicio: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data fim
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_fim}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_fim: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Granularidade
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.granularidade_data}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        granularidade_data: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: ano, mês, dia, década…"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Camada temporal
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.camada_temporal}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        camada_temporal: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: linha principal, flashback, mito, futuro…"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Descrição da camada
+                </label>
+                <textarea
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[80px]"
+                  value={fichaForm.descricao_data}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      descricao_data: e.target.value,
+                    }))
+                  }
+                  placeholder="Explique como esta ficha se encaixa na linha do tempo, se há ambiguidade, etc."
                 />
               </div>
             </div>
