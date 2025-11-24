@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
@@ -136,7 +137,7 @@ export default function LoreAdminPage() {
     imagem_url: "",
     data_inicio: "",
     data_fim: "",
-    granularidade_data: "",
+    granularidade_data: "indefinido",
     descricao_data: "",
     camada_temporal: "",
   });
@@ -508,7 +509,7 @@ export default function LoreAdminPage() {
       imagem_url: "",
       data_inicio: "",
       data_fim: "",
-      granularidade_data: "",
+      granularidade_data: "indefinido",
       descricao_data: "",
       camada_temporal: "",
     });
@@ -533,7 +534,7 @@ export default function LoreAdminPage() {
       imagem_url: ficha.imagem_url ?? "",
       data_inicio: ficha.data_inicio ?? "",
       data_fim: ficha.data_fim ?? "",
-      granularidade_data: ficha.granularidade_data ?? "",
+      granularidade_data: normalizeGranularidade(ficha.granularidade_data, ficha.descricao_data),
       descricao_data: ficha.descricao_data ?? "",
       camada_temporal: ficha.camada_temporal ?? "",
     });
@@ -556,7 +557,7 @@ export default function LoreAdminPage() {
       imagem_url: "",
       data_inicio: "",
       data_fim: "",
-      granularidade_data: "",
+      granularidade_data: "indefinido",
       descricao_data: "",
       camada_temporal: "",
     });
@@ -2091,9 +2092,9 @@ async function handleSaveFicha(e: React.FormEvent) {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] text-neutral-500">
-                    Granularidade
+                    Granularidade da data
                   </label>
-                  <input
+                  <select
                     className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
                     value={fichaForm.granularidade_data}
                     onChange={(e) =>
@@ -2102,8 +2103,16 @@ async function handleSaveFicha(e: React.FormEvent) {
                         granularidade_data: e.target.value,
                       }))
                     }
-                    placeholder="ex: ano, mês, dia, década…"
-                  />
+                  >
+                    {GRANULARIDADES.map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">
+                    Passe o mouse sobre as opções para ver a explicação na Timeline.
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] text-neutral-500">
