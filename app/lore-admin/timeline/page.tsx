@@ -10,6 +10,7 @@ type World = {
   nome: string;
   descricao?: string | null;
   tipo?: string | null;
+  ordem?: number | null;
   has_episodes?: boolean | null;
 };
 
@@ -39,18 +40,47 @@ type TimelineResponse = {
   details?: string;
 };
 
+type EditForm = {
+  titulo: string;
+  resumo: string;
+  episodio: string;
+  descricao_data: string;
+  data_inicio: string;
+  data_fim: string;
+  granularidade_data: string;
+  camada_temporal: string;
+  aparece_em: string;
+};
+
 export default function TimelinePage() {
   const [view, setView] = useState<ViewState>("loading");
   const [error, setError] = useState<string | null>(null);
 
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
+  const [antiVersoWorldId, setAntiVersoWorldId] = useState<string | null>(null);
 
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const [camadaFilter, setCamadaFilter] = useState<string>("");
   const [episodeFilter, setEpisodeFilter] = useState<string>("");
+
+  // edição / deleção
+  const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({
+    titulo: "",
+    resumo: "",
+    episodio: "",
+    descricao_data: "",
+    data_inicio: "",
+    data_fim: "",
+    granularidade_data: "",
+    camada_temporal: "",
+    aparece_em: "",
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ----------------------------
   // Sessão / acesso
@@ -87,6 +117,27 @@ export default function TimelinePage() {
   }, []);
 
   // ----------------------------
+  // Helpers
+  // ----------------------------
+
+  function isAntiVerso(world: World | null | undefined): boolean {
+    if (!world?.nome) return false;
+    return world.nome.trim().toLowerCase() === "antiverso";
+  }
+
+  function getWorldIdForApi(
+    selectedId: string | null,
+    antiId: string | null,
+  ): string | null {
+    if (!selectedId) return null;
+    if (antiId && selectedId === antiId) {
+      // AntiVerso = visão geral, não filtra por mundo
+      return null;
+    }
+    return selectedId;
+  }
+
+  // ----------------------------
   // Fetch helpers
   // ----------------------------
 
@@ -94,8 +145,9 @@ export default function TimelinePage() {
     setError(null);
     setIsLoading(true);
     try {
-      await fetchWorlds();
-      await fetchEvents(selectedWorldId, camadaFilter);
+      const { selectedId, antiId } = await fetchWorlds();
+      const worldIdForApi = getWorldIdForApi(selectedId, antiId);
+      await fetchEvents(worldIdForApi, camadaFilter);
     } catch (err: any) {
       console.error(err);
       setError("Erro inesperado ao carregar dados da timeline.");
@@ -104,7 +156,10 @@ export default function TimelinePage() {
     }
   }
 
-  async function fetchWorlds() {
+  async function fetchWorlds(): Promise<{
+    selectedId: string | null;
+    antiId: string | null;
+  }> {
     const { data, error } = await supabaseBrowser
       .from("worlds")
       .select("*")
@@ -113,27 +168,52 @@ export default function TimelinePage() {
     if (error) {
       console.error(error);
       setError("Erro ao carregar lista de Mundos.");
-      return;
+      return { selectedId: null, antiId: null };
     }
 
-    setWorlds(data || []);
+    const raw = (data || []) as World[];
 
-    // Se não houver mundo selecionado ainda, escolhe o primeiro
-    if (!selectedWorldId && data && data.length > 0) {
-      setSelectedWorldId(data[0].id as string);
+    // identifica AntiVerso
+    let antiId: string | null = null;
+    for (const w of raw) {
+      if (isAntiVerso(w)) {
+        antiId = w.id;
+        break;
+      }
     }
+
+    // ordena com AntiVerso sempre no topo
+    const sorted = raw.slice().sort((a, b) => {
+      if (antiId) {
+        if (a.id === antiId && b.id !== antiId) return -1;
+        if (b.id === antiId && a.id !== antiId) return 1;
+      }
+      const ao = a.ordem ?? 0;
+      const bo = b.ordem ?? 0;
+      return ao - bo;
+    });
+
+    setWorlds(sorted);
+    setAntiVersoWorldId(antiId);
+
+    let initialSelected = selectedWorldId;
+
+    if (!initialSelected) {
+      // padrão: AntiVerso; se não existir, o primeiro mundo
+      initialSelected = antiId || (sorted[0]?.id ?? null);
+      setSelectedWorldId(initialSelected);
+    }
+
+    return { selectedId: initialSelected, antiId };
   }
 
-  async function fetchEvents(
-    worldId: string | null,
-    camada: string | null | undefined,
-  ) {
+  async function fetchEvents(worldIdForApi: string | null, camada: string) {
     setIsLoading(true);
     setError(null);
 
     try {
       const params = new URLSearchParams();
-      if (worldId) params.set("worldId", worldId);
+      if (worldIdForApi) params.set("worldId", worldIdForApi);
       if (camada && camada.trim().length > 0) {
         params.set("camada_temporal", camada.trim());
       }
@@ -178,9 +258,10 @@ export default function TimelinePage() {
   // Recarrega eventos quando mundo ou camada mudarem
   useEffect(() => {
     if (view !== "loggedIn") return;
-    fetchEvents(selectedWorldId, camadaFilter);
+    const worldIdForApi = getWorldIdForApi(selectedWorldId, antiVersoWorldId);
+    fetchEvents(worldIdForApi, camadaFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWorldId, camadaFilter, view]);
+  }, [selectedWorldId, camadaFilter, view, antiVersoWorldId]);
 
   // ----------------------------
   // Derivados de filtro
@@ -242,6 +323,111 @@ export default function TimelinePage() {
   function formatCamada(ev: TimelineEvent): string {
     if (!ev.camada_temporal) return "—";
     return ev.camada_temporal;
+  }
+
+  function getWorldNameById(id: string | null): string | null {
+    if (!id) return null;
+    const w = worlds.find((world) => world.id === id);
+    return w?.nome ?? null;
+  }
+
+  // ----------------------------
+  // Edição / deleção
+  // ----------------------------
+
+  function openEditModal(ev: TimelineEvent) {
+    setEditingEvent(ev);
+    setEditForm({
+      titulo: ev.titulo ?? "",
+      resumo: ev.resumo ?? "",
+      episodio: ev.episodio ?? "",
+      descricao_data: ev.descricao_data ?? "",
+      data_inicio: ev.data_inicio ?? "",
+      data_fim: ev.data_fim ?? "",
+      granularidade_data: ev.granularidade_data ?? "",
+      camada_temporal: ev.camada_temporal ?? "",
+      aparece_em: ev.aparece_em ?? "",
+    });
+  }
+
+  function closeEditModal() {
+    setEditingEvent(null);
+    setIsSavingEdit(false);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingEvent) return;
+    setIsSavingEdit(true);
+    setError(null);
+
+    try {
+      const { error: updateError } = await supabaseBrowser
+        .from("fichas")
+        .update({
+          titulo: editForm.titulo || null,
+          resumo: editForm.resumo || null,
+          episodio: editForm.episodio || null,
+          descricao_data: editForm.descricao_data || null,
+          data_inicio: editForm.data_inicio || null,
+          data_fim: editForm.data_fim || null,
+          granularidade_data: editForm.granularidade_data || null,
+          camada_temporal: editForm.camada_temporal || null,
+          aparece_em: editForm.aparece_em || null,
+        })
+        .eq("id", editingEvent.id);
+
+      if (updateError) {
+        console.error(updateError);
+        setError("Erro ao salvar alterações da Ficha.");
+        return;
+      }
+
+      const worldIdForApi = getWorldIdForApi(
+        selectedWorldId,
+        antiVersoWorldId,
+      );
+      await fetchEvents(worldIdForApi, camadaFilter);
+      closeEditModal();
+    } catch (err: any) {
+      console.error(err);
+      setError("Erro inesperado ao salvar alterações.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
+  async function handleDeleteEvent(ev: TimelineEvent) {
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar este Evento? Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
+
+    setDeletingId(ev.id);
+    setError(null);
+
+    try {
+      const { error: deleteError } = await supabaseBrowser
+        .from("fichas")
+        .delete()
+        .eq("id", ev.id);
+
+      if (deleteError) {
+        console.error(deleteError);
+        setError("Erro ao deletar o Evento.");
+        return;
+      }
+
+      const worldIdForApi = getWorldIdForApi(
+        selectedWorldId,
+        antiVersoWorldId,
+      );
+      await fetchEvents(worldIdForApi, camadaFilter);
+    } catch (err: any) {
+      console.error(err);
+      setError("Erro inesperado ao deletar o Evento.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   // ----------------------------
@@ -330,7 +516,9 @@ export default function TimelinePage() {
           </div>
 
           <div className="text-[11px] text-neutral-500 mb-2">
-            Escolha um Mundo para filtrar os eventos da Linha do Tempo.
+            Escolha um Mundo para filtrar os eventos da Linha do Tempo. O
+            <span className="font-semibold"> AntiVerso</span> exibe eventos de
+            todos os mundos.
           </div>
 
           <div className="flex-1 overflow-y-auto pr-1">
@@ -375,7 +563,14 @@ export default function TimelinePage() {
               </h2>
               <div className="text-[11px] text-neutral-500 mt-1">
                 {selectedWorldId
-                  ? "Eventos ordenados cronologicamente para o Mundo selecionado."
+                  ? `Eventos ordenados cronologicamente para o Mundo ${
+                      getWorldNameById(selectedWorldId) || "selecionado"
+                    }.${
+                      antiVersoWorldId &&
+                      selectedWorldId === antiVersoWorldId
+                        ? " (Visão geral: todos os mundos.)"
+                        : ""
+                    }`
                   : "Eventos de todos os Mundos, ordenados cronologicamente."}
               </div>
             </div>
@@ -424,48 +619,236 @@ export default function TimelinePage() {
               </div>
             )}
 
-            <ol className="relative border-l border-neutral-800 pl-4">
-              {filteredEvents.map((ev) => (
-                <li key={ev.id} className="mb-5 ml-1">
-                  {/* ponto da linha */}
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[5px] mt-1.5" />
+            <div className="max-w-3xl">
+              <ol className="relative border-l border-neutral-800 pl-4">
+                {filteredEvents.map((ev) => (
+                  <li key={ev.id} className="relative mb-5 ml-1">
+                    {/* ponto da linha */}
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 absolute -left-[5px] mt-4" />
 
-                  <div className="text-[10px] text-neutral-500 mb-0.5">
-                    {formatDateRange(ev)}
-                  </div>
+                    <div className="bg-neutral-950/60 border border-neutral-800 rounded-md px-3 py-2">
+                      <div className="text-[10px] text-neutral-500 mb-1">
+                        {formatDateRange(ev)}
+                      </div>
 
-                  <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <h3 className="text-xs font-semibold text-neutral-100">
-                      {ev.titulo || "(Evento sem título)"}
-                    </h3>
-                    <div className="text-[10px] text-neutral-500 whitespace-nowrap">
-                      {ev.episodio && (
-                        <span className="mr-2">Ep. {ev.episodio}</span>
+                      <h3 className="text-xs font-semibold text-neutral-100">
+                        {ev.titulo || "(Evento sem título)"}
+                      </h3>
+
+                      <div className="text-[10px] text-neutral-500 mt-0.5">
+                        {ev.episodio && (
+                          <span className="mr-2">Ep. {ev.episodio}</span>
+                        )}
+                        <span>{formatCamada(ev)}</span>
+                      </div>
+
+                      {ev.resumo && (
+                        <p className="text-[11px] text-neutral-300 mt-1">
+                          {ev.resumo}
+                        </p>
                       )}
-                      <span>{formatCamada(ev)}</span>
+
+                      {ev.aparece_em && (
+                        <p className="text-[10px] text-neutral-500 mt-1">
+                          <span className="uppercase tracking-[0.16em] mr-1">
+                            Aparece em:
+                          </span>
+                          {ev.aparece_em}
+                        </p>
+                      )}
+
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          className="text-[10px] px-2 py-0.5 rounded border border-neutral-700 hover:border-emerald-400 hover:text-emerald-300 transition-colors"
+                          onClick={() => openEditModal(ev)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="text-[10px] px-2 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40 transition-colors"
+                          onClick={() => handleDeleteEvent(ev)}
+                          disabled={deletingId === ev.id}
+                        >
+                          {deletingId === ev.id ? "Del…" : "Del"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-
-                  {ev.resumo && (
-                    <p className="text-[11px] text-neutral-300 mb-1">
-                      {ev.resumo}
-                    </p>
-                  )}
-
-                  {ev.aparece_em && (
-                    <p className="text-[10px] text-neutral-500">
-                      <span className="uppercase tracking-[0.16em] mr-1">
-                        Aparece em:
-                      </span>
-                      {ev.aparece_em}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ol>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         </section>
       </main>
+
+      {/* Modal de edição simples */}
+      {editingEvent && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40">
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="px-4 py-2 border-b border-neutral-800 flex items-center justify-between">
+              <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-400">
+                Editar Evento
+              </h2>
+              <button
+                className="text-[11px] text-neutral-400 hover:text-neutral-100"
+                onClick={closeEditModal}
+                disabled={isSavingEdit}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-[11px]">
+              <div>
+                <div className="text-neutral-500 mb-1">Título</div>
+                <input
+                  className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                  value={editForm.titulo}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, titulo: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="text-neutral-500 mb-1">Resumo</div>
+                <textarea
+                  className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px] min-h-[60px]"
+                  value={editForm.resumo}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, resumo: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-neutral-500 mb-1">Episódio</div>
+                  <input
+                    className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                    value={editForm.episodio}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, episodio: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="text-neutral-500 mb-1">
+                    Camada temporal
+                  </div>
+                  <input
+                    className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                    value={editForm.camada_temporal}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        camada_temporal: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-neutral-500 mb-1">
+                  Descrição da data (texto)
+                </div>
+                <input
+                  className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                  value={editForm.descricao_data}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      descricao_data: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-neutral-500 mb-1">Data início</div>
+                  <input
+                    type="date"
+                    className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                    value={editForm.data_inicio || ""}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        data_inicio: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div>
+                  <div className="text-neutral-500 mb-1">Data fim</div>
+                  <input
+                    type="date"
+                    className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                    value={editForm.data_fim || ""}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        data_fim: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-neutral-500 mb-1">
+                  Granularidade da data
+                </div>
+                <input
+                  className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                  placeholder="ex: ano, ano-mes, ano-mes-dia, década…"
+                  value={editForm.granularidade_data}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      granularidade_data: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div>
+                <div className="text-neutral-500 mb-1">Aparece em</div>
+                <input
+                  className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
+                  value={editForm.aparece_em}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      aparece_em: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="px-4 py-2 border-t border-neutral-800 flex items-center justify-end gap-2">
+              <button
+                className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 hover:border-neutral-400 hover:text-neutral-50 transition-colors"
+                onClick={closeEditModal}
+                disabled={isSavingEdit}
+              >
+                Cancelar
+              </button>
+              <button
+                className="text-[11px] px-3 py-1 rounded-full border border-emerald-600 bg-emerald-600/10 hover:bg-emerald-600/20 hover:border-emerald-400 text-emerald-300 transition-colors"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? "Salvando…" : "Salvar alterações"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
