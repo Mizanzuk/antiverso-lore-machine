@@ -182,12 +182,7 @@ export default function TimelinePage() {
     return selectedId;
   }
 
-  function normalizarGranularidadeInicial(ev: TimelineEvent): string {
-    const raw = ev.granularidade_data ?? "";
-    const existe = GRANULARIDADES.some((g) => g.value === raw);
-    if (existe) return raw;
-
-    // se não havia granularidade mas há descrição narrativa,
+      // se não havia granularidade mas há descrição narrativa,
     // faz sentido assumir "vago"
     if (!raw) {
       if (ev.descricao_data && ev.descricao_data.trim().length > 0) {
@@ -394,19 +389,13 @@ export default function TimelinePage() {
     return w?.nome ?? null;
   }
 
-  function labelGranularidade(value: string | null): string | null {
-    if (!value) return null;
-    const found = GRANULARIDADES.find((g) => g.value === value);
-    return found?.label ?? null;
-  }
-
-  // ----------------------------
+    // ----------------------------
   // Edição / deleção
   // ----------------------------
 
   function openEditModal(ev: TimelineEvent) {
     setEditingEvent(ev);
-    const granularidadeInicial = normalizarGranularidadeInicial(ev);
+    const granularidadeInicial = normalizeGranularidade(ev.granularidade_data, ev.descricao_data);
     setEditForm({
       titulo: ev.titulo ?? "",
       resumo: ev.resumo ?? "",
