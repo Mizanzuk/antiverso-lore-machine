@@ -1650,7 +1650,7 @@ async function handleSaveFicha(e: React.FormEvent) {
               fichaViewModal.granularidade_data ||
               fichaViewModal.descricao_data ||
               fichaViewModal.camada_temporal) && (
-              <div className="mt-3 space-y-2">
+              <div className={fichaForm.tipo === "evento" ? "mt-3 space-y-2" : "hidden"}>
                 <div className="text-[11px] text-neutral-500">
                   Tempo (camadas)
                 </div>
@@ -2017,133 +2017,130 @@ async function handleSaveFicha(e: React.FormEvent) {
               />
             </div>
 
-            {fichaForm.tipo === "evento" && (
-              <>
+            <div className={fichaForm.tipo === "evento" ? "grid grid-cols-2 gap-2" : "hidden"}>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ano da diegese
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ano_diegese}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ano_diegese: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 1993"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ordem cronológica
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ordem_cronologica}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ordem_cronologica: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 10, 20, 30…"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
+                Tempo (camadas)
+              </div>
               <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-neutral-500">
-                                Ano da diegese
-                              </label>
-                              <input
-                                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                value={fichaForm.ano_diegese}
-                                onChange={(e) =>
-                                  setFichaForm((prev) => ({
-                                    ...prev,
-                                    ano_diegese: e.target.value,
-                                  }))
-                                }
-                                placeholder="ex: 1993"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-neutral-500">
-                                Ordem cronológica
-                              </label>
-                              <input
-                                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                value={fichaForm.ordem_cronologica}
-                                onChange={(e) =>
-                                  setFichaForm((prev) => ({
-                                    ...prev,
-                                    ordem_cronologica: e.target.value,
-                                  }))
-                                }
-                                placeholder="ex: 10, 20, 30…"
-                              />
-                            </div>
-                          </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data início
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_inicio}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_inicio: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data fim
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_fim}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_fim: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Granularidade
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.granularidade_data}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        granularidade_data: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: ano, mês, dia, década…"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Camada temporal
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.camada_temporal}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        camada_temporal: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: linha principal, flashback, mito, futuro…"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Descrição da camada
+                </label>
+                <textarea
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[80px]"
+                  value={fichaForm.descricao_data}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      descricao_data: e.target.value,
+                    }))
+                  }
+                  placeholder="Explique como esta ficha se encaixa na linha do tempo, se há ambiguidade, etc."
+                />
+              </div>
+            </div>
 
-                          <div className="mt-3 space-y-2">
-                            <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
-                              Tempo (camadas)
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <label className="text-[11px] text-neutral-500">
-                                  Data início
-                                </label>
-                                <input
-                                  type="date"
-                                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                  value={fichaForm.data_inicio}
-                                  onChange={(e) =>
-                                    setFichaForm((prev) => ({
-                                      ...prev,
-                                      data_inicio: e.target.value,
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[11px] text-neutral-500">
-                                  Data fim
-                                </label>
-                                <input
-                                  type="date"
-                                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                  value={fichaForm.data_fim}
-                                  onChange={(e) =>
-                                    setFichaForm((prev) => ({
-                                      ...prev,
-                                      data_fim: e.target.value,
-                                    }))
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[11px] text-neutral-500">
-                                  Granularidade
-                                </label>
-                                <input
-                                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                  value={fichaForm.granularidade_data}
-                                  onChange={(e) =>
-                                    setFichaForm((prev) => ({
-                                      ...prev,
-                                      granularidade_data: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="ex: ano, mês, dia, década…"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[11px] text-neutral-500">
-                                  Camada temporal
-                                </label>
-                                <input
-                                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                                  value={fichaForm.camada_temporal}
-                                  onChange={(e) =>
-                                    setFichaForm((prev) => ({
-                                      ...prev,
-                                      camada_temporal: e.target.value,
-                                    }))
-                                  }
-                                  placeholder="ex: linha principal, flashback, mito, futuro…"
-                                />
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[11px] text-neutral-500">
-                                Descrição da camada
-                              </label>
-                              <textarea
-                                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[80px]"
-                                value={fichaForm.descricao_data}
-                                onChange={(e) =>
-                                  setFichaForm((prev) => ({
-                                    ...prev,
-                                    descricao_data: e.target.value,
-                                  }))
-                                }
-                                placeholder="Explique como esta ficha se encaixa na linha do tempo, se há ambiguidade, etc."
-                              />
-                            </div>
-                          </div>
-
-                          </>
-            )}<div className="flex justify-end gap-2 pt-1">
+            <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
                 onClick={cancelFichaForm}
