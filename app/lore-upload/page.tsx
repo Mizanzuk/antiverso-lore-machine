@@ -2,6 +2,7 @@
 
 import { useEffect, useState, ChangeEvent } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
 type World = {
   id: string;
@@ -317,7 +318,7 @@ export default function LoreUploadPage() {
         const descricaoData = rawFicha.descricao_data?.trim() || "";
         const dataInicio = rawFicha.data_inicio?.trim() || "";
         const dataFim = rawFicha.data_fim?.trim() || "";
-        const granularidadeData = rawFicha.granularidade_data?.trim() || "";
+        const granularidadeData = normalizeGranularidade(rawFicha.granularidade_data, descricaoData);
         const camadaTemporal = rawFicha.camada_temporal?.trim() || "";
 
         const tagsString = tagsArray.join(", ");
