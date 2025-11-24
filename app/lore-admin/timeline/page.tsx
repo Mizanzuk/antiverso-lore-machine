@@ -2,6 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import {
+  GRANULARIDADES,
+  normalizeGranularidade,
+  labelGranularidade,
+} from "@/lib/dates/granularidade";
+
 
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
