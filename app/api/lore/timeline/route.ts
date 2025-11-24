@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase";
 
 type TimelineItem = {
   id: string;
@@ -19,30 +19,57 @@ type TimelineItem = {
   camada_temporal: string | null;
 };
 
-function normalizeTags(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
 export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const worldId = searchParams.get("worldId");
-    const camada = searchParams.get("camada");
+  const { searchParams } = new URL(req.url);
 
-    if (!worldId) {
+  const worldId = searchParams.get("worldId");
+  const worldSlug = searchParams.get("worldSlug");
+
+  if (!worldId && !worldSlug) {
+    return NextResponse.json(
+      { error: "Informe worldId ou worldSlug na query string." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // 1) Resolver worldId a partir do slug, se for o caso
+    let resolvedWorldId = worldId;
+
+    if (!resolvedWorldId && worldSlug) {
+      const { data: world, error: worldError } = await supabaseAdmin
+        .from("worlds")
+        .select("id")
+        .eq("nome", worldSlug)
+        .maybeSingle();
+
+      if (worldError) {
+        console.error("[timeline] Erro ao buscar mundo por slug:", worldError);
+        return NextResponse.json(
+          { error: "Erro ao buscar mundo." },
+          { status: 500 }
+        );
+      }
+
+      if (!world) {
+        return NextResponse.json(
+          { error: "Mundo não encontrado para o slug informado." },
+          { status: 404 }
+        );
+      }
+
+      resolvedWorldId = world.id;
+    }
+
+    if (!resolvedWorldId) {
       return NextResponse.json(
-        { error: "Parâmetro worldId é obrigatório." },
+        { error: "Não foi possível resolver o mundo alvo." },
         { status: 400 }
       );
     }
 
-    const supabase = supabaseAdmin();
-
-    let query = supabase
+    // 2) Buscar apenas fichas do tipo 'evento' com dados temporais
+    const { data, error } = await supabaseAdmin
       .from("fichas")
       .select(
         `
@@ -60,41 +87,33 @@ export async function GET(req: NextRequest) {
         data_fim,
         granularidade_data,
         descricao_data,
-        camada_temporal,
-        tipo
+        camada_temporal
       `
       )
-      .eq("world_id", worldId)
+      .eq("world_id", resolvedWorldId)
       .eq("tipo", "evento")
-      .order("data_inicio", { ascending: true })
-      .order("created_at", { ascending: true });
-
-    if (camada && camada !== "todas") {
-      query = query.eq("camada_temporal", camada);
-    }
-
-    const { data, error } = await query;
+      .order("data_inicio", { ascending: true });
 
     if (error) {
-      console.error("[timeline] Erro Supabase:", error);
+      console.error("[timeline] Erro ao buscar fichas:", error);
       return NextResponse.json(
-        { error: "Erro ao carregar eventos para a linha do tempo." },
+        { error: "Erro ao buscar eventos para a linha do tempo." },
         { status: 500 }
       );
     }
 
     const items: TimelineItem[] =
-      (data || []).map((row: any) => ({
+      data?.map((row: any) => ({
         id: row.id,
-        world_id: row.world_id ?? null,
-        titulo: row.titulo ?? null,
-        slug: row.slug ?? null,
-        resumo: row.resumo ?? null,
-        conteudo: row.conteudo ?? null,
-        tags: normalizeTags(row.tags ?? null),
-        codigo: row.codigo ?? null,
-        episodio: row.episodio ?? null,
-        aparece_em: row.aparece_em ?? null,
+        world_id: row.world_id,
+        titulo: row.titulo,
+        slug: row.slug,
+        resumo: row.resumo,
+        conteudo: row.conteudo,
+        tags: row.tags ?? [],
+        codigo: row.codigo,
+        episodio: row.episodio,
+        aparece_em: row.aparece_em,
         data_inicio: row.data_inicio ?? null,
         data_fim: row.data_fim ?? null,
         granularidade_data: row.granularidade_data ?? null,
