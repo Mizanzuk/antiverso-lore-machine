@@ -52,6 +52,45 @@ type EditForm = {
   aparece_em: string;
 };
 
+// lista oficial de granularidades do AntiVerso
+const GRANULARIDADES = [
+  {
+    value: "dia",
+    label: "Dia exato",
+    description: "Data precisa no formato AAAA-MM-DD.",
+  },
+  {
+    value: "mes",
+    label: "Mês e ano",
+    description: "Data conhecida até o mês (AAAA-MM).",
+  },
+  {
+    value: "ano",
+    label: "Ano",
+    description: "Evento que só possui ano definido.",
+  },
+  {
+    value: "decada",
+    label: "Década",
+    description: "Evento conhecido apenas pela década (ex: anos 1990).",
+  },
+  {
+    value: "seculo",
+    label: "Século",
+    description: "Evento conhecido apenas pelo século (ex: século XX).",
+  },
+  {
+    value: "vago",
+    label: "Vago / impreciso",
+    description: 'Data narrativa ou imprecisa ("há dez anos", "numa noite...").',
+  },
+  {
+    value: "indefinido",
+    label: "Desconhecido",
+    description: "Nenhuma informação de data disponível.",
+  },
+];
+
 export default function TimelinePage() {
   const [view, setView] = useState<ViewState>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +174,24 @@ export default function TimelinePage() {
       return null;
     }
     return selectedId;
+  }
+
+  function normalizarGranularidadeInicial(ev: TimelineEvent): string {
+    const raw = ev.granularidade_data ?? "";
+    const existe = GRANULARIDADES.some((g) => g.value === raw);
+    if (existe) return raw;
+
+    // se não havia granularidade mas há descrição narrativa,
+    // faz sentido assumir "vago"
+    if (!raw) {
+      if (ev.descricao_data && ev.descricao_data.trim().length > 0) {
+        return "vago";
+      }
+      return "indefinido";
+    }
+
+    // valor antigo/solto → mapeia para "vago" como padrão
+    return "vago";
   }
 
   // ----------------------------
@@ -331,12 +388,19 @@ export default function TimelinePage() {
     return w?.nome ?? null;
   }
 
+  function labelGranularidade(value: string | null): string | null {
+    if (!value) return null;
+    const found = GRANULARIDADES.find((g) => g.value === value);
+    return found?.label ?? null;
+  }
+
   // ----------------------------
   // Edição / deleção
   // ----------------------------
 
   function openEditModal(ev: TimelineEvent) {
     setEditingEvent(ev);
+    const granularidadeInicial = normalizarGranularidadeInicial(ev);
     setEditForm({
       titulo: ev.titulo ?? "",
       resumo: ev.resumo ?? "",
@@ -344,7 +408,7 @@ export default function TimelinePage() {
       descricao_data: ev.descricao_data ?? "",
       data_inicio: ev.data_inicio ?? "",
       data_fim: ev.data_fim ?? "",
-      granularidade_data: ev.granularidade_data ?? "",
+      granularidade_data: granularidadeInicial,
       camada_temporal: ev.camada_temporal ?? "",
       aparece_em: ev.aparece_em ?? "",
     });
@@ -629,6 +693,14 @@ export default function TimelinePage() {
                     <div className="bg-neutral-950/60 border border-neutral-800 rounded-md px-3 py-2">
                       <div className="text-[10px] text-neutral-500 mb-1">
                         {formatDateRange(ev)}
+                        {ev.granularidade_data && (
+                          <span className="ml-2 text-[9px] text-neutral-600">
+                            (
+                            {labelGranularidade(ev.granularidade_data) ||
+                              ev.granularidade_data}
+                            )
+                          </span>
+                        )}
                       </div>
 
                       <h3 className="text-xs font-semibold text-neutral-100">
@@ -799,12 +871,14 @@ export default function TimelinePage() {
               </div>
 
               <div>
-                <div className="text-neutral-500 mb-1">
+                <div className="text-neutral-500 mb-1 flex items-center gap-1">
                   Granularidade da data
+                  <span className="text-[9px] text-neutral-600">
+                    (passe o mouse para ver a explicação)
+                  </span>
                 </div>
-                <input
+                <select
                   className="w-full bg-black/60 border border-neutral-800 rounded px-2 py-1 text-[11px]"
-                  placeholder="ex: ano, ano-mes, ano-mes-dia, década…"
                   value={editForm.granularidade_data}
                   onChange={(e) =>
                     setEditForm((f) => ({
@@ -812,7 +886,17 @@ export default function TimelinePage() {
                       granularidade_data: e.target.value,
                     }))
                   }
-                />
+                >
+                  {GRANULARIDADES.map((g) => (
+                    <option
+                      key={g.value}
+                      value={g.value}
+                      title={g.description}
+                    >
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
