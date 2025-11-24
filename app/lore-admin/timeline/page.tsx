@@ -58,44 +58,7 @@ type EditForm = {
   aparece_em: string;
 };
 
-// lista oficial de granularidades do AntiVerso
-const GRANULARIDADES = [
-  {
-    value: "dia",
-    label: "Dia exato",
-    description: "Data precisa no formato AAAA-MM-DD.",
-  },
-  {
-    value: "mes",
-    label: "Mês e ano",
-    description: "Data conhecida até o mês (AAAA-MM).",
-  },
-  {
-    value: "ano",
-    label: "Ano",
-    description: "Evento que só possui ano definido.",
-  },
-  {
-    value: "decada",
-    label: "Década",
-    description: "Evento conhecido apenas pela década (ex: anos 1990).",
-  },
-  {
-    value: "seculo",
-    label: "Século",
-    description: "Evento conhecido apenas pelo século (ex: século XX).",
-  },
-  {
-    value: "vago",
-    label: "Vago / impreciso",
-    description: 'Data narrativa ou imprecisa ("há dez anos", "numa noite...").',
-  },
-  {
-    value: "indefinido",
-    label: "Desconhecido",
-    description: "Nenhuma informação de data disponível.",
-  },
-];
+
 
 export default function TimelinePage() {
   const [view, setView] = useState<ViewState>("loading");
@@ -182,7 +145,12 @@ export default function TimelinePage() {
     return selectedId;
   }
 
-      // se não havia granularidade mas há descrição narrativa,
+  function normalizarGranularidadeInicial(ev: TimelineEvent): string {
+    const raw = ev.granularidade_data ?? "";
+    const existe = GRANULARIDADES.some((g) => g.value === raw);
+    if (existe) return raw;
+
+    // se não havia granularidade mas há descrição narrativa,
     // faz sentido assumir "vago"
     if (!raw) {
       if (ev.descricao_data && ev.descricao_data.trim().length > 0) {
@@ -395,7 +363,7 @@ export default function TimelinePage() {
 
   function openEditModal(ev: TimelineEvent) {
     setEditingEvent(ev);
-    const granularidadeInicial = normalizeGranularidade(ev.granularidade_data, ev.descricao_data);
+    const granularidadeInicial = normalizarGranularidadeInicial(ev);
     setEditForm({
       titulo: ev.titulo ?? "",
       resumo: ev.resumo ?? "",
