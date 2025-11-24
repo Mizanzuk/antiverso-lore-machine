@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase";
 
-// Helper type for a timeline event coming from `fichas`
-type TimelineEvent = {
+type TimelineItem = {
   id: string;
-  world_id: string;
-  titulo: string;
+  world_id: string | null;
+  titulo: string | null;
   slug: string | null;
   resumo: string | null;
   conteudo: string | null;
-  episodio: string | null;
-  tags: string | null;
-  aparece_em: string | null;
+  tags: string[];
   codigo: string | null;
-  // campos temporais
-  ano_diegese: number | null;
-  ordem_cronologica: number | null;
+  episodio: string | null;
+  aparece_em: string | null;
   data_inicio: string | null;
   data_fim: string | null;
   granularidade_data: string | null;
@@ -23,110 +19,132 @@ type TimelineEvent = {
   camada_temporal: string | null;
 };
 
+function safeToStringArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [String(value)];
+}
+
+/**
+ * GET /api/lore/timeline?worldId=...&worldSlug=...
+ *
+ * Retorna a linha do tempo de um Mundo, considerando apenas fichas do tipo "evento"
+ * com campos temporais preenchidos.
+ */
 export async function GET(req: NextRequest) {
-  if (!supabaseAdmin) {
-    console.error("Supabase admin client not initialized");
-    return NextResponse.json(
-      { error: "Supabase client not initialized" },
-      { status: 500 }
-    );
-  }
+  const url = new URL(req.url);
+  const worldId = url.searchParams.get("worldId");
+  const worldSlug = url.searchParams.get("worldSlug");
 
-  const { searchParams } = new URL(req.url);
-
-  const worldId = searchParams.get("worldId");
-  const worldSlug = searchParams.get("worldSlug");
-  const camadaTemporal = searchParams.get("camadaTemporal") ?? undefined;
-
-  if (!worldId && !worldSlug) {
-    return NextResponse.json(
-      { error: "You must provide either worldId or worldSlug" },
-      { status: 400 }
-    );
-  }
-
-  let resolvedWorldId = worldId;
-
-  // If we didn't receive an explicit worldId, try resolving by world name (slug)
-  if (!resolvedWorldId && worldSlug) {
-    const { data: world, error: worldError } = await supabaseAdmin
-      .from("worlds")
-      .select("id, nome")
-      .eq("nome", worldSlug)
-      .maybeSingle();
-
-    if (worldError) {
-      console.error("Error fetching world by slug:", worldError.message);
+  try:
+    const supabase = supabaseAdmin;
+    if (!supabase) {
+      console.error("[timeline] supabaseAdmin está nulo/indisponível.");
       return NextResponse.json(
-        { error: "Error fetching world", details: worldError.message },
+        { error: "Erro interno ao inicializar o Supabase." },
         { status: 500 }
       );
     }
 
-    if (!world) {
+    let resolvedWorldId = worldId;
+
+    if (!resolvedWorldId && worldSlug) {
+      const { data: world, error: worldError } = await supabase
+        .from("worlds")
+        .select("id")
+        .eq("nome", worldSlug)
+        .maybeSingle();
+
+      if (worldError) {
+        console.error("[timeline] Erro ao buscar world por slug:", worldError);
+        return NextResponse.json(
+          { error: "Erro ao buscar mundo." },
+          { status: 500 }
+        );
+      }
+
+      if (!world) {
+        return NextResponse.json(
+          { error: "Mundo não encontrado." },
+          { status: 404 }
+        );
+      }
+
+      resolvedWorldId = world.id;
+    }
+
+    if (!resolvedWorldId) {
       return NextResponse.json(
-        { error: "World not found for provided slug" },
-        { status: 404 }
+        { error: "worldId ou worldSlug são obrigatórios." },
+        { status: 400 }
       );
     }
 
-    resolvedWorldId = world.id as string;
-  }
+    const { data, error } = await supabase
+      .from("fichas")
+      .select(
+        `
+          id,
+          world_id,
+          titulo,
+          slug,
+          resumo,
+          conteudo,
+          tags,
+          codigo,
+          episodio,
+          aparece_em,
+          data_inicio,
+          data_fim,
+          granularidade_data,
+          descricao_data,
+          camada_temporal,
+          tipo
+        `
+      )
+      .eq("world_id", resolvedWorldId)
+      .eq("tipo", "evento")
+      .order("data_inicio", { ascending: true });
 
-  // Safety check – should never happen at this point
-  if (!resolvedWorldId) {
+    if (error) {
+      console.error("[timeline] Erro ao buscar fichas:", error);
+      return NextResponse.json(
+        { error: "Erro ao carregar eventos para linha do tempo." },
+        { status: 500 }
+      );
+    }
+
+    const items: TimelineItem[] =
+      data?.map((row: any) => ({
+        id: row.id,
+        world_id: row.world_id ?? null,
+        titulo: row.titulo ?? null,
+        slug: row.slug ?? null,
+        resumo: row.resumo ?? null,
+        conteudo: row.conteudo ?? null,
+        tags: safeToStringArray(row.tags),
+        codigo: row.codigo ?? null,
+        episodio: row.episodio ?? null,
+        aparece_em: row.aparece_em ?? null,
+        data_inicio: row.data_inicio ?? null,
+        data_fim: row.data_fim ?? null,
+        granularidade_data: row.granularidade_data ?? null,
+        descricao_data: row.descricao_data ?? null,
+        camada_temporal: row.camada_temporal ?? null,
+      })) || [];
+
+    return NextResponse.json({ items });
+  } catch (err) {
+    console.error("[timeline] Erro inesperado:", err);
     return NextResponse.json(
-      { error: "Could not resolve worldId" },
+      { error: "Erro inesperado ao montar linha do tempo." },
       { status: 500 }
     );
   }
-
-  // Build base query for events of this world
-  let query = supabaseAdmin
-    .from("fichas")
-    .select(
-      [
-        "id",
-        "world_id",
-        "titulo",
-        "slug",
-        "resumo",
-        "conteudo",
-        "episodio",
-        "tags",
-        "aparece_em",
-        "codigo",
-        "ano_diegese",
-        "ordem_cronologica",
-        "data_inicio",
-        "data_fim",
-        "granularidade_data",
-        "descricao_data",
-        "camada_temporal",
-      ].join(",")
-    )
-    .eq("world_id", resolvedWorldId)
-    .eq("tipo", "evento");
-
-  if (camadaTemporal) {
-    query = query.eq("camada_temporal", camadaTemporal);
-  }
-
-  // Prefer ordering by data_inicio when available; as fallback use ano_diegese / ordem_cronologica
-  const { data, error } = await query
-    .order("data_inicio", { ascending: true })
-    .order("ano_diegese", { ascending: true, nullsFirst: true })
-    .order("ordem_cronologica", { ascending: true, nullsFirst: true });
-
-  if (error) {
-    console.error("Error fetching timeline events:", error.message);
-    return NextResponse.json(
-      { error: "Error fetching timeline events", details: error.message },
-      { status: 500 }
-    );
-  }
-
-  const events = (data ?? []) as TimelineEvent[];
-
-  return NextResponse.json({ events });
 }
