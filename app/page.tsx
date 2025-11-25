@@ -1233,6 +1233,17 @@ export default function Page() {
                   Visualize e edite a linha do tempo de eventos.
                 </div>
               </a>
+              <a
+                href="/lore-admin/reconcile"
+                className="block w-full text-left text-[11px] rounded-md border border-white/20 bg-white/5 hover:bg-white/10 px-2 py-2"
+              >
+                <div className="font-semibold text-gray-100">
+                  Reconciliação
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  Detecte e funda fichas duplicadas.
+                </div>
+              </a>
             </div>
           </div>
         </div>
@@ -1292,6 +1303,30 @@ export default function Page() {
               </button>
             </div>
 
+            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
+              <button
+                onClick={() => setViewMode("chat")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "chat"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setViewMode("catalog")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "catalog"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Catálogo
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1320,27 +1355,15 @@ export default function Page() {
                       )}
                     >
                       {msg.role === "user" ? (
-                        <div className="whitespace-pre-wrap">
-                          {msg.content}
-                        </div>
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
                       ) : (
                         renderAssistantMarkdown(msg.content)
                       )}
-                    </div>
+</div>
                   </div>
                 ))}
 
-                {/* indicador "Or está escrevendo..." */}
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>Or está escrevendo…</span>
-                    </div>
-                  </div>
-                )}
-
-                {messages.length === 0 && !loading && (
+                {messages.length === 0 && (
                   <p className="text-center text-gray-500 text-sm mt-8">
                     Comece uma conversa com Or escrevendo abaixo.
                   </p>
@@ -1416,7 +1439,7 @@ export default function Page() {
                         className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition"
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-50 truncate">
+                          <h3 className="font-semibold text-gray-5 truncate">
                             {entity.titulo}
                           </h3>
                           {entity.tipo && (
@@ -1480,7 +1503,7 @@ export default function Page() {
             className="max-w-2xl mx-auto flex items-end gap-2"
           >
             <textarea
-              className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-40 min-h-[64px]"
+              className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-32 min-h-[44px]"
               placeholder="Escreva aqui para Or. Ex: 'Quero criar uma nova história para Arquivos Vermelhos sobre um caso em rodovia'..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
