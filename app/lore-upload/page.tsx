@@ -502,13 +502,19 @@ export default function LoreUploadPage() {
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
         <div className="flex items-center gap-4 text-xs">
           <a href="/" className="text-gray-300 hover:text-white">
-            ← Voltar à Home
+            ← Home
           </a>
           <a
             href="/lore-admin"
             className="text-gray-400 hover:text-white text-[11px]"
           >
-            Ir para Catálogo
+            Catálogo
+          </a>
+          <a
+            href="/lore-admin/timeline"
+            className="text-gray-400 hover:text-white text-[11px]"
+          >
+            Timeline
           </a>
         </div>
       </header>
