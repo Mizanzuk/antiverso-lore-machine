@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { useSearchParams } from "next/navigation";
+
 
 
 type TimelineEvent = {
@@ -69,7 +69,6 @@ function getWorldIdForApi(
 
 export default function TimelinePage() {
 
-  const searchParams = useSearchParams();
   const [view, setView] = useState<ViewState>("loading");
   const [profileId, setProfileId] = useState<string | null>(null);
   const [worlds, setWorlds] = useState<{ id: string; nome: string }[]>([]);
@@ -90,15 +89,19 @@ export default function TimelinePage() {
   );
   const [editError, setEditError] = useState<string | null>(null);
 
-  const worldParam = searchParams.get("world_id");
-  const initialWorldIdFromUrl = useMemo(
-    () => (worldParam && worldParam.trim().length > 0 ? worldParam : null),
-    [worldParam]
-  );
 
   useEffect(() => {
     async function init() {
       setView("loading");
+      let initialWorldIdFromUrl: string | null = null;
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const worldParam = params.get("world_id");
+        if (worldParam && worldParam.trim().length > 0) {
+          initialWorldIdFromUrl = worldParam;
+        }
+      }
+
 
       const {
         data: { session },
@@ -152,7 +155,7 @@ export default function TimelinePage() {
     }
 
     init();
-  }, [supabaseBrowser, initialWorldIdFromUrl]);
+  }, []);
 
   async function fetchEvents(worldIdForApi: string | null, camada: string) {
     setIsLoading(true);
