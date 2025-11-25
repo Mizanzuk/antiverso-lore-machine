@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -84,6 +85,12 @@ export default function TimelinePage() {
   const [editData, setEditData] = useState<Partial<TimelineEvent>>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createData, setCreateData] = useState<Partial<TimelineEvent>>({});
+  const [isSavingCreate, setIsSavingCreate] = useState(false);
+
+  const [reloadCounter, setReloadCounter] = useState(0);
+
   const antiVersoWorld = useMemo(
     () =>
       worlds.find(
@@ -152,7 +159,7 @@ export default function TimelinePage() {
     fetchWorlds();
   }, []);
 
-  // Carrega eventos sempre que mundo ou camada mudar
+  // Carrega eventos sempre que mundo, camada ou reloadCounter mudar
   useEffect(() => {
     async function fetchEvents() {
       if (!selectedWorldId && !isAntiVersoSelected) return;
@@ -195,7 +202,7 @@ export default function TimelinePage() {
     }
 
     fetchEvents();
-  }, [selectedWorldId, selectedCamada, isAntiVersoSelected]);
+  }, [selectedWorldId, selectedCamada, isAntiVersoSelected, reloadCounter]);
 
   function handleSelectWorld(worldId: string) {
     setSelectedWorldId(worldId);
@@ -206,6 +213,26 @@ export default function TimelinePage() {
     setSelectedEvent(event);
     setEditData({ ...event });
     setIsEditOpen(true);
+  }
+
+  function handleOpenCreate() {
+    if (!selectedWorldId && !isAntiVersoSelected) {
+      alert("Selecione um mundo antes de criar um evento.");
+      return;
+    }
+
+    setCreateData({
+      world_id: selectedWorldId,
+      titulo: "",
+      resumo: "",
+      episodio: "",
+      camada_temporal: "",
+      descricao_data: "",
+      data_inicio: "",
+      data_fim: "",
+      granularidade_data: "",
+    });
+    setIsCreateOpen(true);
   }
 
   async function handleDeleteEvent(event: TimelineEvent) {
@@ -247,6 +274,16 @@ export default function TimelinePage() {
     value: TimelineEvent[K]
   ) {
     setEditData((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  function handleChangeCreate<K extends keyof TimelineEvent>(
+    key: K,
+    value: TimelineEvent[K]
+  ) {
+    setCreateData((prev) => ({
       ...prev,
       [key]: value,
     }));
@@ -309,6 +346,62 @@ export default function TimelinePage() {
       setError("Erro ao salvar alterações.");
     } finally {
       setIsSavingEdit(false);
+    }
+  }
+
+  async function handleSaveCreate() {
+    if (!selectedWorldId && !isAntiVersoSelected) return;
+
+    const worldIdToUse = isAntiVersoSelected
+      ? selectedWorldId
+      : selectedWorldId;
+
+    if (!worldIdToUse) {
+      alert("Selecione um mundo válido para criar o evento.");
+      return;
+    }
+
+    setIsSavingCreate(true);
+    setError(null);
+
+    try {
+      const payload = {
+        world_id: worldIdToUse,
+        titulo: createData.titulo ?? "",
+        resumo: createData.resumo ?? "",
+        episodio: createData.episodio ?? "",
+        camada_temporal: createData.camada_temporal ?? "",
+        descricao_data: createData.descricao_data ?? "",
+        granularidade_data: createData.granularidade_data ?? "",
+        data_inicio: createData.data_inicio || null,
+        data_fim: createData.data_fim || null,
+      };
+
+      const response = await fetch("/api/lore/timeline", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await response.json();
+
+      if (!response.ok || !json.success) {
+        console.error("Erro ao criar evento:", json.error);
+        setError(json.error || "Erro ao criar evento.");
+        return;
+      }
+
+      setIsCreateOpen(false);
+      setCreateData({});
+      // Recarrega eventos para incluir o novo
+      setReloadCounter((prev) => prev + 1);
+    } catch (err) {
+      console.error("Erro ao criar evento:", err);
+      setError("Erro ao criar evento.");
+    } finally {
+      setIsSavingCreate(false);
     }
   }
 
@@ -399,6 +492,13 @@ export default function TimelinePage() {
                 ))}
               </select>
             </label>
+
+            <button
+              onClick={handleOpenCreate}
+              className="mt-2 rounded-md border border-emerald-500 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
+            >
+              + Novo evento
+            </button>
           </div>
         </div>
 
@@ -701,6 +801,162 @@ export default function TimelinePage() {
                 disabled={isSavingEdit}
               >
                 {isSavingEdit ? "Salvando..." : "Salvar alterações"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de criação */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Novo evento</h3>
+              <button
+                className="text-xs text-zinc-400 hover:text-zinc-200"
+                onClick={() => setIsCreateOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Título
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={createData.titulo ?? ""}
+                  onChange={(e) => handleChangeCreate("titulo", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Resumo
+                </label>
+                <textarea
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
+                  value={createData.resumo ?? ""}
+                  onChange={(e) =>
+                    handleChangeCreate("resumo", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Episódio
+                  </label>
+                  <input
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={createData.episodio ?? ""}
+                    onChange={(e) =>
+                      handleChangeCreate("episodio", e.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Camada temporal
+                  </label>
+                  <select
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={createData.camada_temporal ?? ""}
+                    onChange={(e) =>
+                      handleChangeCreate("camada_temporal", e.target.value)
+                    }
+                  >
+                    <option value="">(nenhuma)</option>
+                    {CAMADAS.filter((c) => c.value).map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Descrição da data
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={createData.descricao_data ?? ""}
+                  onChange={(e) =>
+                    handleChangeCreate("descricao_data", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Data início
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={createData.data_inicio ?? ""}
+                    onChange={(e) =>
+                      handleChangeCreate("data_inicio", e.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Data fim
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={createData.data_fim ?? ""}
+                    onChange={(e) =>
+                      handleChangeCreate("data_fim", e.target.value)
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Granularidade da data
+                </label>
+                <select
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={createData.granularidade_data ?? ""}
+                  onChange={(e) =>
+                    handleChangeCreate("granularidade_data", e.target.value)
+                  }
+                >
+                  <option value="">(não definido)</option>
+                  {GRANULARIDADES.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+                onClick={() => setIsCreateOpen(false)}
+                disabled={isSavingCreate}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded border border-emerald-600 bg-emerald-600/20 px-3 py-1 text-sm font-medium text-emerald-100 hover:bg-emerald-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                onClick={handleSaveCreate}
+                disabled={isSavingCreate}
+              >
+                {isSavingCreate ? "Criando..." : "Criar evento"}
               </button>
             </div>
           </div>
