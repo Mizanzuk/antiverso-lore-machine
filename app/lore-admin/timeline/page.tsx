@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Database } from "@/lib/database.types";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useSearchParams } from "next/navigation";
 
-type Ficha = Database["public"]["Tables"]["fichas"]["Row"];
 
 type TimelineEvent = {
   ficha_id: string;
@@ -70,7 +68,6 @@ function getWorldIdForApi(
 }
 
 export default function TimelinePage() {
-  const supabaseBrowser = createClientComponentClient<Database>();
 
   const searchParams = useSearchParams();
   const [view, setView] = useState<ViewState>("loading");
