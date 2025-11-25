@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   let query = client
     .from("fichas")
     .select(
-      "id, world_id, titulo, resumo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at"
+      "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at"
     )
     .eq("tipo", "evento")
     .order("data_inicio", { ascending: true, nullsFirst: true })
@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
       world_id: (row as any).world_id ?? null,
       titulo: (row as any).titulo ?? null,
       resumo: (row as any).resumo ?? null,
+      conteudo: (row as any).conteudo ?? null,
       tipo: (row as any).tipo ?? null,
       episodio: (row as any).episodio ?? null,
       camada_temporal: (row as any).camada_temporal ?? null,
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
     const updateData: any = {
       titulo: fields.titulo ?? "",
       resumo: fields.resumo ?? "",
+      conteudo: fields.conteudo ?? "",
       episodio: fields.episodio ?? "",
       camada_temporal: fields.camada_temporal ?? "",
       descricao_data: fields.descricao_data ?? "",
@@ -122,6 +124,10 @@ export async function POST(req: NextRequest) {
 
   const titulo: string = fields.titulo ?? "";
   const slug = makeSlug(titulo);
+  const conteudo: string =
+    (fields.conteudo as string | undefined) ??
+    (fields.resumo as string | undefined) ??
+    "";
 
   const insertData: any = {
     world_id: fields.world_id,
@@ -129,6 +135,7 @@ export async function POST(req: NextRequest) {
     titulo,
     slug,
     resumo: fields.resumo ?? "",
+    conteudo,
     episodio: fields.episodio ?? "",
     camada_temporal: fields.camada_temporal ?? "",
     descricao_data: fields.descricao_data ?? "",
