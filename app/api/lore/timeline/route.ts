@@ -1,96 +1,121 @@
 // app/api/lore/timeline/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic"; // evita tentativa de pré-gerar
+
+// Tipagem básica compatível com a Timeline
+type TimelineEvent = {
+  id: string;
+  world_id: string | null;
+  titulo: string | null;
+  resumo: string | null;
+  tipo: string | null;
+  episodio: string | null;
+  camada_temporal: string | null;
+  descricao_data: string | null;
+  data_inicio: string | null;
+  data_fim: string | null;
+  granularidade_data: string | null;
+  aparece_em: string[] | null;
+};
+
+type TimelineResponse =
+  | {
+      ok: true;
+      events: TimelineEvent[];
+      count: number | null;
+      error?: undefined;
+    }
+  | {
+      ok: false;
+      events: [];
+      count: null;
+      error: string;
+    };
+
+// --- Supabase client (usando as mesmas envs do front) ---
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  // Em build, isso ajuda a diagnosticar rapidamente se faltar env
-  console.warn(
-    "[Timeline API] Faltando NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_ANON_KEY nas variáveis de ambiente."
+  // isso aparece no log do Vercel se as envs não estiverem definidas
+  throw new Error(
+    "[Timeline API] Faltando NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente."
   );
 }
 
-const supabase = createClient(supabaseUrl!, supabaseAnonKey!);
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// --- Handler ---
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-
+    const searchParams = req.nextUrl.searchParams;
     const worldId = searchParams.get("worldId");
-    const camada = searchParams.get("camada");
-    const episodio = searchParams.get("episodio");
+    const camadaTemporal = searchParams.get("camada_temporal");
 
     let query = supabase
       .from("fichas")
       .select(
         `
-          id,
-          world_id,
-          titulo,
-          resumo,
-          episodio,
-          camada_temporal,
-          descricao_data,
-          data_inicio,
-          data_fim,
-          granularidade_data,
-          aparece_em
-        `
+        id,
+        world_id,
+        titulo,
+        resumo,
+        tipo,
+        episodio,
+        camada_temporal,
+        descricao_data,
+        data_inicio,
+        data_fim,
+        granularidade_data,
+        aparece_em
+      `,
+        { count: "exact" }
       )
-      .eq("tipo", "evento");
+      .eq("tipo", "evento")
+      .order("data_inicio", { ascending: true, nullsFirst: true });
 
-    // Filtros opcionais
-    if (worldId && worldId !== "all") {
+    if (worldId) {
       query = query.eq("world_id", worldId);
     }
 
-    if (camada && camada.trim() !== "") {
-      query = query.eq("camada_temporal", camada);
+    if (camadaTemporal && camadaTemporal.trim().length > 0) {
+      query = query.eq("camada_temporal", camadaTemporal.trim());
     }
 
-    if (episodio && episodio.trim() !== "") {
-      query = query.eq("episodio", episodio);
-    }
-
-    // Ordenação cronológica
-    query = query
-      .order("data_inicio", { ascending: true, nullsFirst: true })
-      .order("data_fim", { ascending: true, nullsFirst: true })
-      .order("ordem_cronologica", { ascending: true, nullsFirst: true });
-
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       console.error("[Timeline API] Erro Supabase:", error);
-      return NextResponse.json(
-        { error: "Erro ao carregar eventos da Timeline." },
-        {
-          status: 500,
-          headers: { "Cache-Control": "no-store" },
-        }
-      );
+      const body: TimelineResponse = {
+        ok: false,
+        events: [],
+        count: null,
+        error: "Erro ao carregar eventos da Timeline.",
+      };
+      return NextResponse.json(body, { status: 500 });
     }
 
-    return NextResponse.json(
-      { events: data ?? [] },
-      {
-        status: 200,
-        headers: { "Cache-Control": "no-store" },
-      }
-    );
-  } catch (err) {
+    const events = (data || []) as TimelineEvent[];
+
+    const body: TimelineResponse = {
+      ok: true,
+      events,
+      count: count ?? null,
+    };
+
+    return NextResponse.json(body, { status: 200 });
+  } catch (err: any) {
     console.error("[Timeline API] Erro inesperado:", err);
-    return NextResponse.json(
-      { error: "Erro inesperado ao carregar Timeline." },
-      {
-        status: 500,
-        headers: { "Cache-Control": "no-store" },
-      }
-    );
+    const body: TimelineResponse = {
+      ok: false,
+      events: [],
+      count: null,
+      error: "Erro inesperado na Timeline API.",
+    };
+    return NextResponse.json(body, { status: 500 });
   }
 }
