@@ -69,8 +69,6 @@ function normalize(str: string | null | undefined) {
   return (str ?? "").toLowerCase();
 }
 
-// ---------------- STOPWORDS + TÍTULO ----------------
-
 const SESSION_STORAGE_KEY = "antiverso-lore-sessions-v2";
 const MAX_MESSAGES_PER_SESSION = 32;
 const MAX_SESSIONS = 40;
@@ -182,10 +180,7 @@ function buildTitleFromQuestion(text: string): string {
     return "Nova conversa";
   }
 
-  // Normaliza espaços
   const compact = raw.replace(/\s+/g, " ");
-
-  // Versão normalizada (minúscula, sem acentos) para filtrar
   const normalized = compact
     .toLowerCase()
     .normalize("NFD")
@@ -193,90 +188,6 @@ function buildTitleFromQuestion(text: string): string {
 
   const rawWords = compact.split(" ");
   const normWords = normalized.split(" ");
-
-  const stopwords = new Set([
-    "o",
-    "a",
-    "os",
-    "as",
-    "um",
-    "uma",
-    "uns",
-    "umas",
-    "de",
-    "do",
-    "da",
-    "dos",
-    "das",
-    "em",
-    "no",
-    "na",
-    "nos",
-    "nas",
-    "para",
-    "pra",
-    "pro",
-    "pela",
-    "pelas",
-    "pelo",
-    "pelos",
-    "que",
-    "qual",
-    "quais",
-    "como",
-    "onde",
-    "quando",
-    "porque",
-    "por",
-    "e",
-    "ou",
-    "com",
-    "sem",
-    "sobre",
-    "sao",
-    "sou",
-    "ser",
-    "estar",
-    "me",
-    "mim",
-    "minha",
-    "meu",
-    "meus",
-    "minhas",
-    "voce",
-    "voces",
-    "tu",
-    "pode",
-    "podes",
-    "poderia",
-    "podemos",
-    "poderiam",
-    "falar",
-    "dizer",
-    "explicar",
-    "contar",
-    "queria",
-    "quero",
-    "gostaria",
-    "ajuda",
-    "mais",
-    "menos",
-    "muito",
-    "muita",
-    "muitos",
-    "muitas",
-    "primeiro",
-    "primeira",
-    "segundo",
-    "lista",
-    "listar",
-    "faça",
-    "faca",
-    "estao",
-    "estão",
-    "sobre",
-    "principais",
-  ]);
 
   const keywords: string[] = [];
   const MAX_KEYWORDS = 4;
@@ -288,7 +199,7 @@ function buildTitleFromQuestion(text: string): string {
     const ascii = n.replace(/[^a-z0-9]/g, "");
 
     if (!ascii || ascii.length < 3) continue;
-    if (stopwords.has(ascii)) continue;
+    if (STOPWORDS.has(ascii)) continue;
 
     const original = rawWords[i].replace(/^["'“”‘’]+/, "");
     if (!original) continue;
@@ -305,12 +216,11 @@ function buildTitleFromQuestion(text: string): string {
     }
   }
 
-  // Regra extra: tenta sempre incluir a última palavra relevante (ex.: ARIS)
   const lastIndex = normWords.length - 1;
   if (lastIndex >= 0) {
     const lastNorm = normWords[lastIndex];
     const lastAscii = lastNorm.replace(/[^a-z0-9]/g, "");
-    if (lastAscii && lastAscii.length >= 3 && !stopwords.has(lastAscii)) {
+    if (lastAscii && lastAscii.length >= 3 && !STOPWORDS.has(lastAscii)) {
       const lastOriginal = rawWords[lastIndex].replace(/^["'“”‘’]+/, "");
       if (lastOriginal) {
         const lastCap =
@@ -331,11 +241,9 @@ function buildTitleFromQuestion(text: string): string {
   if (keywords.length > 0) {
     title = keywords.join(" · ");
   } else {
-    // fallback: usa um pedaço da pergunta original
     title = compact;
   }
 
-  // Limite de caracteres geral
   const MAX_LEN = 60;
   if (title.length > MAX_LEN) {
     title = title.slice(0, MAX_LEN - 1).trimEnd() + "…";
@@ -343,10 +251,6 @@ function buildTitleFromQuestion(text: string): string {
 
   return title || "Nova conversa";
 }
-
-
-
-// ----------------------------------------------------
 
 export default function Page() {
   const [view, setView] = useState<ViewState>("loading");
@@ -1316,6 +1220,17 @@ export default function Page() {
                 </div>
                 <div className="text-[10px] text-gray-400">
                   Gerencie mundos, fichas e códigos do AntiVerso.
+                </div>
+              </a>
+              <a
+                href="/lore-admin/timeline"
+                className="block w-full text-left text-[11px] rounded-md border border-white/20 bg-white/5 hover:bg-white/10 px-2 py-2"
+              >
+                <div className="font-semibold text-gray-100">
+                  Timeline
+                </div>
+                <div className="text-[10px] text-gray-400">
+                  Visualize e edite a linha do tempo de eventos.
                 </div>
               </a>
             </div>
