@@ -1,132 +1,120 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+// ajuste o caminho do tipo Database se for diferente no seu projeto
+import type { Database } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-/**
- * Timeline API – versão 1
- * ------------------------------------------------------
- * Devolve eventos em ordem cronológica,
- * usando as fichas de tipo "evento" na tabela `fichas`.
- *
- * Query params opcionais:
- *  - worldId: filtra por mundo
- *  - episode: filtra por número de episódio (quando o mundo tem episódios)
- *  - camada_temporal / camadaTemporal: filtra por camada temporal
- */
-export async function GET(request: NextRequest) {
+// GET  /api/lore/timeline?worldId=...
+export async function GET(req: Request) {
   try {
-    if (!supabaseAdmin) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = new URL(req.url);
     const worldId = searchParams.get("worldId");
-    const episode = searchParams.get("episode");
-    // aceitar tanto camada_temporal quanto camadaTemporal
-    const camadaTemporal =
-      searchParams.get("camada_temporal") ||
-      searchParams.get("camadaTemporal");
 
-    let query = supabaseAdmin
+    const supabase = createRouteHandlerClient<Database>({ cookies });
+
+    let query = supabase
       .from("fichas")
       .select(
-        [
-          "id",
-          "world_id",
-          "titulo",
-          "resumo",
-          "tipo",
-          "episodio",
-          "aparece_em",
-          "ano_diegese",
-          "data_inicio",
-          "data_fim",
-          "granularidade_data",
-          "descricao_data",
-          "camada_temporal",
-          "ordem_cronologica",
-          "created_at",
-        ].join(",")
+        `
+        id,
+        world_id,
+        titulo,
+        resumo,
+        tipo,
+        episodio,
+        camada_temporal,
+        descricao_data,
+        data_inicio,
+        data_fim,
+        granularidade_data,
+        aparece_em
+      `
       )
-      .eq("tipo", "evento");
+      .eq("tipo", "evento")
+      .order("data_inicio", { ascending: true });
 
     if (worldId) {
       query = query.eq("world_id", worldId);
     }
 
-    if (episode) {
-      query = query.eq("episodio", episode);
-    }
-
-    if (camadaTemporal) {
-      query = query.eq("camada_temporal", camadaTemporal);
-    }
-
-    // Ordenação básica:
-    // 1) data_inicio (quando houver)
-    // 2) ano_diegese (fallback para registros antigos)
-    // 3) ordem_cronologica (se preenchido)
-    // 4) created_at (garante ordem estável)
-    query = query
-      .order("data_inicio", { ascending: true, nullsFirst: true })
-      .order("ano_diegese", { ascending: true, nullsFirst: true })
-      .order("ordem_cronologica", { ascending: true, nullsFirst: true })
-      .order("created_at", { ascending: true });
-
     const { data, error } = await query;
 
     if (error) {
-      console.error("Erro ao buscar eventos para timeline:", error);
+      console.error("[Timeline][GET] Supabase error:", error);
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Erro ao buscar eventos para timeline.",
-          details: error.message,
-        },
-        { status: 500 }
+        { ok: false, error: error.message },
+        { status: 500, headers: { "Cache-Control": "no-store" } }
       );
     }
 
-    const events = (data || []).map((row: any) => ({
-      id: row.id,
-      world_id: row.world_id,
-      titulo: row.titulo,
-      resumo: row.resumo,
-      tipo: row.tipo,
-      episodio: row.episodio,
-      aparece_em: row.aparece_em,
-      ano_diegese: row.ano_diegese,
-      data_inicio: row.data_inicio,
-      data_fim: row.data_fim,
-      granularidade_data: row.granularidade_data,
-      descricao_data: row.descricao_data,
-      camada_temporal: row.camada_temporal,
-      ordem_cronologica: row.ordem_cronologica,
-      created_at: row.created_at,
-    }));
-
-    return NextResponse.json({
-      ok: true,
-      count: events.length,
-      events,
-    });
-  } catch (err: any) {
-    console.error("Erro inesperado na Timeline API:", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Erro inesperado ao montar timeline.",
-        details: err?.message ?? String(err),
-      },
-      { status: 500 }
+      { ok: true, events: data ?? [] },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (err) {
+    console.error("[Timeline][GET] Unexpected error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao carregar a timeline." },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+}
+
+// PATCH  /api/lore/timeline  { id, updates }
+export async function PATCH(req: Request) {
+  try {
+    const body = await req.json();
+    const { id, updates } = body as {
+      id?: string;
+      updates?: Record<string, any>;
+    };
+
+    if (!id || !updates || typeof updates !== "object") {
+      return NextResponse.json(
+        { ok: false, error: "Parâmetros inválidos." },
+        { status: 400, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const supabase = createRouteHandlerClient<Database>({ cookies });
+
+    const { data, error } = await supabase
+      .from("fichas")
+      .update({
+        titulo: updates.titulo,
+        resumo: updates.resumo,
+        episodio: updates.episodio,
+        camada_temporal: updates.camada_temporal,
+        descricao_data: updates.descricao_data,
+        data_inicio: updates.data_inicio || null,
+        data_fim: updates.data_fim || null,
+        granularidade_data: updates.granularidade_data,
+        aparece_em: updates.aparece_em,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[Timeline][PATCH] Supabase error:", error);
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    return NextResponse.json(
+      { ok: true, event: data },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
+  } catch (err) {
+    console.error("[Timeline][PATCH] Unexpected error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Erro inesperado ao salvar o evento." },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
