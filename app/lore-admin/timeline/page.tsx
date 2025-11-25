@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
-
+type World = {
+  id: string;
+  nome: string | null;
+  descricao?: string | null;
+  ordem?: number | null;
+  has_episodes?: boolean | null;
+};
 
 type TimelineEvent = {
   ficha_id: string;
@@ -17,24 +23,12 @@ type TimelineEvent = {
   data_inicio: string | null;
   data_fim: string | null;
   granularidade_data: string | null;
-  aparece_em: string | null;
-  created_at: string | null;
+  aparece_em?: string | null;
+  created_at?: string | null;
 };
-
-type EditFormState = {
-  titulo: string;
-  resumo: string;
-  episodio: string;
-  camada_temporal: string;
-  descricao_data: string;
-  data_inicio: string;
-  data_fim: string;
-  granularidade_data: string;
-};
-
-type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 const CAMADAS = [
+  { value: "", label: "Todas as camadas" },
   { value: "linha_principal", label: "Linha principal" },
   { value: "flashback", label: "Flashback" },
   { value: "flashforward", label: "Flashforward" },
@@ -51,225 +45,233 @@ const GRANULARIDADES = [
   { value: "hora", label: "Hora" },
 ];
 
-const getGranularidadeLabel = (value: string | null) => {
-  if (!value) return "vago / impreciso";
-  const found = GRANULARIDADES.find((g) => g.value === value);
-  return found ? found.label : value;
-};
-
-function getWorldIdForApi(
-  selectedWorldId: string | null,
-  antiVersoWorldId: string | null
-): string | null {
-  if (selectedWorldId === "antiverso") {
-    return antiVersoWorldId;
+function formatDescricaoData(event: TimelineEvent) {
+  if (event.descricao_data && event.descricao_data.trim().length > 0) {
+    return event.descricao_data;
   }
-  return selectedWorldId;
+
+  if (event.data_inicio) {
+    try {
+      const date = new Date(event.data_inicio);
+      if (event.granularidade_data === "ano") {
+        return `${date.getFullYear()}`;
+      }
+      if (event.granularidade_data === "mes") {
+        return `${date.getMonth() + 1}/${date.getFullYear()}`;
+      }
+      if (event.granularidade_data === "dia" || !event.granularidade_data) {
+        return date.toLocaleDateString("pt-BR");
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return "";
 }
 
 export default function TimelinePage() {
-
-  const [view, setView] = useState<ViewState>("loading");
-  const [profileId, setProfileId] = useState<string | null>(null);
-  const [worlds, setWorlds] = useState<{ id: string; nome: string }[]>([]);
+  const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
-  const [antiVersoWorldId, setAntiVersoWorldId] = useState<string | null>(null);
-
-  const [camadaFilter, setCamadaFilter] = useState<string>("");
-
   const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
+  const [selectedCamada, setSelectedCamada] = useState<string>("");
+  const [isLoadingWorlds, setIsLoadingWorlds] = useState(false);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [editingEvent, setEditingEvent] = useState<TimelineEvent | null>(null);
-  const [editForm, setEditForm] = useState<EditFormState | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editData, setEditData] = useState<Partial<TimelineEvent>>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(
-    null
+
+  const antiVersoWorld = useMemo(
+    () =>
+      worlds.find(
+        (w) => w.nome && w.nome.toLowerCase().trim() === "antiverso"
+      ) || null,
+    [worlds]
   );
-  const [editError, setEditError] = useState<string | null>(null);
 
+  const currentWorld = useMemo(
+    () => worlds.find((w) => w.id === selectedWorldId) || null,
+    [worlds, selectedWorldId]
+  );
 
+  const isAntiVersoSelected = useMemo(
+    () => !!currentWorld && currentWorld === antiVersoWorld,
+    [currentWorld, antiVersoWorld]
+  );
+
+  // Carrega mundos
   useEffect(() => {
-    async function init() {
-      setView("loading");
-      let initialWorldIdFromUrl: string | null = null;
-      if (typeof window !== "undefined") {
-        const params = new URLSearchParams(window.location.search);
-        const worldParam = params.get("world_id");
-        if (worldParam && worldParam.trim().length > 0) {
-          initialWorldIdFromUrl = worldParam;
+    async function fetchWorlds() {
+      setIsLoadingWorlds(true);
+      setError(null);
+      try {
+        const { data, error } = await supabaseBrowser
+          .from("worlds")
+          .select("id, nome, descricao, ordem, has_episodes")
+          .order("ordem", { ascending: true });
+
+        if (error) {
+          console.error("Erro ao carregar mundos:", error);
+          setError("Erro ao carregar mundos.");
+          return;
         }
+
+        const list = (data || []) as World[];
+
+        // AntiVerso sempre primeiro
+        const sorted = [...list].sort((a, b) => {
+          const aIsAnti =
+            a.nome && a.nome.toLowerCase().trim() === "antiverso";
+          const bIsAnti =
+            b.nome && b.nome.toLowerCase().trim() === "antiverso";
+
+          if (aIsAnti && !bIsAnti) return -1;
+          if (!aIsAnti && bIsAnti) return 1;
+
+          const ao = a.ordem ?? 0;
+          const bo = b.ordem ?? 0;
+          return ao - bo;
+        });
+
+        setWorlds(sorted);
+
+        if (sorted.length > 0) {
+          const anti = sorted.find(
+            (w) => w.nome && w.nome.toLowerCase().trim() === "antiverso"
+          );
+          setSelectedWorldId(anti ? anti.id : sorted[0].id);
+        }
+      } finally {
+        setIsLoadingWorlds(false);
       }
-
-
-      const {
-        data: { session },
-      } = await supabaseBrowser.auth.getSession();
-
-      if (!session?.user) {
-        setView("loggedOut");
-        return;
-      }
-
-      setProfileId(session.user.id);
-
-      const { data: worldsData, error: worldsError } = await supabaseBrowser
-        .from("worlds")
-        .select("id, nome, has_episodes, ordem")
-        .order("ordem", { ascending: true });
-
-      if (worldsError) {
-        console.error(worldsError);
-        setError("Erro ao carregar mundos.");
-        setView("loggedIn");
-        return;
-      }
-
-      const worldsList =
-        worldsData?.map((w) => ({
-          id: w.id,
-          nome: w.nome ?? "Mundo sem nome",
-        })) ?? [];
-
-      setWorlds(
-        worldsList.map((w) => ({
-          id: w.id,
-          nome: w.nome,
-        }))
-      );
-
-      const antiVersoWorld = worldsData?.find(
-        (w) => (w.nome ?? "").toLowerCase() === "antiverso"
-      );
-      if (antiVersoWorld) {
-        setAntiVersoWorldId(antiVersoWorld.id);
-      }
-
-      if (initialWorldIdFromUrl) {
-        setSelectedWorldId(initialWorldIdFromUrl);
-      } else if (worldsList.length > 0) {
-        setSelectedWorldId(worldsList[0].id);
-      }
-
-      setView("loggedIn");
     }
 
-    init();
+    fetchWorlds();
   }, []);
 
-  async function fetchEvents(worldIdForApi: string | null, camada: string) {
-    setIsLoading(true);
-    setError(null);
+  // Carrega eventos sempre que mundo ou camada mudar
+  useEffect(() => {
+    async function fetchEvents() {
+      if (!selectedWorldId && !isAntiVersoSelected) return;
 
-    try {
-      const params = new URLSearchParams();
-      if (worldIdForApi) params.set("worldId", worldIdForApi);
-      if (camada && camada.trim().length > 0) {
-        params.set("camada_temporal", camada.trim());
-      }
+      setIsLoadingEvents(true);
+      setError(null);
 
-      const url =
-        "/api/lore/timeline" + (params.toString() ? `?${params}` : "");
+      try {
+        const params = new URLSearchParams();
 
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-      });
+        // AntiVerso enxerga todos → não manda worldId
+        if (!isAntiVersoSelected && selectedWorldId) {
+          params.set("worldId", selectedWorldId);
+        }
 
-      if (!res.ok) {
-        console.error("Resposta não OK da API /timeline:", res.status);
+        if (selectedCamada && selectedCamada.trim().length > 0) {
+          params.set("camada_temporal", selectedCamada.trim());
+        }
+
+        const url =
+          "/api/lore/timeline" + (params.toString() ? `?${params}` : "");
+        const response = await fetch(url);
+        const json = await response.json();
+
+        if (!response.ok || !json.success) {
+          console.error("Erro da API /timeline:", json.error);
+          setError(json.error || "Erro ao carregar eventos da Timeline.");
+          setEvents([]);
+          return;
+        }
+
+        setEvents(json.events || []);
+      } catch (err) {
+        console.error("Erro ao chamar /api/lore/timeline:", err);
         setError("Erro ao carregar eventos da Timeline.");
         setEvents([]);
+      } finally {
+        setIsLoadingEvents(false);
+      }
+    }
+
+    fetchEvents();
+  }, [selectedWorldId, selectedCamada, isAntiVersoSelected]);
+
+  function handleSelectWorld(worldId: string) {
+    setSelectedWorldId(worldId);
+    setSelectedEvent(null);
+  }
+
+  function handleOpenEdit(event: TimelineEvent) {
+    setSelectedEvent(event);
+    setEditData({ ...event });
+    setIsEditOpen(true);
+  }
+
+  async function handleDeleteEvent(event: TimelineEvent) {
+    const ok = window.confirm(
+      `Tem certeza que deseja apagar o evento "${event.titulo ?? ""}"?`
+    );
+    if (!ok) return;
+
+    try {
+      setIsLoadingEvents(true);
+      const params = new URLSearchParams();
+      params.set("ficha_id", event.ficha_id);
+
+      const response = await fetch(`/api/lore/timeline?${params.toString()}`, {
+        method: "DELETE",
+      });
+
+      const json = await response.json();
+      if (!response.ok || !json.success) {
+        console.error("Erro ao deletar evento:", json.error);
+        alert(json.error || "Erro ao deletar evento.");
         return;
       }
 
-      const json = await res.json();
-
-      if (!json.success) {
-        console.error("Erro da API /timeline:", json.error);
-        setError(json.error || "Erro ao carregar eventos da Timeline.");
-        setEvents([]);
-        return;
+      setEvents((prev) => prev.filter((e) => e.ficha_id !== event.ficha_id));
+      if (selectedEvent?.ficha_id === event.ficha_id) {
+        setSelectedEvent(null);
       }
-
-      setEvents(json.events || []);
-    } catch (err: any) {
-      console.error(err);
-      setError("Erro inesperado ao carregar eventos da Timeline.");
-      setEvents([]);
+    } catch (err) {
+      console.error("Erro ao deletar evento:", err);
+      alert("Erro ao deletar evento.");
     } finally {
-      setIsLoading(false);
+      setIsLoadingEvents(false);
     }
   }
 
-  useEffect(() => {
-    if (view !== "loggedIn") return;
-    const worldIdForApi = getWorldIdForApi(selectedWorldId, antiVersoWorldId);
-    fetchEvents(worldIdForApi, camadaFilter);
-  }, [view, selectedWorldId, camadaFilter, antiVersoWorldId]);
-
-  function handleWorldChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const newWorldId = e.target.value;
-    setSelectedWorldId(newWorldId === "" ? null : newWorldId);
-  }
-
-  function handleCamadaFilterChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    setCamadaFilter(e.target.value);
-  }
-
-  function openEditModal(event: TimelineEvent) {
-    const dateInicio = event.data_inicio ? event.data_inicio.substring(0, 10) : "";
-    const dateFim = event.data_fim ? event.data_fim.substring(0, 10) : "";
-
-    setEditingEvent(event);
-
-    setEditForm({
-      titulo: event.titulo || "",
-      resumo: event.resumo || "",
-      episodio: event.episodio || "",
-      camada_temporal: event.camada_temporal || "linha_principal",
-      descricao_data: event.descricao_data || "",
-      data_inicio: dateInicio,
-      data_fim: dateFim,
-      granularidade_data: event.granularidade_data || "vago",
-    });
-
-    setSaveSuccessMessage(null);
-    setEditError(null);
-  }
-
-  function closeEditModal() {
-    setEditingEvent(null);
-    setEditForm(null);
-    setSaveSuccessMessage(null);
-    setEditError(null);
-  }
-
-  function handleEditFormChange(
-    field: keyof EditFormState,
-    value: string
-  ): void {
-    setEditForm((prev) => (prev ? { ...prev, [field]: value } : prev));
+  function handleChangeEdit<K extends keyof TimelineEvent>(
+    key: K,
+    value: TimelineEvent[K]
+  ) {
+    setEditData((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   }
 
   async function handleSaveEdit() {
-    if (!editingEvent || !editForm) return;
+    if (!editData || !editData.ficha_id) return;
 
     setIsSavingEdit(true);
-    setEditError(null);
-    setSaveSuccessMessage(null);
+    setError(null);
 
     try {
       const payload = {
-        ...editForm,
-        ficha_id: editingEvent.ficha_id,
+        ficha_id: editData.ficha_id,
+        titulo: editData.titulo ?? "",
+        resumo: editData.resumo ?? "",
+        episodio: editData.episodio ?? "",
+        camada_temporal: editData.camada_temporal ?? "",
+        descricao_data: editData.descricao_data ?? "",
+        granularidade_data: editData.granularidade_data ?? "",
+        data_inicio: editData.data_inicio ?? null,
+        data_fim: editData.data_fim ?? null,
       };
 
-      const res = await fetch("/api/lore/timeline", {
+      const response = await fetch("/api/lore/timeline", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -277,404 +279,429 @@ export default function TimelinePage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        console.error("Resposta não OK ao salvar edição:", res.status);
-        setEditError("Erro ao salvar edição (HTTP).");
+      const json = await response.json();
+
+      if (!response.ok || !json.success) {
+        console.error("Erro ao salvar edição:", json.error);
+        setError(json.error || "Erro ao salvar alterações.");
         return;
       }
 
-      const json = await res.json();
+      // Atualiza lista local
+      setEvents((prev) =>
+        prev.map((evt) =>
+          evt.ficha_id === editData.ficha_id
+            ? { ...evt, ...editData }
+            : evt
+        )
+      );
 
-      if (!json.success) {
-        console.error("Erro retornado pela API ao salvar edição:", json.error);
-        setEditError(json.error || "Erro ao salvar edição.");
-        return;
-      }
+      // Atualiza selecionado
+      setSelectedEvent((prev) =>
+        prev && prev.ficha_id === editData.ficha_id
+          ? ({ ...prev, ...editData } as TimelineEvent)
+          : prev
+      );
 
-      setSaveSuccessMessage("Alterações salvas com sucesso!");
-
-      if (selectedWorldId || antiVersoWorldId) {
-        const worldIdForApi = getWorldIdForApi(selectedWorldId, antiVersoWorldId);
-        await fetchEvents(worldIdForApi, camadaFilter);
-      }
-
-      const timer = setTimeout(() => {
-        setSaveSuccessMessage(null);
-      }, 2000);
-
-      return () => clearTimeout(timer);
-    } catch (err: any) {
-      console.error(err);
-      setEditError("Erro inesperado ao salvar edição.");
+      setIsEditOpen(false);
+    } catch (err) {
+      console.error("Erro ao salvar edição:", err);
+      setError("Erro ao salvar alterações.");
     } finally {
       setIsSavingEdit(false);
     }
   }
 
-  if (view === "loading") {
-    return (
-      <div className="min-h-screen bg-black text-gray-100 flex items-center justify-center">
-        <p className="text-gray-400">Carregando...</p>
-      </div>
-    );
-  }
-
-  if (view === "loggedOut") {
-    return (
-      <div className="min-h-screen bg-black text-gray-100 flex items-center justify-center">
-        <p className="text-gray-400">
-          Você não está autenticado. Faça login para acessar a Timeline.
-        </p>
-      </div>
-    );
-  }
-
-  const selectedWorldName =
-    worlds.find((w) => w.id === selectedWorldId)?.nome || "Selecione um mundo";
-
   return (
-    <div className="min-h-screen bg-black text-gray-100">
-      <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="flex h-screen bg-zinc-950 text-zinc-50">
+      {/* Coluna de Mundos */}
+      <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto">
+        <h1 className="text-lg font-semibold mb-2">Mundos</h1>
+        <p className="text-xs text-zinc-400 mb-4">
+          Selecione um mundo para ver sua linha do tempo.
+          <span className="block mt-1">
+            AntiVerso mostra todos os eventos do AntiVerso.
+          </span>
+        </p>
+
+        {isLoadingWorlds && (
+          <p className="text-sm text-zinc-400">Carregando mundos...</p>
+        )}
+
+        {!isLoadingWorlds && worlds.length === 0 && (
+          <p className="text-sm text-zinc-500">Nenhum mundo cadastrado.</p>
+        )}
+
+        <div className="space-y-1">
+          {worlds.map((world) => {
+            const isSelected = world.id === selectedWorldId;
+            const isAnti =
+              world.nome && world.nome.toLowerCase().trim() === "antiverso";
+
+            return (
+              <button
+                key={world.id}
+                onClick={() => handleSelectWorld(world.id)}
+                className={[
+                  "w-full text-left rounded-md px-3 py-2 text-sm transition-colors",
+                  isSelected
+                    ? "bg-zinc-800 text-emerald-300 border border-emerald-600/40"
+                    : "bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800",
+                ].join(" ")}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium truncate">
+                    {world.nome || "Sem nome"}
+                  </span>
+                  {isAnti && (
+                    <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                      AntiVerso
+                    </span>
+                  )}
+                </div>
+                {world.descricao && (
+                  <p className="mt-1 text-[11px] text-zinc-400 line-clamp-2">
+                    {world.descricao}
+                  </p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* Coluna central: Timeline */}
+      <main className="flex-1 border-r border-zinc-800 p-6 overflow-y-auto">
+        <div className="flex items-start justify-between mb-6 gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              Timeline — {selectedWorldName}
-            </h1>
-            <p className="text-xs text-zinc-400 mt-1 max-w-2xl">
+            <h2 className="text-2xl font-semibold">
+              Timeline — {currentWorld?.nome ?? "Selecione um mundo"}
+            </h2>
+            <p className="text-sm text-zinc-400">
               Visualize e edite os eventos cronológicos das fichas. Cada evento
-              corresponde a uma ficha marcada como &quot;evento&quot; no mundo
+              corresponde a uma ficha marcada como "evento" no mundo
               selecionado.
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] uppercase tracking-wide text-zinc-500">
-                Mundo
-              </label>
+          <div className="flex flex-col items-end gap-2">
+            <label className="text-xs text-zinc-400">
+              Camada temporal
               <select
-                value={selectedWorldId || ""}
-                onChange={handleWorldChange}
-                className="bg-zinc-900 border border-zinc-700 text-sm rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                value={selectedCamada}
+                onChange={(e) => setSelectedCamada(e.target.value)}
+                className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
-                {worlds.length === 0 && (
-                  <option value="">Nenhum mundo cadastrado</option>
-                )}
-
-                {worlds.length > 0 && !selectedWorldId && (
-                  <option value="">Selecione um mundo</option>
-                )}
-
-                {worlds.map((world) => (
-                  <option key={world.id} value={world.id}>
-                    {world.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] uppercase tracking-wide text-zinc-500">
-                Camada temporal
-              </label>
-              <select
-                value={camadaFilter}
-                onChange={handleCamadaFilterChange}
-                className="bg-zinc-900 border border-zinc-700 text-sm rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              >
-                <option value="">Todas</option>
                 {CAMADAS.map((c) => (
                   <option key={c.value} value={c.value}>
                     {c.label}
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           </div>
         </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
         {error && (
-          <div className="mb-4 rounded border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+          <div className="mb-4 rounded-md border border-red-500/40 bg-red-950/50 px-3 py-2 text-sm text-red-200">
             {error}
           </div>
         )}
 
-        {isLoading ? (
-          <div className="flex justify-center py-10">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-          </div>
-        ) : events.length === 0 ? (
-          <p className="text-sm text-zinc-400">
+        {isLoadingEvents && (
+          <p className="text-sm text-zinc-400">Carregando eventos...</p>
+        )}
+
+        {!isLoadingEvents && events.length === 0 && !error && (
+          <p className="text-sm text-zinc-500">
             Nenhum evento encontrado para os filtros selecionados.
           </p>
-        ) : (
-          <div className="space-y-4">
-            {events.map((event, index) => (
-              <div
-                key={event.ficha_id + index}
-                className="relative rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 hover:border-emerald-500/60 transition-colors"
-              >
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold">
+        )}
+
+        {/* Linha vertical + eventos */}
+        <div className="relative mt-4">
+          {/* Linha central */}
+          <div className="absolute left-4 top-0 bottom-0 w-px bg-zinc-800" />
+
+          <div className="space-y-6 pl-10">
+            {events.map((event) => {
+              const isSelected =
+                selectedEvent && selectedEvent.ficha_id === event.ficha_id;
+              const descricaoData = formatDescricaoData(event);
+
+              return (
+                <div key={event.ficha_id} className="relative">
+                  {/* nó da linha */}
+                  <div className="absolute -left-[18px] top-4 h-3 w-3 rounded-full border border-emerald-400 bg-zinc-950" />
+
+                  <div
+                    className={[
+                      "rounded-xl border p-4 transition-colors cursor-pointer",
+                      isSelected
+                        ? "border-emerald-500 bg-zinc-900"
+                        : "border-zinc-800 bg-zinc-900/60 hover:border-emerald-500/60",
+                    ].join(" ")}
+                    onClick={() => setSelectedEvent(event)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-base font-semibold">
                         {event.titulo || "Evento sem título"}
-                      </h2>
-                      {event.episodio && (
-                        <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px] uppercase tracking-wide text-zinc-300">
-                          Episódio {event.episodio}
-                        </span>
-                      )}
-                      {event.camada_temporal && (
-                        <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px] uppercase tracking-wide text-zinc-400">
-                          {CAMADAS.find((c) => c.value === event.camada_temporal)
-                            ?.label || event.camada_temporal}
-                        </span>
-                      )}
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        {event.episodio && (
+                          <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold text-zinc-200">
+                            EPISÓDIO {event.episodio}
+                          </span>
+                        )}
+                        {event.camada_temporal && (
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                            {event.camada_temporal.replace("_", " ")}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {event.descricao_data && (
-                      <p className="text-xs text-zinc-400">
-                        {event.descricao_data}
+                    {descricaoData && (
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {descricaoData}
                       </p>
                     )}
 
-                    {event.data_inicio && (
-                      <p className="text-xs text-zinc-500">
-                        <span className="font-medium text-zinc-300">
-                          Data:
-                        </span>{" "}
-                        {event.data_inicio.substring(0, 10)}
-                        {event.data_fim &&
-                          event.data_fim.substring(0, 10) !==
-                            event.data_inicio.substring(0, 10) &&
-                          ` — ${event.data_fim.substring(0, 10)}`}
-                        {" · "}
-                        <span className="text-zinc-400">
-                          {getGranularidadeLabel(event.granularidade_data)}
-                        </span>
+                    {event.resumo && (
+                      <p className="mt-3 text-sm text-zinc-200">
+                        {event.resumo}
                       </p>
                     )}
 
-                    <p className="text-sm text-zinc-200 whitespace-pre-line">
-                      {event.resumo || "Sem resumo definido."}
-                    </p>
-                  </div>
+                    <div className="mt-4 flex items-center justify-between text-[11px] text-zinc-500">
+                      <div className="flex flex-col gap-0.5">
+                        {event.aparece_em && (
+                          <span>Aparece em: {event.aparece_em}</span>
+                        )}
+                        {event.created_at && (
+                          <span>
+                            Criado em:{" "}
+                            {new Date(event.created_at).toLocaleDateString(
+                              "pt-BR"
+                            )}
+                          </span>
+                        )}
+                      </div>
 
-                  <div className="mt-2 flex flex-col items-end gap-2 md:mt-0">
-                    <button
-                      onClick={() => openEditModal(event)}
-                      className="rounded border border-emerald-600 bg-emerald-600/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-600/20"
-                    >
-                      Editar evento
-                    </button>
-
-                    <div className="text-[11px] text-zinc-500 text-right">
-                      <p>
-                        <span className="font-semibold text-zinc-300">
-                          Aparece em:
-                        </span>{" "}
-                        {event.aparece_em || "Não informado"}
-                      </p>
-                      {event.created_at && (
-                        <p>
-                          <span className="font-semibold text-zinc-300">
-                            Criado em:
-                          </span>{" "}
-                          {event.created_at.substring(0, 10)}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEdit(event);
+                          }}
+                          className="rounded border border-emerald-500/70 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteEvent(event);
+                          }}
+                          className="rounded border border-red-500/70 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/20"
+                        >
+                          Deletar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        )}
+        </div>
       </main>
 
-      {editingEvent && editForm && (
+      {/* Coluna direita: detalhes da ficha */}
+      <section className="w-80 p-6 overflow-y-auto">
+        <h2 className="text-lg font-semibold mb-3">Ficha selecionada</h2>
+
+        {!selectedEvent && (
+          <p className="text-sm text-zinc-500">
+            Selecione um evento na linha do tempo para ver detalhes aqui.
+          </p>
+        )}
+
+        {selectedEvent && (
+          <div className="space-y-3 text-sm">
+            <div>
+              <h3 className="text-base font-semibold">
+                {selectedEvent.titulo || "Evento sem título"}
+              </h3>
+              {selectedEvent.resumo && (
+                <p className="mt-1 text-zinc-300">{selectedEvent.resumo}</p>
+              )}
+            </div>
+
+            <div className="space-y-1 text-xs text-zinc-400">
+              {selectedEvent.episodio && (
+                <p>Ep.: {selectedEvent.episodio}</p>
+              )}
+              {selectedEvent.camada_temporal && (
+                <p>Camada: {selectedEvent.camada_temporal}</p>
+              )}
+              {selectedEvent.descricao_data && (
+                <p>Data: {selectedEvent.descricao_data}</p>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Modal de edição */}
+      {isEditOpen && editData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-3xl rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Editar evento</h2>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Ficha vinculada: <span className="font-mono text-zinc-300">{editingEvent.ficha_id}</span>
-                </p>
-              </div>
+          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">Editar evento</h3>
               <button
-                onClick={closeEditModal}
-                className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                className="text-xs text-zinc-400 hover:text-zinc-200"
+                onClick={() => setIsEditOpen(false)}
               >
                 Fechar
               </button>
             </div>
 
-            {editError && (
-              <div className="mb-4 rounded border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-                {editError}
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Título
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={editData.titulo ?? ""}
+                  onChange={(e) => handleChangeEdit("titulo", e.target.value)}
+                />
               </div>
-            )}
 
-            {saveSuccessMessage && (
-              <div className="mb-4 rounded border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
-                {saveSuccessMessage}
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Resumo
+                </label>
+                <textarea
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
+                  value={editData.resumo ?? ""}
+                  onChange={(e) => handleChangeEdit("resumo", e.target.value)}
+                />
               </div>
-            )}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Título
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.titulo}
-                    onChange={(e) =>
-                      handleEditFormChange("titulo", e.target.value)
-                    }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Resumo
-                  </label>
-                  <textarea
-                    value={editForm.resumo}
-                    onChange={(e) =>
-                      handleEditFormChange("resumo", e.target.value)
-                    }
-                    rows={6}
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
                     Episódio
                   </label>
                   <input
-                    type="text"
-                    value={editForm.episodio}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={editData.episodio ?? ""}
                     onChange={(e) =>
-                      handleEditFormChange("episodio", e.target.value)
+                      handleChangeEdit("episodio", e.target.value)
                     }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
                     Camada temporal
                   </label>
                   <select
-                    value={editForm.camada_temporal}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={editData.camada_temporal ?? ""}
                     onChange={(e) =>
-                      handleEditFormChange("camada_temporal", e.target.value)
+                      handleChangeEdit("camada_temporal", e.target.value)
                     }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   >
-                    {CAMADAS.map((c) => (
+                    <option value="">(nenhuma)</option>
+                    {CAMADAS.filter((c) => c.value).map((c) => (
                       <option key={c.value} value={c.value}>
                         {c.label}
                       </option>
                     ))}
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Descrição da data (texto)
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Descrição da data
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={editData.descricao_data ?? ""}
+                  onChange={(e) =>
+                    handleChangeEdit("descricao_data", e.target.value)
+                  }
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Data início
                   </label>
                   <input
-                    type="text"
-                    value={editForm.descricao_data}
+                    type="date"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={editData.data_inicio ?? ""}
                     onChange={(e) =>
-                      handleEditFormChange("descricao_data", e.target.value)
+                      handleChangeEdit("data_inicio", e.target.value)
                     }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Data início
-                    </label>
-                    <input
-                      type="date"
-                      value={editForm.data_inicio}
-                      onChange={(e) =>
-                        handleEditFormChange("data_inicio", e.target.value)
-                      }
-                      className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">
-                      Data fim
-                    </label>
-                    <input
-                      type="date"
-                      value={editForm.data_fim}
-                      onChange={(e) =>
-                        handleEditFormChange("data_fim", e.target.value)
-                      }
-                      className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1">
-                    Granularidade da data
+                <div className="flex-1">
+                  <label className="block text-xs text-zinc-400 mb-1">
+                    Data fim
                   </label>
-                  <select
-                    value={editForm.granularidade_data}
+                  <input
+                    type="date"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                    value={editData.data_fim ?? ""}
                     onChange={(e) =>
-                      handleEditFormChange("granularidade_data", e.target.value)
+                      handleChangeEdit("data_fim", e.target.value)
                     }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  >
-                    {GRANULARIDADES.map((g) => (
-                      <option key={g.value} value={g.value}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Granularidade da data
+                </label>
+                <select
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm"
+                  value={editData.granularidade_data ?? ""}
+                  onChange={(e) =>
+                    handleChangeEdit("granularidade_data", e.target.value)
+                  }
+                >
+                  <option value="">(não definido)</option>
+                  {GRANULARIDADES.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="mt-6 flex items-center justify-between border-t border-zinc-800 pt-4">
-              <p className="text-xs text-zinc-500">
-                As alterações são salvas diretamente na ficha correspondente e
-                refletidas na Timeline.
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={closeEditModal}
-                  className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={isSavingEdit}
-                  className="rounded border border-emerald-600 bg-emerald-600/20 px-4 py-1.5 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {isSavingEdit ? "Salvando..." : "Salvar alterações"}
-                </button>
-              </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+                onClick={() => setIsEditOpen(false)}
+                disabled={isSavingEdit}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded border border-emerald-600 bg-emerald-600/20 px-3 py-1 text-sm font-medium text-emerald-100 hover:bg-emerald-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? "Salvando..." : "Salvar alterações"}
+              </button>
             </div>
           </div>
         </div>
