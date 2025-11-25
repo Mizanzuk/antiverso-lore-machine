@@ -116,7 +116,7 @@ export default function TimelinePage() {
 
       const { data: worldsData, error: worldsError } = await supabaseBrowser
         .from("worlds")
-        .select("id, nome, has_episodes, slug")
+        .select("id, nome, has_episodes, ordem")
         .order("ordem", { ascending: true });
 
       if (worldsError) {
@@ -130,7 +130,6 @@ export default function TimelinePage() {
         worldsData?.map((w) => ({
           id: w.id,
           nome: w.nome ?? "Mundo sem nome",
-          slug: w.slug,
         })) ?? [];
 
       setWorlds(
@@ -140,7 +139,9 @@ export default function TimelinePage() {
         }))
       );
 
-      const antiVersoWorld = worldsData?.find((w) => w.slug === "antiverso");
+      const antiVersoWorld = worldsData?.find(
+        (w) => (w.nome ?? "").toLowerCase() === "antiverso"
+      );
       if (antiVersoWorld) {
         setAntiVersoWorldId(antiVersoWorld.id);
       }
