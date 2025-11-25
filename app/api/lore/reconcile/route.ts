@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         granularidade_data: mergedData.granularidade_data,
         camada_temporal: mergedData.camada_temporal,
         descricao_data: mergedData.descricao_data,
-         updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq("id", winnerId);
 
@@ -77,7 +77,24 @@ export async function POST(req: NextRequest) {
       console.warn("Erro ao mover códigos (pode não haver códigos):", codesError);
     }
 
-    // 3. Apagar a Ficha Perdedora
+    // 3. Mover Relações da Perdedora para a Vencedora (se existirem)
+    // Nota: A tabela 'fichas_relacoes' foi citada no roadmap, vamos tentar atualizar se existir.
+    // Se der erro (tabela não existe), apenas ignoramos no catch ou logamos.
+    try {
+       await supabaseAdmin
+        .from("fichas_relacoes")
+        .update({ ficha_origem_id: winnerId })
+        .eq("ficha_origem_id", loserId);
+        
+       await supabaseAdmin
+        .from("fichas_relacoes")
+        .update({ ficha_destino_id: winnerId })
+        .eq("ficha_destino_id", loserId);
+    } catch (e) {
+       // Ignora se não tiver tabela de relações ainda
+    }
+
+    // 4. Apagar a Ficha Perdedora
     const { error: deleteError } = await supabaseAdmin
       .from("fichas")
       .delete()
