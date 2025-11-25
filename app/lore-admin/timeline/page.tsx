@@ -384,10 +384,12 @@ export default function TimelinePage() {
 
   async function handleSaveEdit() {
     if (!editingEvent) return;
+    console.log("[Timeline] Salvar evento clicado", editingEvent.id);
     setIsSavingEdit(true);
     setError(null);
 
     try {
+      console.log("[Timeline] Enviando update para Supabase...");
       const { error: updateError } = await supabaseBrowser
         .from("fichas")
         .update({
