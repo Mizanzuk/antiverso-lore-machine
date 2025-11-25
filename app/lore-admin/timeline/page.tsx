@@ -58,7 +58,44 @@ type EditForm = {
   aparece_em: string;
 };
 
-
+// lista oficial de granularidades do AntiVerso
+const GRANULARIDADES = [
+  {
+    value: "dia",
+    label: "Dia exato",
+    description: "Data precisa no formato AAAA-MM-DD.",
+  },
+  {
+    value: "mes",
+    label: "Mês e ano",
+    description: "Data conhecida até o mês (AAAA-MM).",
+  },
+  {
+    value: "ano",
+    label: "Ano",
+    description: "Evento que só possui ano definido.",
+  },
+  {
+    value: "decada",
+    label: "Década",
+    description: "Evento conhecido apenas pela década (ex: anos 1990).",
+  },
+  {
+    value: "seculo",
+    label: "Século",
+    description: "Evento conhecido apenas pelo século (ex: século XX).",
+  },
+  {
+    value: "vago",
+    label: "Vago / impreciso",
+    description: 'Data narrativa ou imprecisa ("há dez anos", "numa noite...").',
+  },
+  {
+    value: "indefinido",
+    label: "Desconhecido",
+    description: "Nenhuma informação de data disponível.",
+  },
+];
 
 export default function TimelinePage() {
   const [view, setView] = useState<ViewState>("loading");
@@ -173,7 +210,7 @@ export default function TimelinePage() {
     try {
       const { selectedId, antiId } = await fetchWorlds();
       const worldIdForApi = getWorldIdForApi(selectedId, antiId);
-      await fetchEvents(worldIdForApi, camadaFilter);
+      await fetchEvents(worldIdForApi);
     } catch (err: any) {
       console.error(err);
       setError("Erro inesperado ao carregar dados da timeline.");
@@ -233,163 +270,86 @@ export default function TimelinePage() {
     return { selectedId: initialSelected, antiId };
   }
 
-  async function fetchEvents(worldIdForApi: string | null, camada: string) {
-    setIsLoading(true);
-    setError(null);
+  
+async function fetchEvents(worldIdForApi: string | null) {
+  setLoadingEvents(true);
+  setError(null);
 
-    try {
-      const params = new URLSearchParams();
-      if (worldIdForApi) params.set("worldId", worldIdForApi);
-      if (camada && camada.trim().length > 0) {
-        params.set("camada_temporal", camada.trim());
-      }
-
-      const url =
-        "/api/lore/timeline" + (params.toString() ? `?${params}` : "");
-
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("Erro na Timeline API:", res.status, text);
-        setError("Erro ao buscar eventos da Timeline.");
-        setEvents([]);
-        return;
-      }
-
-      const json = (await res.json()) as TimelineResponse;
-
-      if (!json.ok) {
-        console.error("Erro lógico na Timeline API:", json);
-        setError(json.error || "Erro ao montar timeline.");
-        setEvents([]);
-        return;
-      }
-
-      setEvents(json.events || []);
-    } catch (err: any) {
-      console.error(err);
-      setError("Erro inesperado ao carregar eventos da Timeline.");
-      setEvents([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  // Recarrega eventos quando mundo ou camada mudarem
-  useEffect(() => {
-    if (view !== "loggedIn") return;
-    const worldIdForApi = getWorldIdForApi(selectedWorldId, antiVersoWorldId);
-    fetchEvents(worldIdForApi, camadaFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWorldId, camadaFilter, view, antiVersoWorldId]);
-
-  // ----------------------------
-  // Derivados de filtro
-  // ----------------------------
-
-  const availableCamadas = useMemo(() => {
-    const set = new Set<string>();
-    events.forEach((ev) => {
-      if (ev.camada_temporal && ev.camada_temporal.trim().length > 0) {
-        set.add(ev.camada_temporal.trim());
-      }
+  try {
+    console.log("[Timeline] Carregando eventos diretamente do Supabase...", {
+      worldIdForApi,
+      camadaFilter,
     });
-    return Array.from(set).sort();
-  }, [events]);
 
-  const availableEpisodes = useMemo(() => {
-    const set = new Set<string>();
-    events.forEach((ev) => {
-      if (ev.episodio && ev.episodio.trim().length > 0) {
-        set.add(ev.episodio.trim());
-      }
-    });
-    return Array.from(set).sort();
-  }, [events]);
+    // Monta query base: apenas fichas do tipo "evento"
+    let query = supabaseBrowser
+      .from("fichas")
+      .select(
+        `
+        id,
+        world_id,
+        episodio,
+        titulo,
+        resumo,
+        data_inicio,
+        data_fim,
+        granularidade_data,
+        descricao_data,
+        camada_temporal,
+        aparece_em,
+        created_at
+      `
+      )
+      .eq("tipo", "evento");
 
-  const filteredEvents = useMemo(() => {
-    return events.filter((ev) => {
-      if (episodeFilter && ev.episodio !== episodeFilter) return false;
-      return true;
-    });
-  }, [events, episodeFilter]);
-
-  // ----------------------------
-  // Render helpers
-  // ----------------------------
-
-  function formatDateRange(ev: TimelineEvent): string {
-    const { data_inicio, data_fim, descricao_data, ano_diegese } = ev;
-
-    if (descricao_data && descricao_data.trim().length > 0) {
-      return descricao_data.trim();
+    // Se um mundo específico foi selecionado, filtra por ele
+    if (worldIdForApi) {
+      query = query.eq("world_id", worldIdForApi);
     }
 
-    if (data_inicio && data_fim && data_inicio !== data_fim) {
-      return `${data_inicio} → ${data_fim}`;
+    // Ordenação básica: primeiro pela data de início, depois pela criação
+    const { data, error } = await query
+      .order("data_inicio", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("[Timeline] Erro ao buscar eventos do Supabase:", error.message);
+      throw error;
     }
 
-    if (data_inicio) {
-      return data_inicio;
-    }
+    const mappedEvents: TimelineEvent[] =
+      (data || []).map((row: any) => ({
+        id: row.id,
+        world_id: row.world_id ?? null,
+        episodio: row.episodio ?? null,
+        titulo: row.titulo ?? null,
+        // Usa SEMPRE o campo 'resumo' da ficha; se estiver vazio, deixa null
+        resumo: row.resumo ?? null,
+        data_inicio: row.data_inicio ?? null,
+        data_fim: row.data_fim ?? null,
+        granularidade_data: row.granularidade_data ?? null,
+        descricao_data: row.descricao_data ?? null,
+        camada_temporal: row.camada_temporal ?? null,
+        aparece_em: row.aparece_em ?? null,
+        created_at: row.created_at ?? null,
+      })) ?? [];
 
-    if (ano_diegese) {
-      return String(ano_diegese);
-    }
-
-    return "Data desconhecida";
+    console.log("[Timeline] Eventos carregados do Supabase:", mappedEvents.length);
+    setEvents(mappedEvents);
+  } catch (err: any) {
+    console.error("[Timeline] Erro ao carregar eventos:", err?.message || err);
+    setError("Erro ao carregar eventos. Veja o console para detalhes.");
+    setEvents([]);
+  } finally {
+    setLoadingEvents(false);
   }
-
-  function formatCamada(ev: TimelineEvent): string {
-    if (!ev.camada_temporal) return "—";
-    return ev.camada_temporal;
-  }
-
-  function getWorldNameById(id: string | null): string | null {
-    if (!id) return null;
-    const w = worlds.find((world) => world.id === id);
-    return w?.nome ?? null;
-  }
-
-    // ----------------------------
-  // Edição / deleção
-  // ----------------------------
-
-  function openEditModal(ev: TimelineEvent) {
-    setEditingEvent(ev);
-    const granularidadeInicial = normalizarGranularidadeInicial(ev);
-    setEditForm({
-      titulo: ev.titulo ?? "",
-      resumo: ev.resumo ?? "",
-      episodio: ev.episodio ?? "",
-      descricao_data: ev.descricao_data ?? "",
-      data_inicio: ev.data_inicio ?? "",
-      data_fim: ev.data_fim ?? "",
-      granularidade_data: granularidadeInicial,
-      camada_temporal: ev.camada_temporal ?? "",
-      aparece_em: ev.aparece_em ?? "",
-    });
-  }
-
-  function closeEditModal() {
-    setEditingEvent(null);
-    setIsSavingEdit(false);
-  }
-
-  async function handleSaveEdit() {
+}
+\nasync function handleSaveEdit() {
     if (!editingEvent) return;
-    console.log("[Timeline] Salvar evento clicado", editingEvent.id);
     setIsSavingEdit(true);
     setError(null);
 
     try {
-      console.log("[Timeline] Enviando update para Supabase...");
       const { error: updateError } = await supabaseBrowser
         .from("fichas")
         .update({
@@ -415,7 +375,7 @@ export default function TimelinePage() {
         selectedWorldId,
         antiVersoWorldId,
       );
-      await fetchEvents(worldIdForApi, camadaFilter);
+      await fetchEvents(worldIdForApi);
       closeEditModal();
     } catch (err: any) {
       console.error(err);
@@ -450,7 +410,7 @@ export default function TimelinePage() {
         selectedWorldId,
         antiVersoWorldId,
       );
-      await fetchEvents(worldIdForApi, camadaFilter);
+      await fetchEvents(worldIdForApi);
     } catch (err: any) {
       console.error(err);
       setError("Erro inesperado ao deletar o Evento.");
