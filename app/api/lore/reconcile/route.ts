@@ -11,8 +11,9 @@ export async function GET(req: NextRequest) {
 
   try {
     // Chama a função RPC que criamos no SQL
+    // O valor 0.3 significa 30% de similaridade mínima para considerar duplicata
     const { data, error } = await supabaseAdmin.rpc("find_potential_duplicates", {
-      similarity_threshold: 0.3, // 30% de similaridade mínima
+      similarity_threshold: 0.3,
     });
 
     if (error) {
@@ -41,14 +42,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Dados incompletos para merge." }, { status: 400 });
     }
 
-    // 1. Atualizar a Ficha Vencedora com os dados combinados
+    // 1. Atualizar a Ficha Vencedora com os dados combinados escolhidos na tela
     const { error: updateError } = await supabaseAdmin
       .from("fichas")
       .update({
         titulo: mergedData.titulo,
         resumo: mergedData.resumo,
         conteudo: mergedData.conteudo,
-        tags: mergedData.tags, // deve ser string
+        tags: mergedData.tags, 
         tipo: mergedData.tipo,
         aparece_em: mergedData.aparece_em,
         // campos temporais
@@ -67,34 +68,17 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Mover Códigos da Perdedora para a Vencedora
-    // (Para não perder referências como AV1-PS2)
+    // (Isso garante que se a ficha excluída tinha o código "AV1-PS2", ele não se perde)
     const { error: codesError } = await supabaseAdmin
       .from("codes")
       .update({ ficha_id: winnerId })
       .eq("ficha_id", loserId);
 
     if (codesError) {
-      console.warn("Erro ao mover códigos (pode não haver códigos):", codesError);
+      console.warn("Aviso: Erro ao mover códigos (talvez não existissem):", codesError);
     }
 
-    // 3. Mover Relações da Perdedora para a Vencedora (se existirem)
-    // Nota: A tabela 'fichas_relacoes' foi citada no roadmap, vamos tentar atualizar se existir.
-    // Se der erro (tabela não existe), apenas ignoramos no catch ou logamos.
-    try {
-       await supabaseAdmin
-        .from("fichas_relacoes")
-        .update({ ficha_origem_id: winnerId })
-        .eq("ficha_origem_id", loserId);
-        
-       await supabaseAdmin
-        .from("fichas_relacoes")
-        .update({ ficha_destino_id: winnerId })
-        .eq("ficha_destino_id", loserId);
-    } catch (e) {
-       // Ignora se não tiver tabela de relações ainda
-    }
-
-    // 4. Apagar a Ficha Perdedora
+    // 3. Apagar a Ficha Perdedora
     const { error: deleteError } = await supabaseAdmin
       .from("fichas")
       .delete()
