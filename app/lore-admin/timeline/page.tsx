@@ -17,6 +17,7 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
+  conteudo: string | null;
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -225,6 +226,7 @@ export default function TimelinePage() {
       world_id: selectedWorldId,
       titulo: "",
       resumo: "",
+      conteudo: "",
       episodio: "",
       camada_temporal: "",
       descricao_data: "",
@@ -300,6 +302,7 @@ export default function TimelinePage() {
         ficha_id: editData.ficha_id,
         titulo: editData.titulo ?? "",
         resumo: editData.resumo ?? "",
+        conteudo: editData.conteudo ?? "",
         episodio: editData.episodio ?? "",
         camada_temporal: editData.camada_temporal ?? "",
         descricao_data: editData.descricao_data ?? "",
@@ -369,6 +372,7 @@ export default function TimelinePage() {
         world_id: worldIdToUse,
         titulo: createData.titulo ?? "",
         resumo: createData.resumo ?? "",
+        conteudo: createData.conteudo ?? "",
         episodio: createData.episodio ?? "",
         camada_temporal: createData.camada_temporal ?? "",
         descricao_data: createData.descricao_data ?? "",
@@ -638,6 +642,13 @@ export default function TimelinePage() {
               )}
             </div>
 
+            {selectedEvent.conteudo && (
+              <div className="space-y-1 text-xs text-zinc-300">
+                <p className="font-semibold text-zinc-400">Conteúdo</p>
+                <p className="whitespace-pre-line">{selectedEvent.conteudo}</p>
+              </div>
+            )}
+
             <div className="space-y-1 text-xs text-zinc-400">
               {selectedEvent.episodio && (
                 <p>Ep.: {selectedEvent.episodio}</p>
@@ -684,9 +695,22 @@ export default function TimelinePage() {
                   Resumo
                 </label>
                 <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[60px]"
                   value={editData.resumo ?? ""}
                   onChange={(e) => handleChangeEdit("resumo", e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Conteúdo (detalhado)
+                </label>
+                <textarea
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[100px]"
+                  value={editData.conteudo ?? ""}
+                  onChange={(e) =>
+                    handleChangeEdit("conteudo", e.target.value)
+                  }
                 />
               </div>
 
@@ -838,10 +862,23 @@ export default function TimelinePage() {
                   Resumo
                 </label>
                 <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[60px]"
                   value={createData.resumo ?? ""}
                   onChange={(e) =>
                     handleChangeCreate("resumo", e.target.value)
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Conteúdo (detalhado)
+                </label>
+                <textarea
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[100px]"
+                  value={createData.conteudo ?? ""}
+                  onChange={(e) =>
+                    handleChangeCreate("conteudo", e.target.value)
                   }
                 />
               </div>
