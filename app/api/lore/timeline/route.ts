@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -6,7 +7,10 @@ export async function GET(req: NextRequest) {
   const worldId = searchParams.get("worldId");
   const camada = searchParams.get("camada_temporal");
 
-  let query = supabaseAdmin
+  // Garante client não-nulo para o TypeScript
+  const client = supabaseAdmin!;
+
+  let query = client
     .from("fichas")
     .select(
       "id, world_id, titulo, resumo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at"
@@ -64,6 +68,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const client = supabaseAdmin!;
+
   const updateData: any = {
     titulo: fields.titulo ?? "",
     resumo: fields.resumo ?? "",
@@ -78,7 +84,7 @@ export async function POST(req: NextRequest) {
   updateData.data_fim =
     fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
-  const { error } = await supabaseAdmin
+  const { error } = await client
     .from("fichas")
     .update(updateData)
     .eq("id", ficha_id);
@@ -105,10 +111,9 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  const { error } = await supabaseAdmin
-    .from("fichas")
-    .delete()
-    .eq("id", fichaId);
+  const client = supabaseAdmin!;
+
+  const { error } = await client.from("fichas").delete().eq("id", fichaId);
 
   if (error) {
     console.error("Erro ao deletar evento:", error);
