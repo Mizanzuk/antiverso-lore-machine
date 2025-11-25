@@ -7,7 +7,6 @@ export async function GET(req: NextRequest) {
   const worldId = searchParams.get("worldId");
   const camada = searchParams.get("camada_temporal");
 
-  // Garante client não-nulo para o TypeScript
   const client = supabaseAdmin!;
 
   let query = client
@@ -61,16 +60,53 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { ficha_id, ...fields } = body || {};
 
-  if (!ficha_id) {
+  const client = supabaseAdmin!;
+
+  // Se vier ficha_id, é update
+  if (ficha_id) {
+    const updateData: any = {
+      titulo: fields.titulo ?? "",
+      resumo: fields.resumo ?? "",
+      episodio: fields.episodio ?? "",
+      camada_temporal: fields.camada_temporal ?? "",
+      descricao_data: fields.descricao_data ?? "",
+      granularidade_data: fields.granularidade_data ?? "",
+    };
+
+    updateData.data_inicio =
+      fields.data_inicio && fields.data_inicio !== ""
+        ? fields.data_inicio
+        : null;
+    updateData.data_fim =
+      fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
+
+    const { error } = await client
+      .from("fichas")
+      .update(updateData)
+      .eq("id", ficha_id);
+
+    if (error) {
+      console.error("Erro ao atualizar evento:", error);
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ success: true, error: null, mode: "update" });
+  }
+
+  // Sem ficha_id → criação
+  if (!fields.world_id) {
     return NextResponse.json(
-      { success: false, error: "ficha_id é obrigatório" },
+      { success: false, error: "world_id é obrigatório para criar evento" },
       { status: 400 }
     );
   }
 
-  const client = supabaseAdmin!;
-
-  const updateData: any = {
+  const insertData: any = {
+    world_id: fields.world_id,
+    tipo: "evento",
     titulo: fields.titulo ?? "",
     resumo: fields.resumo ?? "",
     episodio: fields.episodio ?? "",
@@ -79,25 +115,33 @@ export async function POST(req: NextRequest) {
     granularidade_data: fields.granularidade_data ?? "",
   };
 
-  updateData.data_inicio =
-    fields.data_inicio && fields.data_inicio !== "" ? fields.data_inicio : null;
-  updateData.data_fim =
+  insertData.data_inicio =
+    fields.data_inicio && fields.data_inicio !== ""
+      ? fields.data_inicio
+      : null;
+  insertData.data_fim =
     fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
-  const { error } = await client
+  const { data, error } = await client
     .from("fichas")
-    .update(updateData)
-    .eq("id", ficha_id);
+    .insert(insertData)
+    .select("id")
+    .single();
 
   if (error) {
-    console.error("Erro ao atualizar evento:", error);
+    console.error("Erro ao criar evento:", error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 400 }
     );
   }
 
-  return NextResponse.json({ success: true, error: null });
+  return NextResponse.json({
+    success: true,
+    error: null,
+    mode: "create",
+    ficha_id: data?.id ?? null,
+  });
 }
 
 export async function DELETE(req: NextRequest) {
