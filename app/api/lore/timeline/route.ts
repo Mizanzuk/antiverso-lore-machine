@@ -1,27 +1,34 @@
 // app/api/lore/timeline/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    "[Timeline API] Faltando NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente."
-  );
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
+/**
+ * API da Timeline
+ *
+ * Retorna eventos (fichas de tipo "evento") com campos temporais
+ * para construção da linha do tempo.
+ *
+ * Query params opcionais:
+ * - worldId: filtra por mundo específico
+ * - episodio: filtra por episódio dentro do mundo
+ */
 export async function GET(req: Request) {
   try {
+    if (!supabaseAdmin) {
+      console.error("[Timeline API] supabaseAdmin não configurado.");
+      return NextResponse.json(
+        { error: "Supabase não configurado no servidor." },
+        { status: 500 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const worldId = searchParams.get("worldId");
     const episodio = searchParams.get("episodio");
 
-    let query = supabase
+    let query = supabaseAdmin
       .from("fichas")
       .select(
         `
@@ -50,7 +57,9 @@ export async function GET(req: Request) {
       query = query.eq("episodio", episodio);
     }
 
-    // Ordenação padrão da timeline
+    // Ordenação padrão da timeline:
+    // - Primeiro pela data de início (quando existir)
+    // - Depois pela ordem cronológica auxiliar (opcional)
     query = query
       .order("data_inicio", { ascending: true })
       .order("ordem_cronologica", { ascending: true });
