@@ -126,7 +126,7 @@ export default function ReconcilePage() {
         <div className="mb-3">
           <div className="text-[10px] uppercase text-zinc-500 mb-1">{label}</div>
           <div className="text-sm text-zinc-400 italic">Valores idênticos</div>
-          <div className="p-2 bg-zinc-900/50 rounded border border-zinc-800 text-sm text-zinc-300 mt-1">
+          <div className="p-2 bg-zinc-900/50 rounded border border-zinc-800 text-sm text-zinc-300 mt-1 break-words whitespace-pre-wrap">
             {String(valA || "(vazio)")}
           </div>
         </div>
@@ -137,32 +137,38 @@ export default function ReconcilePage() {
       <div className="mb-4 p-3 bg-zinc-900/30 rounded border border-zinc-800">
         <div className="text-[10px] uppercase text-zinc-500 mb-2 flex justify-between">
           <span>{label} (Conflito)</span>
-          <span className="text-emerald-500">Selecionado: {current === valA ? "A" : "B"}</span>
+          <span className="text-emerald-500 font-bold">
+            Selecionado: {current === valA ? "FICHA A" : "FICHA B"}
+          </span>
         </div>
         
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => updateDraft(field, valA)}
-            className={`text-left p-2 rounded border text-xs ${
+            className={`text-left p-2 rounded border text-xs transition-all ${
               current === valA 
-                ? "border-emerald-500 bg-emerald-900/20 text-emerald-100" 
+                ? "border-emerald-500 bg-emerald-900/20 text-emerald-100 ring-1 ring-emerald-500/50" 
                 : "border-zinc-700 hover:bg-zinc-800 text-zinc-400"
             }`}
           >
-            <span className="block font-bold mb-1 text-[10px] opacity-50">FICHA A</span>
-            {String(valA || "(vazio)")}
+            <span className="block font-bold mb-1 text-[10px] opacity-50">OPÇÃO DA FICHA A</span>
+            <div className="break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
+              {String(valA || "(vazio)")}
+            </div>
           </button>
 
           <button
             onClick={() => updateDraft(field, valB)}
-            className={`text-left p-2 rounded border text-xs ${
+            className={`text-left p-2 rounded border text-xs transition-all ${
               current === valB
-                ? "border-emerald-500 bg-emerald-900/20 text-emerald-100"
+                ? "border-emerald-500 bg-emerald-900/20 text-emerald-100 ring-1 ring-emerald-500/50"
                 : "border-zinc-700 hover:bg-zinc-800 text-zinc-400"
             }`}
           >
-            <span className="block font-bold mb-1 text-[10px] opacity-50">FICHA B</span>
-            {String(valB || "(vazio)")}
+            <span className="block font-bold mb-1 text-[10px] opacity-50">OPÇÃO DA FICHA B</span>
+            <div className="break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
+              {String(valB || "(vazio)")}
+            </div>
           </button>
         </div>
       </div>
@@ -183,7 +189,13 @@ export default function ReconcilePage() {
         <aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">
           <h2 className="text-xs uppercase tracking-wide text-zinc-500 mb-3">Possíveis Duplicatas</h2>
           {loading && <div className="text-xs text-zinc-500">Carregando...</div>}
-          {!loading && pairs.length === 0 && <div className="text-xs text-zinc-500">Nenhuma duplicata encontrada.</div>}
+          
+          {!loading && pairs.length === 0 && (
+            <div className="text-xs text-zinc-500">
+              Nenhuma duplicata encontrada.<br/>
+              O banco parece limpo!
+            </div>
+          )}
           
           <div className="space-y-2">
             {pairs.map((pair, idx) => (
@@ -206,32 +218,37 @@ export default function ReconcilePage() {
         {/* ÁREA DE COMPARAÇÃO */}
         <main className="flex-1 p-6 overflow-y-auto bg-black">
           {!comparing && (
-            <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-              Selecione um par à esquerda para comparar e fundir.
+            <div className="h-full flex flex-col items-center justify-center text-zinc-600 text-sm gap-2">
+              <p>Selecione um par à esquerda para comparar.</p>
+              <p className="text-xs text-zinc-700">Se a lista estiver vazia, significa que o algoritmo não detectou títulos parecidos.</p>
             </div>
           )}
 
           {comparing && mergeDraft && (
-            <div className="max-w-4xl mx-auto">
-              <div className="mb-6 flex items-center justify-between">
-                <div>
-                  <h1 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h1>
-                  <p className="text-xs text-zinc-400">Escolha os dados que deseja manter. A ficha final será salva e a outra excluída.</p>
-                </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setComparing(null)}
-                    className="px-4 py-2 rounded border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={() => executeMerge(comparing.a.id, comparing.b.id)}
-                    disabled={processing}
-                    className="px-6 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    {processing ? "Fundindo..." : "Confirmar Fusão (Manter ID da A)"}
-                  </button>
+            <div className="max-w-4xl mx-auto pb-20">
+              <div className="sticky top-0 z-10 bg-black/95 border-b border-zinc-800 pb-4 mb-6 pt-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h1>
+                    <p className="text-xs text-zinc-400">
+                      Escolha os dados que deseja manter. A ficha &quot;vencedora&quot; será salva e a outra excluída.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setComparing(null)}
+                      className="px-4 py-2 rounded border border-zinc-700 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => executeMerge(comparing.a.id, comparing.b.id)}
+                      disabled={processing}
+                      className="px-6 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50 shadow-lg shadow-emerald-900/20"
+                    >
+                      {processing ? "Fundindo..." : "Confirmar Fusão (Manter A)"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -244,7 +261,7 @@ export default function ReconcilePage() {
                 <FieldChoice label="Aparece Em" field="aparece_em" />
                 
                 <div className="mt-6 pt-4 border-t border-zinc-800">
-                  <h3 className="text-xs uppercase text-zinc-500 mb-4">Dados Temporais</h3>
+                  <h3 className="text-xs uppercase text-zinc-500 mb-4 font-bold tracking-wider">Dados Temporais</h3>
                   <FieldChoice label="Descrição Data" field="descricao_data" />
                   <FieldChoice label="Ano Diegese" field="ano_diegese" />
                   <FieldChoice label="Camada Temporal" field="camada_temporal" />
