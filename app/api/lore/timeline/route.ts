@@ -2,6 +2,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
+/**
+ * Gera um slug seguro a partir de um título.
+ */
+function makeSlug(title: string | null | undefined): string {
+  const base =
+    (title ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "evento";
+
+  const stamp = Date.now().toString(36);
+  return `${base}-${stamp}`;
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const worldId = searchParams.get("worldId");
@@ -62,7 +78,7 @@ export async function POST(req: NextRequest) {
 
   const client = supabaseAdmin!;
 
-  // Se vier ficha_id, é update
+  // Se vier ficha_id, é update (edição)
   if (ficha_id) {
     const updateData: any = {
       titulo: fields.titulo ?? "",
@@ -104,10 +120,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const titulo: string = fields.titulo ?? "";
+  const slug = makeSlug(titulo);
+
   const insertData: any = {
     world_id: fields.world_id,
     tipo: "evento",
-    titulo: fields.titulo ?? "",
+    titulo,
+    slug,
     resumo: fields.resumo ?? "",
     episodio: fields.episodio ?? "",
     camada_temporal: fields.camada_temporal ?? "",
