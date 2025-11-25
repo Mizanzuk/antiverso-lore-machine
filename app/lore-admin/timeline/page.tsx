@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -17,7 +16,6 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
-  conteudo: string | null;
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -81,6 +79,13 @@ export default function TimelinePage() {
   const [isLoadingWorlds, setIsLoadingWorlds] = useState(false);
   const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Estado para criação de mundo (modal dentro do modal ou separado)
+  const [showNewWorldModal, setShowNewWorldModal] = useState(false);
+  const [newWorldName, setNewWorldName] = useState("");
+  const [newWorldDescription, setNewWorldDescription] = useState("");
+  const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
+  const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<Partial<TimelineEvent>>({});
@@ -217,16 +222,14 @@ export default function TimelinePage() {
   }
 
   function handleOpenCreate() {
-    if (!selectedWorldId && !isAntiVersoSelected) {
-      alert("Selecione um mundo antes de criar um evento.");
-      return;
-    }
+    // Ao criar, se o mundo selecionado for AntiVerso (ou outro), já preenche
+    // Mas deixamos o campo editável para trocar
+    const defaultWorldId = selectedWorldId || antiVersoWorld?.id || "";
 
     setCreateData({
-      world_id: selectedWorldId,
+      world_id: defaultWorldId,
       titulo: "",
       resumo: "",
-      conteudo: "",
       episodio: "",
       camada_temporal: "",
       descricao_data: "",
@@ -275,6 +278,11 @@ export default function TimelinePage() {
     key: K,
     value: TimelineEvent[K]
   ) {
+    // Se estiver mudando o mundo e selecionar "create_new"
+    if (key === "world_id" && value === "create_new") {
+      setShowNewWorldModal(true);
+      return;
+    }
     setEditData((prev) => ({
       ...prev,
       [key]: value,
@@ -285,6 +293,10 @@ export default function TimelinePage() {
     key: K,
     value: TimelineEvent[K]
   ) {
+    if (key === "world_id" && value === "create_new") {
+      setShowNewWorldModal(true);
+      return;
+    }
     setCreateData((prev) => ({
       ...prev,
       [key]: value,
@@ -302,13 +314,14 @@ export default function TimelinePage() {
         ficha_id: editData.ficha_id,
         titulo: editData.titulo ?? "",
         resumo: editData.resumo ?? "",
-        conteudo: editData.conteudo ?? "",
         episodio: editData.episodio ?? "",
         camada_temporal: editData.camada_temporal ?? "",
         descricao_data: editData.descricao_data ?? "",
         granularidade_data: editData.granularidade_data ?? "",
         data_inicio: editData.data_inicio ?? null,
         data_fim: editData.data_fim ?? null,
+        // Note: world_id usually isn't updated via timeline edit, but if needed:
+        // world_id: editData.world_id
       };
 
       const response = await fetch("/api/lore/timeline", {
@@ -353,14 +366,9 @@ export default function TimelinePage() {
   }
 
   async function handleSaveCreate() {
-    if (!selectedWorldId && !isAntiVersoSelected) return;
-
-    const worldIdToUse = isAntiVersoSelected
-      ? selectedWorldId
-      : selectedWorldId;
-
-    if (!worldIdToUse) {
-      alert("Selecione um mundo válido para criar o evento.");
+    // Validação básica
+    if (!createData.world_id) {
+      alert("Selecione um mundo para criar o evento.");
       return;
     }
 
@@ -369,10 +377,9 @@ export default function TimelinePage() {
 
     try {
       const payload = {
-        world_id: worldIdToUse,
+        world_id: createData.world_id,
         titulo: createData.titulo ?? "",
         resumo: createData.resumo ?? "",
-        conteudo: createData.conteudo ?? "",
         episodio: createData.episodio ?? "",
         camada_temporal: createData.camada_temporal ?? "",
         descricao_data: createData.descricao_data ?? "",
@@ -409,265 +416,364 @@ export default function TimelinePage() {
     }
   }
 
+  // Lógica de criação de mundo (igual lore-upload)
+  async function handleCreateWorldFromModal() {
+    if (!newWorldName.trim()) {
+      alert("Dê um nome ao novo Mundo.");
+      return;
+    }
+
+    setIsCreatingWorld(true);
+
+    try {
+      const baseId = newWorldName
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const existingIds = new Set(worlds.map((w) => w.id as string));
+      let newId = baseId || "mundo_novo";
+      let suffix = 2;
+      while (existingIds.has(newId)) {
+        newId = `${baseId || "mundo_novo"}_${suffix}`;
+        suffix++;
+      }
+
+      const payload: any = {
+        id: newId,
+        nome: newWorldName.trim(),
+        descricao: newWorldDescription.trim() || null,
+        has_episodes: newWorldHasEpisodes,
+        tipo: "mundo_ficcional",
+      };
+
+      const { data, error } = await supabaseBrowser
+        .from("worlds")
+        .insert([payload])
+        .select("*");
+
+      if (error) {
+        console.error(error);
+        alert("Erro ao criar novo Mundo.");
+        return;
+      }
+
+      const inserted = (data?.[0] || null) as World | null;
+
+      if (inserted) {
+        setWorlds((prev) => [...prev, inserted]);
+        
+        // Define o novo mundo como selecionado no modal que estiver aberto
+        if (isCreateOpen) {
+          setCreateData(prev => ({ ...prev, world_id: inserted.id }));
+        } else if (isEditOpen) {
+          setEditData(prev => ({ ...prev, world_id: inserted.id }));
+        }
+
+        setShowNewWorldModal(false);
+        setNewWorldName("");
+        setNewWorldDescription("");
+        setNewWorldHasEpisodes(true);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro inesperado ao criar Mundo.");
+    } finally {
+      setIsCreatingWorld(false);
+    }
+  }
+
+  function handleCancelWorldModal() {
+    setShowNewWorldModal(false);
+    setNewWorldName("");
+    setNewWorldDescription("");
+    setNewWorldHasEpisodes(true);
+  }
+
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-50">
-      {/* Coluna de Mundos */}
-      <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto">
-        <h1 className="text-lg font-semibold mb-2">Mundos</h1>
-        <p className="text-xs text-zinc-400 mb-4">
-          Selecione um mundo para ver sua linha do tempo.
-          <span className="block mt-1">
-            AntiVerso mostra todos os eventos do AntiVerso.
-          </span>
-        </p>
-
-        {isLoadingWorlds && (
-          <p className="text-sm text-zinc-400">Carregando mundos...</p>
-        )}
-
-        {!isLoadingWorlds && worlds.length === 0 && (
-          <p className="text-sm text-zinc-500">Nenhum mundo cadastrado.</p>
-        )}
-
-        <div className="space-y-1">
-          {worlds.map((world) => {
-            const isSelected = world.id === selectedWorldId;
-            const isAnti =
-              world.nome && world.nome.toLowerCase().trim() === "antiverso";
-
-            return (
-              <button
-                key={world.id}
-                onClick={() => handleSelectWorld(world.id)}
-                className={[
-                  "w-full text-left rounded-md px-3 py-2 text-sm transition-colors",
-                  isSelected
-                    ? "bg-zinc-800 text-emerald-300 border border-emerald-600/40"
-                    : "bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800",
-                ].join(" ")}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium truncate">
-                    {world.nome || "Sem nome"}
-                  </span>
-                  {isAnti && (
-                    <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
-                      AntiVerso
-                    </span>
-                  )}
-                </div>
-                {world.descricao && (
-                  <p className="mt-1 text-[11px] text-zinc-400 line-clamp-2">
-                    {world.descricao}
-                  </p>
-                )}
-              </button>
-            );
-          })}
+    <div className="flex h-screen bg-zinc-950 text-zinc-50 flex-col">
+      {/* Top Header (igual Catálogo) */}
+      <header className="border-b border-zinc-900 px-4 py-2 flex items-center justify-between bg-black/40">
+        <div className="flex items-center gap-4">
+          <a
+            href="/"
+            className="text-[11px] text-zinc-300 hover:text-white"
+          >
+            ← Home
+          </a>
+          <a
+            href="/lore-upload"
+            className="text-[11px] text-zinc-400 hover:text-white"
+          >
+            Upload
+          </a>
+          <a
+            href="/lore-admin"
+            className="text-[11px] text-zinc-400 hover:text-white"
+          >
+            Catálogo
+          </a>
         </div>
-      </aside>
+      </header>
 
-      {/* Coluna central: Timeline */}
-      <main className="flex-1 border-r border-zinc-800 p-6 overflow-y-auto">
-        <div className="flex items-start justify-between mb-6 gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold">
-              Timeline — {currentWorld?.nome ?? "Selecione um mundo"}
-            </h2>
-            <p className="text-sm text-zinc-400">
-              Visualize e edite os eventos cronológicos das fichas. Cada evento
-              corresponde a uma ficha marcada como "evento" no mundo
-              selecionado.
-            </p>
-          </div>
-
-          <div className="flex flex-col items-end gap-2">
-            <label className="text-xs text-zinc-400">
-              Camada temporal
-              <select
-                value={selectedCamada}
-                onChange={(e) => setSelectedCamada(e.target.value)}
-                className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              >
-                {CAMADAS.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <button
-              onClick={handleOpenCreate}
-              className="mt-2 rounded-md border border-emerald-500 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
-            >
-              + Novo evento
-            </button>
-          </div>
-        </div>
-
-        {error && (
-          <div className="mb-4 rounded-md border border-red-500/40 bg-red-950/50 px-3 py-2 text-sm text-red-200">
-            {error}
-          </div>
-        )}
-
-        {isLoadingEvents && (
-          <p className="text-sm text-zinc-400">Carregando eventos...</p>
-        )}
-
-        {!isLoadingEvents && events.length === 0 && !error && (
-          <p className="text-sm text-zinc-500">
-            Nenhum evento encontrado para os filtros selecionados.
+      <div className="flex flex-1 overflow-hidden">
+        {/* Coluna de Mundos */}
+        <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto">
+          <h1 className="text-lg font-semibold mb-2">Mundos</h1>
+          <p className="text-xs text-zinc-400 mb-4">
+            Selecione um mundo para ver sua linha do tempo.
+            <span className="block mt-1">
+              AntiVerso mostra todos os eventos do AntiVerso.
+            </span>
           </p>
-        )}
 
-        {/* Linha vertical + eventos */}
-        <div className="relative mt-4">
-          {/* Linha central */}
-          <div className="absolute left-4 top-0 bottom-0 w-px bg-zinc-800" />
+          {isLoadingWorlds && (
+            <p className="text-sm text-zinc-400">Carregando mundos...</p>
+          )}
 
-          <div className="space-y-6 pl-10">
-            {events.map((event) => {
-              const isSelected =
-                selectedEvent && selectedEvent.ficha_id === event.ficha_id;
-              const descricaoData = formatDescricaoData(event);
+          {!isLoadingWorlds && worlds.length === 0 && (
+            <p className="text-sm text-zinc-500">Nenhum mundo cadastrado.</p>
+          )}
+
+          <div className="space-y-1">
+            {worlds.map((world) => {
+              const isSelected = world.id === selectedWorldId;
+              const isAnti =
+                world.nome && world.nome.toLowerCase().trim() === "antiverso";
 
               return (
-                <div key={event.ficha_id} className="relative">
-                  {/* nó da linha */}
-                  <div className="absolute -left-[18px] top-4 h-3 w-3 rounded-full border border-emerald-400 bg-zinc-950" />
-
-                  <div
-                    className={[
-                      "rounded-xl border p-4 transition-colors cursor-pointer",
-                      isSelected
-                        ? "border-emerald-500 bg-zinc-900"
-                        : "border-zinc-800 bg-zinc-900/60 hover:border-emerald-500/60",
-                    ].join(" ")}
-                    onClick={() => setSelectedEvent(event)}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-base font-semibold">
-                        {event.titulo || "Evento sem título"}
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        {event.episodio && (
-                          <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold text-zinc-200">
-                            EPISÓDIO {event.episodio}
-                          </span>
-                        )}
-                        {event.camada_temporal && (
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
-                            {event.camada_temporal.replace("_", " ")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {descricaoData && (
-                      <p className="mt-1 text-xs text-zinc-400">
-                        {descricaoData}
-                      </p>
+                <button
+                  key={world.id}
+                  onClick={() => handleSelectWorld(world.id)}
+                  className={[
+                    "w-full text-left rounded-md px-3 py-2 text-sm transition-colors",
+                    isSelected
+                      ? "bg-zinc-800 text-emerald-300 border border-emerald-600/40"
+                      : "bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium truncate">
+                      {world.nome || "Sem nome"}
+                    </span>
+                    {isAnti && (
+                      <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                        AntiVerso
+                      </span>
                     )}
-
-                    {event.resumo && (
-                      <p className="mt-3 text-sm text-zinc-200">
-                        {event.resumo}
-                      </p>
-                    )}
-
-                    <div className="mt-4 flex items-center justify-between text-[11px] text-zinc-500">
-                      <div className="flex flex-col gap-0.5">
-                        {event.aparece_em && (
-                          <span>Aparece em: {event.aparece_em}</span>
-                        )}
-                        {event.created_at && (
-                          <span>
-                            Criado em:{" "}
-                            {new Date(event.created_at).toLocaleDateString(
-                              "pt-BR"
-                            )}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEdit(event);
-                          }}
-                          className="rounded border border-emerald-500/70 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteEvent(event);
-                          }}
-                          className="rounded border border-red-500/70 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/20"
-                        >
-                          Deletar
-                        </button>
-                      </div>
-                    </div>
                   </div>
-                </div>
+                  {world.descricao && (
+                    <p className="mt-1 text-[11px] text-zinc-400 line-clamp-2">
+                      {world.descricao}
+                    </p>
+                  )}
+                </button>
               );
             })}
           </div>
-        </div>
-      </main>
+        </aside>
 
-      {/* Coluna direita: detalhes da ficha */}
-      <section className="w-80 p-6 overflow-y-auto">
-        <h2 className="text-lg font-semibold mb-3">Ficha selecionada</h2>
-
-        {!selectedEvent && (
-          <p className="text-sm text-zinc-500">
-            Selecione um evento na linha do tempo para ver detalhes aqui.
-          </p>
-        )}
-
-        {selectedEvent && (
-          <div className="space-y-3 text-sm">
+        {/* Coluna central: Timeline */}
+        <main className="flex-1 border-r border-zinc-800 p-6 overflow-y-auto">
+          <div className="flex items-start justify-between mb-6 gap-4">
             <div>
-              <h3 className="text-base font-semibold">
-                {selectedEvent.titulo || "Evento sem título"}
-              </h3>
-              {selectedEvent.resumo && (
-                <p className="mt-1 text-zinc-300">{selectedEvent.resumo}</p>
-              )}
+              <h2 className="text-2xl font-semibold">
+                Timeline — {currentWorld?.nome ?? "Selecione um mundo"}
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Visualize e edite os eventos cronológicos das fichas. Cada evento
+                corresponde a uma ficha marcada como "evento" no mundo
+                selecionado.
+              </p>
             </div>
 
-            {selectedEvent.conteudo && (
-              <div className="space-y-1 text-xs text-zinc-300">
-                <p className="font-semibold text-zinc-400">Conteúdo</p>
-                <p className="whitespace-pre-line">{selectedEvent.conteudo}</p>
-              </div>
-            )}
+            <div className="flex flex-col items-end gap-2">
+              <label className="text-xs text-zinc-400">
+                Camada temporal
+                <select
+                  value={selectedCamada}
+                  onChange={(e) => setSelectedCamada(e.target.value)}
+                  className="mt-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                >
+                  {CAMADAS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <div className="space-y-1 text-xs text-zinc-400">
-              {selectedEvent.episodio && (
-                <p>Ep.: {selectedEvent.episodio}</p>
-              )}
-              {selectedEvent.camada_temporal && (
-                <p>Camada: {selectedEvent.camada_temporal}</p>
-              )}
-              {selectedEvent.descricao_data && (
-                <p>Data: {selectedEvent.descricao_data}</p>
-              )}
+              <button
+                onClick={handleOpenCreate}
+                className="mt-2 rounded-md border border-emerald-500 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-100 hover:bg-emerald-500/20"
+              >
+                + Novo evento
+              </button>
             </div>
           </div>
-        )}
-      </section>
+
+          {error && (
+            <div className="mb-4 rounded-md border border-red-500/40 bg-red-950/50 px-3 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+
+          {isLoadingEvents && (
+            <p className="text-sm text-zinc-400">Carregando eventos...</p>
+          )}
+
+          {!isLoadingEvents && events.length === 0 && !error && (
+            <p className="text-sm text-zinc-500">
+              Nenhum evento encontrado para os filtros selecionados.
+            </p>
+          )}
+
+          {/* Linha vertical + eventos */}
+          <div className="relative mt-4">
+            {/* Linha central */}
+            <div className="absolute left-4 top-0 bottom-0 w-px bg-zinc-800" />
+
+            <div className="space-y-6 pl-10">
+              {events.map((event) => {
+                const isSelected =
+                  selectedEvent && selectedEvent.ficha_id === event.ficha_id;
+                const descricaoData = formatDescricaoData(event);
+
+                return (
+                  <div key={event.ficha_id} className="relative">
+                    {/* nó da linha */}
+                    <div className="absolute -left-[18px] top-4 h-3 w-3 rounded-full border border-emerald-400 bg-zinc-950" />
+
+                    <div
+                      className={[
+                        "rounded-xl border p-4 transition-colors cursor-pointer",
+                        isSelected
+                          ? "border-emerald-500 bg-zinc-900"
+                          : "border-zinc-800 bg-zinc-900/60 hover:border-emerald-500/60",
+                      ].join(" ")}
+                      onClick={() => setSelectedEvent(event)}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-base font-semibold">
+                          {event.titulo || "Evento sem título"}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          {event.episodio && (
+                            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold text-zinc-200">
+                              EPISÓDIO {event.episodio}
+                            </span>
+                          )}
+                          {event.camada_temporal && (
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                              {event.camada_temporal.replace("_", " ")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {descricaoData && (
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {descricaoData}
+                        </p>
+                      )}
+
+                      {event.resumo && (
+                        <p className="mt-3 text-sm text-zinc-200">
+                          {event.resumo}
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex items-center justify-between text-[11px] text-zinc-500">
+                        <div className="flex flex-col gap-0.5">
+                          {event.aparece_em && (
+                            <span>Aparece em: {event.aparece_em}</span>
+                          )}
+                          {event.created_at && (
+                            <span>
+                              Criado em:{" "}
+                              {new Date(event.created_at).toLocaleDateString(
+                                "pt-BR"
+                              )}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEdit(event);
+                            }}
+                            className="rounded border border-emerald-500/70 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-200 hover:bg-emerald-500/20"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteEvent(event);
+                            }}
+                            className="rounded border border-red-500/70 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/20"
+                          >
+                            Deletar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </main>
+
+        {/* Coluna direita: detalhes da ficha */}
+        <section className="w-80 p-6 overflow-y-auto">
+          <h2 className="text-lg font-semibold mb-3">Ficha selecionada</h2>
+
+          {!selectedEvent && (
+            <p className="text-sm text-zinc-500">
+              Selecione um evento na linha do tempo para ver detalhes aqui.
+            </p>
+          )}
+
+          {selectedEvent && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <h3 className="text-base font-semibold">
+                  {selectedEvent.titulo || "Evento sem título"}
+                </h3>
+                {selectedEvent.resumo && (
+                  <p className="mt-1 text-zinc-300">{selectedEvent.resumo}</p>
+                )}
+              </div>
+
+              <div className="space-y-1 text-xs text-zinc-400">
+                {selectedEvent.world_id && (
+                  <p>Mundo ID: {selectedEvent.world_id}</p>
+                )}
+                {selectedEvent.episodio && (
+                  <p>Ep.: {selectedEvent.episodio}</p>
+                )}
+                {selectedEvent.camada_temporal && (
+                  <p>Camada: {selectedEvent.camada_temporal}</p>
+                )}
+                {selectedEvent.descricao_data && (
+                  <p>Data: {selectedEvent.descricao_data}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* Modal de edição */}
       {isEditOpen && editData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl">
+          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold">Editar evento</h3>
               <button
@@ -679,6 +785,25 @@ export default function TimelinePage() {
             </div>
 
             <div className="space-y-3 text-sm">
+              {/* Seleção de Mundo (Novo Campo) */}
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Mundo
+                </label>
+                <select
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:outline-none focus:border-emerald-500"
+                  value={editData.world_id ?? ""}
+                  onChange={(e) => handleChangeEdit("world_id", e.target.value)}
+                >
+                  {worlds.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.nome ?? w.id}
+                    </option>
+                  ))}
+                  <option value="create_new">+ Novo Mundo...</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">
                   Título
@@ -695,22 +820,9 @@ export default function TimelinePage() {
                   Resumo
                 </label>
                 <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[60px]"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
                   value={editData.resumo ?? ""}
                   onChange={(e) => handleChangeEdit("resumo", e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  Conteúdo (detalhado)
-                </label>
-                <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[100px]"
-                  value={editData.conteudo ?? ""}
-                  onChange={(e) =>
-                    handleChangeEdit("conteudo", e.target.value)
-                  }
                 />
               </div>
 
@@ -834,7 +946,7 @@ export default function TimelinePage() {
       {/* Modal de criação */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl">
+          <div className="w-full max-w-xl rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold">Novo evento</h3>
               <button
@@ -846,6 +958,25 @@ export default function TimelinePage() {
             </div>
 
             <div className="space-y-3 text-sm">
+              {/* Seleção de Mundo (Novo Campo) */}
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">
+                  Mundo
+                </label>
+                <select
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm focus:outline-none focus:border-emerald-500"
+                  value={createData.world_id ?? ""}
+                  onChange={(e) => handleChangeCreate("world_id", e.target.value)}
+                >
+                  {worlds.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.nome ?? w.id}
+                    </option>
+                  ))}
+                  <option value="create_new">+ Novo Mundo...</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs text-zinc-400 mb-1">
                   Título
@@ -862,23 +993,10 @@ export default function TimelinePage() {
                   Resumo
                 </label>
                 <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[60px]"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[80px]"
                   value={createData.resumo ?? ""}
                   onChange={(e) =>
                     handleChangeCreate("resumo", e.target.value)
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">
-                  Conteúdo (detalhado)
-                </label>
-                <textarea
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm min-h-[100px]"
-                  value={createData.conteudo ?? ""}
-                  onChange={(e) =>
-                    handleChangeCreate("conteudo", e.target.value)
                   }
                 />
               </div>
@@ -994,6 +1112,78 @@ export default function TimelinePage() {
                 disabled={isSavingCreate}
               >
                 {isSavingCreate ? "Criando..." : "Criar evento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de criação de novo mundo (Reutilizado da lógica do Upload) */}
+      {showNewWorldModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-zinc-400">Novo Mundo</div>
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="text-[11px] text-zinc-500 hover:text-zinc-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Nome</label>
+              <input
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs"
+                value={newWorldName}
+                onChange={(e) => setNewWorldName(e.target.value)}
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Descrição</label>
+              <textarea
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]"
+                value={newWorldDescription}
+                onChange={(e) => setNewWorldDescription(e.target.value)}
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setNewWorldHasEpisodes((prev) => !prev)
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  newWorldHasEpisodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-zinc-700 text-zinc-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateWorldFromModal}
+                disabled={isCreatingWorld}
+                className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium"
+              >
+                {isCreatingWorld ? "Criando..." : "Salvar"}
               </button>
             </div>
           </div>
