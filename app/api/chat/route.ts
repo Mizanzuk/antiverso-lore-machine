@@ -7,13 +7,22 @@ export const dynamic = "force-dynamic";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
+// Validador simples de UUID
+function isValidUUID(uuid: string) {
+  const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return regex.test(uuid);
+}
+
 // Função auxiliar para buscar regras globais do Universo selecionado
 async function fetchGlobalRules(universeId?: string): Promise<string> {
-  if (!supabaseAdmin || !universeId) return "";
+  // 1. Validação de Segurança: Se não tem banco ou o ID não é um UUID válido, retorna vazio.
+  // Isso evita o erro "invalid input syntax for type uuid" no Postgres.
+  if (!supabaseAdmin || !universeId || !isValidUUID(universeId)) {
+    return "";
+  }
 
   try {
-    // 1. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
-    // É nele que estão salvas as regras globais.
+    // 2. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
     const { data: rootWorld, error: worldError } = await supabaseAdmin
       .from("worlds")
       .select("id")
@@ -22,12 +31,10 @@ async function fetchGlobalRules(universeId?: string): Promise<string> {
       .single();
 
     if (worldError || !rootWorld) {
-      // Se não achou mundo raiz, tenta buscar qualquer mundo desse universo para não quebrar
-      // ou simplesmente retorna vazio se não houver regras.
       return "";
     }
 
-    // 2. Buscar fichas de Regra de Mundo e Epistemologia desse Mundo Raiz
+    // 3. Buscar fichas de Regra de Mundo e Epistemologia desse Mundo Raiz
     const { data: rules } = await supabaseAdmin
       .from("fichas")
       .select("titulo, conteudo, tipo")
@@ -36,7 +43,7 @@ async function fetchGlobalRules(universeId?: string): Promise<string> {
 
     if (!rules || rules.length === 0) return "";
 
-    // 3. Formatar como texto para o Prompt
+    // 4. Formatar como texto para o Prompt
     const rulesText = rules
       .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
       .join("\n");
@@ -48,7 +55,7 @@ ${rulesText}
 `;
   } catch (err) {
     console.error("Erro ao buscar regras globais:", err);
-    return "";
+    return ""; // Em caso de erro, segue sem regras para não travar o chat
   }
 }
 
@@ -66,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => null);
     const messages = (body?.messages ?? []) as Message[];
-    const universeId = body?.universeId as string | undefined; // Recebe o ID do frontend
+    const universeId = body?.universeId as string | undefined;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
@@ -91,7 +98,7 @@ export async function POST(req: NextRequest) {
             .join("\n\n")
         : "Nenhum trecho específico encontrado.";
 
-    // 2. Busca de Regras Globais do Universo Selecionado
+    // 2. Busca de Regras Globais do Universo Selecionado (BLINDADA)
     const globalRules = await fetchGlobalRules(universeId);
 
     // 3. Montagem do System Prompt
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
         "Você é Or, o guardião criativo deste Universo.",
         "Você está respondendo dentro da Lore Machine.",
         "",
-        globalRules, // <--- Regras dinâmicas do universo atual
+        globalRules, 
         "",
         "### CONTEXTO ESPECÍFICO ENCONTRADO (RAG)",
         "Use estes dados para responder à pergunta atual (se relevante):",
@@ -113,7 +120,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Chamada ao Modelo (Streaming)
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Usando modelo mais rápido e barato, troque para gpt-4-turbo se precisar de mais inteligência
+      model: "gpt-4o-mini", 
       messages: [contextMessage, ...messages],
       temperature: 0.7,
       stream: true,
