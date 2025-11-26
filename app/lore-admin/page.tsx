@@ -21,16 +21,6 @@ const LORE_TYPES = [
   { value: "registro_anomalo", label: "Registro Anômalo" },
 ];
 
-const CAMADAS_TEMPORAIS = [
-  { value: "linha_principal", label: "Linha Principal" },
-  { value: "flashback", label: "Flashback" },
-  { value: "flashforward", label: "Flashforward" },
-  { value: "sonho_visao", label: "Sonho / Visão" },
-  { value: "mundo_alternativo", label: "Mundo Alternativo" },
-  { value: "historico_antigo", label: "Histórico / Antigo" },
-  { value: "outro", label: "Outro" },
-];
-
 const RELATION_TYPES = [
   "relacionado_a", "amigo_de", "inimigo_de", "localizado_em", "mora_em",
   "nasceu_em", "participou_de", "protagonizado_por", "menciona", "pai_de",
@@ -159,18 +149,35 @@ function LoreAdminContent() {
     const { data } = await supabaseBrowser.from("universes").select("*").order("nome");
     if (data) {
       setUniverses(data);
-      if (data.length > 0 && !selectedUniverseId) handleSelectUniverse(data[0].id);
+      const urlUni = searchParams.get("universe");
+      // Prioriza URL, senão pega o primeiro
+      if (urlUni && data.find(u => u.id === urlUni)) {
+        handleSelectUniverse(urlUni);
+      } else if (data.length > 0 && !selectedUniverseId) {
+        handleSelectUniverse(data[0].id);
+      }
     }
     setIsLoadingData(false);
   }
 
   async function loadWorlds(uniId: string) {
     const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
-    setWorlds((data as World[]) || []);
-    if (selectedWorldId && data && !data.find((w: any) => w.id === selectedWorldId)) {
+    const list = (data as World[]) || [];
+    setWorlds(list);
+
+    // Lógica de Seleção de Mundo no Refresh
+    const urlWorld = searchParams.get("world");
+    const targetWorld = list.find(w => w.id === urlWorld);
+    
+    if (targetWorld) {
+      setSelectedWorldId(targetWorld.id);
+    } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
+      // Se o mundo selecionado não pertence a esse universo, reseta
       setSelectedWorldId(null);
     }
-    loadFichas(uniId, selectedWorldId);
+    
+    // Carrega fichas (do mundo selecionado ou de todos)
+    loadFichas(uniId, targetWorld ? targetWorld.id : selectedWorldId);
   }
 
   async function loadFichas(uniId: string, wId: string | null) {
@@ -188,7 +195,17 @@ function LoreAdminContent() {
 
     const { data, error } = await query;
     if (error) console.error(error);
-    setFichas((data as FichaFull[]) || []);
+    
+    const loadedFichas = (data as FichaFull[]) || [];
+    setFichas(loadedFichas);
+
+    // *** CORREÇÃO DO REFRESH AQUI ***
+    // Verifica se há ficha na URL e carrega os detalhes dela
+    const urlFicha = searchParams.get("ficha");
+    if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
+      setSelectedFichaId(urlFicha);
+      loadDetails(urlFicha);
+    }
   }
 
   async function loadDetails(fichaId: string) {
@@ -198,22 +215,34 @@ function LoreAdminContent() {
     setRelations(rData || []);
   }
 
+  // --- SYNC URL ---
+  const updateUrl = useCallback((uniId: string | null, worldId: string | null, fichaId: string | null) => {
+    const params = new URLSearchParams();
+    if (uniId) params.set("universe", uniId);
+    if (worldId) params.set("world", worldId);
+    if (fichaId) params.set("ficha", fichaId);
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [pathname, router]);
+
   // --- HANDLERS SELEÇÃO ---
   function handleSelectUniverse(id: string) {
     setSelectedUniverseId(id);
     setSelectedWorldId(null);
     setSelectedFichaId(null);
+    updateUrl(id, null, null);
     loadWorlds(id);
   }
   function handleSelectWorld(id: string | null) {
     setSelectedWorldId(id);
     setSelectedFichaId(null);
+    updateUrl(selectedUniverseId, id, null);
     if (selectedUniverseId) loadFichas(selectedUniverseId, id);
   }
   function handleSelectFicha(id: string) {
     setSelectedFichaId(id);
     loadDetails(id);
     setIsManagingRelations(false);
+    updateUrl(selectedUniverseId, selectedWorldId, id);
   }
 
   // --- WIKI RENDER ---
@@ -441,27 +470,26 @@ function LoreAdminContent() {
       </header>
 
       <main className="flex flex-1 overflow-hidden">
-        {/* 1. COLUNA UNIVERSO & MUNDOS */}
+        {/* COLUNA 1: UNIVERSO & MUNDOS */}
         {!isFocusMode && (
           <section className="w-64 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-950/50">
             <div className="mb-6 pb-4 border-b border-zinc-800">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Universo</span>
-                <div className="flex gap-1">
-                  <button onClick={() => currentUniverse && (setUniverseForm({id: currentUniverse.id, nome: currentUniverse.nome, descricao: currentUniverse.descricao || ""}), setUniverseFormMode("edit"))} className="text-zinc-500 hover:text-white text-xs">✎</button>
-                  <button onClick={() => currentUniverse && requestDeleteUniverse(currentUniverse)} className="text-zinc-500 hover:text-red-500 text-xs">×</button>
-                </div>
+              <div className="mb-1 text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Universo</div>
+              <div className="flex gap-2 mb-2 items-center">
+                <select 
+                  className="flex-1 bg-black border border-zinc-700 text-white text-sm rounded p-2 font-bold outline-none focus:border-emerald-500" 
+                  value={selectedUniverseId || ""} 
+                  onChange={(e) => e.target.value === "__new__" ? startCreateUniverse() : handleSelectUniverse(e.target.value)}
+                >
+                  {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                  <option value="__new__">+ Novo Universo...</option>
+                </select>
+                <button onClick={() => currentUniverse && startEditUniverse(currentUniverse)} className="p-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600" title="Editar Universo">✎</button>
+                <button onClick={() => currentUniverse && requestDeleteUniverse(currentUniverse)} className="p-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900" title="Deletar Universo">×</button>
               </div>
-              <select 
-                className="w-full bg-black border border-zinc-700 text-white text-sm rounded p-2 font-bold mb-2" 
-                value={selectedUniverseId || ""} 
-                onChange={(e) => e.target.value === "__new__" ? startCreateUniverse() : handleSelectUniverse(e.target.value)}
-              >
-                {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-                <option value="__new__">+ Novo Universo...</option>
-              </select>
+
               <div onClick={() => handleSelectWorld(null)} className={`cursor-pointer p-3 rounded border transition-all ${!selectedWorldId ? "border-emerald-500 bg-emerald-900/20 text-white" : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"}`}>
-                <div className="text-xs font-bold flex items-center gap-2"><span>🪐</span> {currentUniverse?.nome || "Universo"} (Tudo)</div>
+                <div className="text-xs font-bold flex items-center gap-2">{currentUniverse?.nome || "Universo"} (Tudo)</div>
                 <div className="text-[9px] opacity-60 mt-1">Regras, conceitos e todas as fichas.</div>
               </div>
             </div>
@@ -584,7 +612,7 @@ function LoreAdminContent() {
                       {codes.map(c => (
                         <div key={c.id} className="flex justify-between items-center py-1 border-b border-neutral-900 group">
                           <div className="flex flex-col"><span className="font-mono text-emerald-500">{c.code}</span>{c.label && <span className="text-[9px] text-neutral-600">{c.label}</span>}</div>
-                          <div className="opacity-0 group-hover:opacity-100 flex gap-1"><button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button><button onClick={()=>handleDeleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button></div>
+                          <div className="opacity-0 group-hover:opacity-100 flex gap-1"><button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button><button onClick={()=>deleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button></div>
                         </div>
                       ))}
                       {selectedFicha.ano_diegese && <div className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Ano</span><span className="text-neutral-300">{selectedFicha.ano_diegese}</span></div>}
