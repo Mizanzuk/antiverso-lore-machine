@@ -23,14 +23,14 @@ type SuggestedFicha = {
   tags: string;
   aparece_em: string;
   codigo?: string;
-  // Campos temporais
+  // Campos temporais opcionais (principalmente para eventos)
   ano_diegese?: number | null;
   descricao_data?: string;
   data_inicio?: string;
   data_fim?: string;
   granularidade_data?: string;
   camada_temporal?: string;
-  // Metadados completos
+  // Metadados para salvar relações
   meta?: any;
 };
 
@@ -41,6 +41,7 @@ type ApiFicha = {
   conteudo?: string;
   tags?: string[];
   aparece_em?: string;
+  // Campos temporais vindos da API de extração
   ano_diegese?: number | null;
   descricao_data?: string | null;
   data_inicio?: string | null;
@@ -54,7 +55,7 @@ type ExtractResponse = {
   fichas: ApiFicha[];
 };
 
-// --- MAPA DE PREFIXOS POR TIPO ---
+// Mapa de Prefixos para geração de códigos
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
   local: "LO",
@@ -78,7 +79,6 @@ function getTypePrefix(tipo: string): string {
     .trim();
 
   if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
-  // Fallback: 2 primeiras letras ou "XX"
   return key.slice(0, 2).toUpperCase() || "XX";
 }
 
@@ -129,7 +129,6 @@ function getWorldPrefix(world: World | null): string {
   if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV";
   if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC";
   if (cleaned.startsWith("EVANGELHO DE OR")) return "EO";
-  if (cleaned.startsWith("CULTO DE OR")) return "CO";
   if (cleaned.startsWith("ANTIVERSO")) return "ANT";
   if (cleaned.startsWith("ARIS")) return "ARIS";
 
@@ -163,7 +162,7 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
-useEffect(() => {
+  useEffect(() => {
     async function fetchWorlds() {
       const { data, error } = await supabaseBrowser
         .from("worlds")
@@ -178,22 +177,18 @@ useEffect(() => {
 
       let list = (data || []) as World[];
 
-      // ORDENAÇÃO FORÇADA:
-      // 1. AntiVerso no topo
-      // 2. O resto segue a ordem do banco
+      // ORDENAÇÃO FORÇADA: AntiVerso primeiro
       list.sort((a, b) => {
         const nomeA = (a.nome || "").trim().toLowerCase();
         const nomeB = (b.nome || "").trim().toLowerCase();
-
         if (nomeA === "antiverso") return -1;
         if (nomeB === "antiverso") return 1;
-
         return (a.ordem || 999) - (b.ordem || 999);
       });
 
       if (list.length > 0) {
         setWorlds(list);
-        // Tenta selecionar o AntiVerso por padrão
+        // Seleção padrão: AntiVerso ou o primeiro
         const antiverso = list.find((w) => (w.nome || "").trim().toLowerCase() === "antiverso");
         setSelectedWorldId(antiverso ? antiverso.id : list[0].id);
       } else {
@@ -216,6 +211,7 @@ useEffect(() => {
     setSelectedWorldId(value);
   }
 
+  
   async function handleCreateWorldFromModal() {
     if (!newWorldName.trim()) {
       setError("Dê um nome ao novo Mundo.");
@@ -227,6 +223,7 @@ useEffect(() => {
     setSuccessMessage(null);
 
     try {
+      // Mesmo algoritmo do lore-admin para gerar IDs estáveis
       const baseId = newWorldName
         .trim()
         .normalize("NFD")
@@ -359,6 +356,7 @@ useEffect(() => {
         const tagsArray = rawFicha.tags || [];
         const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
 
+        // Campos temporais vindos da API (quando aplicável)
         const anoDiegese =
           typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
         const descricaoData = rawFicha.descricao_data?.trim() || "";
@@ -395,14 +393,14 @@ useEffect(() => {
 
         const appearsEmValue = appearsParts.join("\n\n");
 
-        // Geração de Código Corrigida
+        // LÓGICA DE CÓDIGO POR TIPO
         let codigoGerado = "";
         
         if (prefix && normalizedEpisode) {
           // Identifica o prefixo do tipo (PS, LO, EV...)
           const typePrefix = getTypePrefix(tipo);
           
-          // Se for roteiro, a lógica é um pouco diferente (sem contador)
+          // Se for roteiro, a lógica é diferente (sem contador)
           if (typePrefix === "RT") {
              codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`;
           } else {
@@ -447,6 +445,7 @@ useEffect(() => {
     }
   }
 
+  
   async function handleSaveFichas() {
     setError(null);
     setSuccessMessage(null);
@@ -490,7 +489,8 @@ useEffect(() => {
         data_fim: f.data_fim || null,
         granularidade_data: f.granularidade_data || null,
         camada_temporal: f.camada_temporal || null,
-        codigo: f.codigo, // Envia o código gerado no frontend para o backend respeitar
+        // Passa o código gerado no frontend para o backend respeitar
+        codigo: f.codigo, 
         meta: f.meta || {}, 
       }));
 
@@ -540,6 +540,7 @@ useEffect(() => {
 
   function applyEditingFicha() {
     if (!editingFicha) return;
+
     setSuggestedFichas((prev) =>
       prev.map((f) => (f.id === editingFicha.id ? { ...editingFicha } : f))
     );
@@ -562,115 +563,412 @@ useEffect(() => {
 
   return (
     <div className="h-screen bg-black text-zinc-100 flex flex-col">
+      {/* TOPO FIXO */}
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
         <div className="flex items-center gap-4 text-xs">
-          <a href="/" className="text-gray-300 hover:text-white">← Home</a>
-          <a href="/lore-admin" className="text-gray-400 hover:text-white text-[11px]">Catálogo</a>
-          <a href="/lore-admin/timeline" className="text-gray-400 hover:text-white text-[11px]">Timeline</a>
+          <a href="/" className="text-gray-300 hover:text-white">
+            ← Home
+          </a>
+          <a
+            href="/lore-admin"
+            className="text-gray-400 hover:text-white text-[11px]"
+          >
+            Catálogo
+          </a>
+          <a
+            href="/lore-admin/timeline"
+            className="text-gray-400 hover:text-white text-[11px]"
+          >
+            Timeline
+          </a>
         </div>
       </header>
 
+      {/* ÁREA SCROLLÁVEL */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold">Upload de Texto</h1>
             <p className="text-sm text-zinc-400">
-              Envie o texto de um episódio ou documento. A Lore Machine extrai fichas e detecta relações automaticamente.
+              Envie o texto de um episódio, capítulo ou documento. A Lore
+              Machine extrai automaticamente fichas e detecta relações.
             </p>
           </header>
 
-          {error && <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div>}
-          {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
+          {error && (
+            <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          )}
+          {successMessage && !error && (
+            <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+              {successMessage}
+            </div>
+          )}
 
+          {/* Seleção de mundo e episódio */}
           <section className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-3 items-center">
             <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label>
-              <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>
-                {worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}
+              <label className="text-xs uppercase tracking-wide text-zinc-400">
+                Mundo de destino
+              </label>
+              <select
+                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                value={selectedWorldId}
+                onChange={handleWorldChange}
+              >
+                {worlds.map((world) => (
+                  <option key={world.id} value={world.id}>
+                    {world.nome ?? world.id}
+                  </option>
+                ))}
                 <option value="create_new">+ Novo mundo...</option>
               </select>
             </div>
+
             <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label>
-              <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} />
+              <label className="text-xs uppercase tracking-wide text-zinc-400">
+                Episódio / Capítulo #
+              </label>
+              <input
+                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                value={unitNumber}
+                onChange={(e) => setUnitNumber(e.target.value)}
+                placeholder={
+                  worldHasEpisodes
+                    ? "Ex.: 6"
+                    : "Este mundo não utiliza episódios"
+                }
+                disabled={!worldHasEpisodes}
+              />
             </div>
           </section>
 
+          {/* Nome do documento (opcional) */}
           <section className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-zinc-400">Nome do documento (opcional)</label>
-            <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={documentName} onChange={(e) => setDocumentName(e.target.value)} placeholder="Ex.: Episódio 6 — A Geladeira" />
+            <label className="text-xs uppercase tracking-wide text-zinc-400">
+              Nome do documento (opcional)
+            </label>
+            <input
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+              value={documentName}
+              onChange={(e) => setDocumentName(e.target.value)}
+              placeholder="Ex.: Episódio 6 — A Geladeira"
+            />
           </section>
 
+          {/* Texto */}
           <section className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-zinc-400">Texto do episódio / capítulo</label>
-            <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="Cole aqui o texto a ser analisado..." />
+            <label className="text-xs uppercase tracking-wide text-zinc-400">
+              Texto do episódio / capítulo
+            </label>
+            <textarea
+              className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Cole aqui o texto a ser analisado..."
+            />
           </section>
 
+          {/* BARRA DE PROGRESSO */}
+          {isExtracting && (
+            <div className="w-full bg-zinc-800 rounded-full h-2.5 mb-2 overflow-hidden">
+               <div className="bg-fuchsia-600 h-2.5 rounded-full w-full animate-pulse"></div>
+            </div>
+          )}
+
+          {/* Botão de extrair */}
           <div className="flex justify-center">
-            <button onClick={handleExtractFichas} disabled={isExtracting} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Extraindo fichas..." : "Extrair fichas"}</button>
+            <button
+              onClick={handleExtractFichas}
+              disabled={isExtracting}
+              className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium"
+            >
+              {isExtracting ? "Extraindo fichas..." : "Extrair fichas"}
+            </button>
           </div>
 
+          {/* Fichas sugeridas */}
           <section className="space-y-3 pb-8">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Fichas sugeridas ({suggestedFichas.length})</h2>
-              {suggestedFichas.length > 0 && <button onClick={handleClearAll} className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline">Limpar todas</button>}
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
+                Fichas sugeridas ({suggestedFichas.length})
+              </h2>
+              {suggestedFichas.length > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline"
+                >
+                  Limpar todas
+                </button>
+              )}
             </div>
 
-            {suggestedFichas.length === 0 && <p className="text-xs text-zinc-500">Nenhuma ficha sugerida ainda.</p>}
+            {suggestedFichas.length === 0 && (
+              <p className="text-xs text-zinc-500">
+                Nenhuma ficha sugerida ainda. Extraia fichas a partir de um
+                texto para começar.
+              </p>
+            )}
 
             <div className="space-y-2">
               {suggestedFichas.map((ficha) => (
-                <div key={ficha.id} className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1">
+                <div
+                  key={ficha.id}
+                  className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1"
+                >
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <div className="font-medium">{ficha.titulo || "(sem título)"}</div>
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">{ficha.tipo || "conceito"}</div>
+                      <div className="font-medium">
+                        {ficha.titulo || "(sem título)"}
+                      </div>
+                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                        {ficha.tipo || "conceito"}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {ficha.codigo && <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 font-mono">{ficha.codigo}</span>}
-                      <button onClick={() => handleEditFicha(ficha.id)} className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800">Editar</button>
-                      <button onClick={() => handleRemoveFicha(ficha.id)} className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40">Remover</button>
+                      {ficha.codigo && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 font-mono">
+                          {ficha.codigo}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleEditFicha(ficha.id)}
+                        className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleRemoveFicha(ficha.id)}
+                        className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40"
+                      >
+                        Remover
+                      </button>
                     </div>
                   </div>
-                  {ficha.resumo && <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{ficha.resumo}</p>}
+                  {ficha.resumo && (
+                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
+                      {ficha.resumo}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
 
             {suggestedFichas.length > 0 && (
               <div className="pt-3 flex justify-center">
-                <button onClick={handleSaveFichas} disabled={isSaving} className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium">{isSaving ? "Salvando fichas..." : "Salvar fichas"}</button>
+                <button
+                  onClick={handleSaveFichas}
+                  disabled={isSaving}
+                  className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium"
+                >
+                  {isSaving ? "Salvando fichas..." : "Salvar fichas"}
+                </button>
               </div>
             )}
           </section>
         </div>
       </div>
 
+      {/* Modal de criação de novo mundo */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
-            <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
-            <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
-            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-zinc-400">Novo Mundo</div>
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="text-[11px] text-zinc-500 hover:text-zinc-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Nome</label>
+              <input
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs"
+                value={newWorldName}
+                onChange={(e) => setNewWorldName(e.target.value)}
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Descrição</label>
+              <textarea
+                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]"
+                value={newWorldDescription}
+                onChange={(e) => setNewWorldDescription(e.target.value)}
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setNewWorldHasEpisodes((prev) => !prev)
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  newWorldHasEpisodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-zinc-700 text-zinc-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelWorldModal}
+                className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateWorldFromModal}
+                disabled={isCreatingWorld}
+                className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium"
+              >
+                {isCreatingWorld ? "Criando..." : "Salvar"}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Modal de edição de ficha */}
       {editingFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
-            <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Editar ficha</h2><button className="text-xs text-zinc-400 hover:text-zinc-100" onClick={() => setEditingFicha(null)}>Fechar</button></div>
-            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Título</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.titulo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, titulo: e.target.value } : prev)} /></div>
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Tipo</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.tipo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, tipo: e.target.value } : prev)} placeholder="Ex.: personagem, local..." /></div>
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Tags</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.tags} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, tags: e.target.value } : prev)} /></div>
-              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Código</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono" value={editingFicha.codigo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, codigo: e.target.value } : prev)} /></div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Editar ficha</h2>
+              <button
+                className="text-xs text-zinc-400 hover:text-zinc-100"
+                onClick={() => setEditingFicha(null)}
+              >
+                Fechar
+              </button>
             </div>
-            <div className="flex justify-end gap-2 pt-2"><button className="px-3 py-1.5 rounded-md border border-zinc-700 text-xs hover:bg-zinc-800" onClick={() => setEditingFicha(null)}>Cancelar</button><button className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium" onClick={applyEditingFicha}>Salvar alterações</button></div>
+
+            <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Título
+                </label>
+                <input
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                  value={editingFicha.titulo}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, titulo: e.target.value } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Tipo
+                </label>
+                <input
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                  value={editingFicha.tipo}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, tipo: e.target.value } : prev
+                    )
+                  }
+                  placeholder="Ex.: personagem, local, conceito, evento..."
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Resumo
+                </label>
+                <textarea
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]"
+                  value={editingFicha.resumo}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, resumo: e.target.value } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Conteúdo
+                </label>
+                <textarea
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]"
+                  value={editingFicha.conteudo}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, conteudo: e.target.value } : prev
+                    )
+                  }
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Tags (separadas por vírgula)
+                </label>
+                <input
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
+                  value={editingFicha.tags}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, tags: e.target.value } : prev
+                    )
+                  }
+                  placeholder="Ex.: religião, protagonista, fé"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs uppercase tracking-wide text-zinc-400">
+                  Código da ficha (gerado automaticamente, mas editável)
+                </label>
+                <input
+                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono"
+                  value={editingFicha.codigo}
+                  onChange={(e) =>
+                    setEditingFicha((prev) =>
+                      prev ? { ...prev, codigo: e.target.value } : prev
+                    )
+                  }
+                  placeholder={
+                    worldPrefix && episode
+                      ? `${worldPrefix}${episode}-PS1`
+                      : "Ex.: TS6-PS1"
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                className="px-3 py-1.5 rounded-md border border-zinc-700 text-xs hover:bg-zinc-800"
+                onClick={() => setEditingFicha(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium"
+                onClick={applyEditingFicha}
+              >
+                Salvar alterações
+              </button>
+            </div>
           </div>
         </div>
       )}
