@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback, Suspense } from "react";
+import React, { useEffect, useState, useMemo, useCallback, Suspense, ChangeEvent } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES } from "@/lib/dates/granularidade";
@@ -111,6 +111,7 @@ function LoreAdminContent() {
   const [fichaFormMode, setFichaFormMode] = useState<FichaFormMode>("idle");
   const [isSavingFicha, setIsSavingFicha] = useState(false);
   const [fichaForm, setFichaForm] = useState<any>({});
+  const [isUploadingImage, setIsUploadingImage] = useState(false); // NOVO
 
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
@@ -351,6 +352,33 @@ function LoreAdminContent() {
   function startEditFicha(f: any) { setFichaFormMode("edit"); setFichaForm({...f}); }
   function cancelFichaForm() { setFichaFormMode("idle"); setFichaForm({}); }
   
+  // NOVO: UPLOAD DE IMAGEM
+  async function handleImageUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const fileName = `${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+      const { data, error } = await supabaseBrowser.storage
+        .from("lore-assets")
+        .upload(fileName, file);
+
+      if (error) throw error;
+
+      const { data: publicData } = supabaseBrowser.storage
+        .from("lore-assets")
+        .getPublicUrl(data.path);
+
+      setFichaForm({ ...fichaForm, imagem_url: publicData.publicUrl });
+    } catch (err: any) {
+      console.error(err);
+      alert("Erro ao fazer upload da imagem. Verifique se o bucket 'lore-assets' existe e é público.");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }
+
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
     const payload = { ...fichaForm, updated_at: new Date().toISOString() };
@@ -723,6 +751,26 @@ function LoreAdminContent() {
                  <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug || ""} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
                  <div><label className="text-[10px] uppercase text-zinc-500">Ano Diegese</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.ano_diegese || ""} onChange={e=>setFichaForm({...fichaForm, ano_diegese: e.target.value})} /></div>
               </div>
+              
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase text-zinc-500">Imagem da Ficha</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleImageUpload} 
+                    disabled={isUploadingImage}
+                    className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-zinc-400"
+                  />
+                  {isUploadingImage && <span className="text-xs text-emerald-500 animate-pulse">Enviando...</span>}
+                </div>
+                {fichaForm.imagem_url && (
+                  <div className="mt-2 p-1 border border-zinc-800 rounded bg-black/50 w-24 h-24 flex items-center justify-center overflow-hidden">
+                    <img src={fichaForm.imagem_url} className="max-w-full max-h-full object-contain" />
+                  </div>
+                )}
+              </div>
+
               <div className="relative">
                 <label className="text-[10px] uppercase text-zinc-500">Resumo</label>
                 <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo || ""} onChange={(e) => handleTextareaChange(e, "resumo")} />
@@ -755,7 +803,7 @@ function LoreAdminContent() {
               <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em || ""} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo || ""} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
             </div>
-            <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
+            <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" disabled={isUploadingImage} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingFicha ? "Salvando..." : "Salvar"}</button></div>
           </form>
         </div>
       )}
