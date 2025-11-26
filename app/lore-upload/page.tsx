@@ -163,7 +163,7 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
-  useEffect(() => {
+useEffect(() => {
     async function fetchWorlds() {
       const { data, error } = await supabaseBrowser
         .from("worlds")
@@ -176,11 +176,26 @@ export default function LoreUploadPage() {
         return;
       }
 
-      const typed = (data || []) as World[];
+      let list = (data || []) as World[];
 
-      if (typed.length > 0) {
-        setWorlds(typed);
-        setSelectedWorldId(typed[0].id);
+      // ORDENAÇÃO FORÇADA:
+      // 1. AntiVerso no topo
+      // 2. O resto segue a ordem do banco
+      list.sort((a, b) => {
+        const nomeA = (a.nome || "").trim().toLowerCase();
+        const nomeB = (b.nome || "").trim().toLowerCase();
+
+        if (nomeA === "antiverso") return -1;
+        if (nomeB === "antiverso") return 1;
+
+        return (a.ordem || 999) - (b.ordem || 999);
+      });
+
+      if (list.length > 0) {
+        setWorlds(list);
+        // Tenta selecionar o AntiVerso por padrão
+        const antiverso = list.find((w) => (w.nome || "").trim().toLowerCase() === "antiverso");
+        setSelectedWorldId(antiverso ? antiverso.id : list[0].id);
       } else {
         setWorlds([]);
         setSelectedWorldId("");
