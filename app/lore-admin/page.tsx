@@ -4,14 +4,13 @@ import React, { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// --- TIPOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 type WorldFormMode = "idle" | "create" | "edit";
 type FichaFormMode = "idle" | "create" | "edit";
 type CodeFormMode = "idle" | "create" | "edit";
 
-// Tipos para Reconciliação
+// --- TIPOS PARA RECONCILIAÇÃO ---
 type DuplicatePair = {
   id_a: string;
   titulo_a: string;
@@ -22,7 +21,6 @@ type DuplicatePair = {
   similarity: number;
 };
 
-// Tipo completo para o Merge
 type FichaFull = {
   id: string;
   titulo: string;
@@ -40,11 +38,9 @@ type FichaFull = {
   [key: string]: any;
 };
 
-// --- HELPERS ---
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
 const KNOWN_TIPOS = [
   "personagem",
   "local",
@@ -92,7 +88,6 @@ export default function LoreAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dados principais
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
@@ -100,20 +95,13 @@ export default function LoreAdminPage() {
   const [codes, setCodes] = useState<any[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Filtros
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
-  // Formulários (State)
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
-    id: string;
-    nome: string;
-    descricao: string;
-    tipo: string;
-    ordem: string;
-    has_episodes: boolean;
+    id: string; nome: string; descricao: string; tipo: string; ordem: string; has_episodes: boolean;
   }>({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true });
 
   const [fichaFormMode, setFichaFormMode] = useState<FichaFormMode>("idle");
@@ -130,13 +118,46 @@ export default function LoreAdminPage() {
     data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: ""
   });
 
+  const renderWikiText = (text: string | null | undefined) => {
+    if (!text) return null;
+    const currentFichaId = selectedFichaId;
+    const candidates = fichas
+      .filter((f) => f.id !== currentFichaId && typeof f.titulo === "string" && f.titulo.trim().length > 0)
+      .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
+
+    if (candidates.length === 0) return text;
+
+    const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
+    const elements: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    text.replace(pattern, (match, _group, offset) => {
+      if (typeof offset !== "number") return match;
+      if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
+      const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
+      if (target) {
+        elements.push(
+          <button key={`${target.id}-${offset}`} type="button"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
+            onClick={() => { setSelectedFichaId(target.id); setFichaFormMode("idle"); }}
+          >
+            {match}
+          </button>,
+        );
+      } else { elements.push(match); }
+      lastIndex = offset + match.length;
+      return match;
+    });
+    if (lastIndex < text.length) elements.push(text.slice(lastIndex));
+    return <>{elements}</>;
+  };
+
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
     id: string; code: string; label: string; description: string; episode: string;
   }>({ id: "", code: "", label: "", description: "", episode: "" });
 
-  // Modais de Visualização
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
 
@@ -148,7 +169,6 @@ export default function LoreAdminPage() {
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
-  // --- AUTH & INIT ---
   useEffect(() => {
     const checkSession = async () => {
       setView("loading");
@@ -161,9 +181,7 @@ export default function LoreAdminPage() {
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError(null);
+    e.preventDefault(); setIsSubmitting(true); setError(null);
     const { data, error: loginError } = await supabaseBrowser.auth.signInWithPassword({ email, password });
     setIsSubmitting(false);
     if (loginError) { setError(loginError.message); return; }
@@ -171,11 +189,9 @@ export default function LoreAdminPage() {
   }
 
   async function handleLogout() {
-    await supabaseBrowser.auth.signOut();
-    setView("loggedOut"); setEmail(""); setPassword("");
+    await supabaseBrowser.auth.signOut(); setView("loggedOut"); setEmail(""); setPassword("");
   }
 
-  // --- DATA FETCHING ---
   async function fetchAllData() {
     try {
       setIsLoadingData(true); setError(null);
@@ -342,53 +358,30 @@ export default function LoreAdminPage() {
     );
   };
 
-  // --- WIKI RENDERER ---
-  const renderWikiText = (text: string | null | undefined) => {
-    if (!text) return null;
-    const currentFichaId = selectedFichaId;
-    const candidates = fichas
-      .filter((f) => f.id !== currentFichaId && typeof f.titulo === "string" && f.titulo.trim().length > 0)
-      .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
-
-    if (candidates.length === 0) return text;
-
-    const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
-    const elements: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    text.replace(pattern, (match, _group, offset) => {
-      if (typeof offset !== "number") return match;
-      if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
-      const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
-      if (target) {
-        elements.push(
-          <button key={`${target.id}-${offset}`} type="button"
-            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
-            onClick={() => { setSelectedFichaId(target.id); setFichaFormMode("idle"); }}
-          >
-            {match}
-          </button>,
-        );
-      } else { elements.push(match); }
-      lastIndex = offset + match.length;
-      return match;
-    });
-    if (lastIndex < text.length) elements.push(text.slice(lastIndex));
-    return <>{elements}</>;
-  };
-
-  // --- CRUD FUNCTIONS ---
+  // --- CRUD MUNDOS ---
   function startCreateWorld() {
     setWorldFormMode("create");
     setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true });
   }
   function startEditWorld(world: any) {
     setWorldFormMode("edit");
-    setWorldForm({ id: world.id ?? "", nome: world.nome ?? "", descricao: world.descricao ?? "", tipo: world.tipo ?? "", ordem: world.ordem ? String(world.ordem) : "", has_episodes: typeof world.has_episodes === "boolean" ? world.has_episodes : true });
+    setWorldForm({
+      id: world.id ?? "",
+      nome: world.nome ?? "",
+      descricao: world.descricao ?? "",
+      tipo: world.tipo ?? "",
+      ordem: world.ordem ? String(world.ordem) : "",
+      has_episodes: typeof world.has_episodes === "boolean" ? world.has_episodes : true,
+    });
   }
-  function cancelWorldForm() { setWorldFormMode("idle"); setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true }); }
+  function cancelWorldForm() {
+    setWorldFormMode("idle");
+    setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true });
+  }
   async function handleSaveWorld(e: React.FormEvent) {
-    e.preventDefault(); setIsSavingWorld(true); setError(null);
+    e.preventDefault();
+    setIsSavingWorld(true);
+    setError(null);
     if (!worldForm.nome.trim()) { setError("Mundo precisa de um nome."); setIsSavingWorld(false); return; }
     const payload: any = { nome: worldForm.nome.trim(), descricao: worldForm.descricao.trim() || null, has_episodes: worldForm.has_episodes };
     let saveError = null;
@@ -407,22 +400,35 @@ export default function LoreAdminPage() {
     await fetchAllData();
   }
 
+  // --- CRUD FICHAS ---
   function startCreateFicha() {
     if (!selectedWorldId) { setError("Selecione um Mundo antes de criar uma Ficha."); return; }
     setFichaFormMode("create");
-    setFichaForm({ id: "", titulo: "", slug: "", tipo: "", resumo: "", conteudo: "", tags: "", ano_diegese: "", ordem_cronologica: "", aparece_em: "", codigo: "", imagem_url: "", data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "" });
+    setFichaForm({
+      id: "", titulo: "", slug: "", tipo: "", resumo: "", conteudo: "", tags: "",
+      ano_diegese: "", ordem_cronologica: "", aparece_em: "", codigo: "", imagem_url: "",
+      data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "",
+    });
   }
   function startEditFicha(ficha: any) {
     setFichaFormMode("edit");
     setFichaForm({
-      id: ficha.id ?? "", titulo: ficha.titulo ?? "", slug: ficha.slug ?? "", tipo: ficha.tipo ?? "", resumo: ficha.resumo ?? "", conteudo: ficha.conteudo ?? "", tags: ficha.tags ?? "", aparece_em: ficha.aparece_em ?? "", codigo: ficha.codigo ?? "", imagem_url: ficha.imagem_url ?? "",
-      ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "", ordem_cronologica: ficha.ordem_cronologica ? String(ficha.ordem_cronologica) : "",
-      data_inicio: ficha.data_inicio ?? "", data_fim: ficha.data_fim ?? "", granularidade_data: normalizeGranularidade(ficha.granularidade_data, ficha.descricao_data), descricao_data: ficha.descricao_data ?? "", camada_temporal: ficha.camada_temporal ?? "",
+      id: ficha.id ?? "", titulo: ficha.titulo ?? "", slug: ficha.slug ?? "", tipo: ficha.tipo ?? "", resumo: ficha.resumo ?? "", conteudo: ficha.conteudo ?? "", tags: ficha.tags ?? "",
+      ano_diegese: ficha.ano_diegese ? String(ficha.ano_diegese) : "",
+      ordem_cronologica: ficha.ordem_cronologica ? String(ficha.ordem_cronologica) : "",
+      aparece_em: ficha.aparece_em ?? "", codigo: ficha.codigo ?? "", imagem_url: ficha.imagem_url ?? "",
+      data_inicio: ficha.data_inicio ?? "", data_fim: ficha.data_fim ?? "",
+      granularidade_data: normalizeGranularidade(ficha.granularidade_data, ficha.descricao_data),
+      descricao_data: ficha.descricao_data ?? "", camada_temporal: ficha.camada_temporal ?? "",
     });
   }
   function cancelFichaForm() {
     setFichaFormMode("idle");
-    setFichaForm({ id: "", titulo: "", slug: "", tipo: "", resumo: "", conteudo: "", tags: "", ano_diegese: "", ordem_cronologica: "", aparece_em: "", codigo: "", imagem_url: "", data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "" });
+    setFichaForm({
+      id: "", titulo: "", slug: "", tipo: "", resumo: "", conteudo: "", tags: "",
+      ano_diegese: "", ordem_cronologica: "", aparece_em: "", codigo: "", imagem_url: "",
+      data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "",
+    });
   }
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
@@ -435,7 +441,9 @@ export default function LoreAdminPage() {
       ano_diegese: fichaForm.ano_diegese.trim() ? Number.isNaN(Number(fichaForm.ano_diegese.trim())) ? fichaForm.ano_diegese.trim() : Number(fichaForm.ano_diegese.trim()) : null,
       ordem_cronologica: fichaForm.ordem_cronologica.trim() ? Number.isNaN(Number(fichaForm.ordem_cronologica.trim())) ? fichaForm.ordem_cronologica.trim() : Number(fichaForm.ordem_cronologica.trim()) : null,
       aparece_em: fichaForm.aparece_em.trim() || null, codigo: fichaForm.codigo.trim() || null, imagem_url: fichaForm.imagem_url.trim() || null,
-      data_inicio: fichaForm.data_inicio.trim() || null, data_fim: fichaForm.data_fim.trim() || null, granularidade_data: fichaForm.granularidade_data.trim() || null, descricao_data: fichaForm.descricao_data.trim() || null, camada_temporal: fichaForm.camada_temporal.trim() || null, updated_at: new Date().toISOString(),
+      data_inicio: fichaForm.data_inicio.trim() || null, data_fim: fichaForm.data_fim.trim() || null,
+      granularidade_data: fichaForm.granularidade_data.trim() || null, descricao_data: fichaForm.descricao_data.trim() || null,
+      camada_temporal: fichaForm.camada_temporal.trim() || null, updated_at: new Date().toISOString(),
     };
     let saveError = null;
     if (fichaFormMode === "create") { const { error } = await supabaseBrowser.from("fichas").insert([payload]); saveError = error; }
@@ -447,7 +455,8 @@ export default function LoreAdminPage() {
     await fetchFichas(currentWorld);
   }
   async function handleDeleteFicha(fichaId: string) {
-    setError(null); const ok = window.confirm("Tem certeza que deseja deletar esta Ficha? Essa ação não pode ser desfeita."); if (!ok) return;
+    setError(null); const ok = window.confirm("Tem certeza que deseja deletar esta Ficha? Essa ação não pode ser desfeita.");
+    if (!ok) return;
     const { error: deleteCodesError } = await supabaseBrowser.from("codes").delete().eq("ficha_id", fichaId);
     if (deleteCodesError) { console.error(deleteCodesError); setError("Erro ao deletar códigos vinculados à Ficha."); return; }
     const { error: deleteError } = await supabaseBrowser.from("fichas").delete().eq("id", fichaId);
@@ -457,28 +466,42 @@ export default function LoreAdminPage() {
     await fetchFichas(currentWorld);
   }
 
-  function startCreateCode() { if (!selectedFichaId) { setError("Selecione uma Ficha antes de criar um Código."); return; } setCodeFormMode("create"); setCodeForm({ id: "", code: "", label: "", description: "", episode: "" }); }
+  // --- CRUD CÓDIGOS ---
+  function startCreateCode() {
+    if (!selectedFichaId) { setError("Selecione uma Ficha antes de criar um Código."); return; }
+    setCodeFormMode("create");
+    setCodeForm({ id: "", code: "", label: "", description: "", episode: "" });
+  }
   function startEditCode(code: any) {
     let episode = "";
     if (typeof code.code === "string") { const m = code.code.match(/^[A-Z]{2}(\d+)-[A-Z]{2}\d+$/); if (m && m[1]) { episode = m[1]; } }
-    setCodeFormMode("edit"); setCodeForm({ id: code.id ?? "", code: code.code ?? "", label: code.label ?? "", description: code.description ?? "", episode });
+    setCodeFormMode("edit");
+    setCodeForm({ id: code.id ?? "", code: code.code ?? "", label: code.label ?? "", description: code.description ?? "", episode });
   }
   function cancelCodeForm() { setCodeFormMode("idle"); setCodeForm({ id: "", code: "", label: "", description: "", episode: "" }); }
   async function handleSaveCode(e: React.FormEvent) {
-    e.preventDefault(); if (!selectedFichaId) { setError("Selecione uma Ficha antes de salvar um Código."); return; } if (codeFormMode === "idle") return; setIsSavingCode(true); setError(null);
-    const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null; const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
+    e.preventDefault();
+    if (!selectedFichaId) { setError("Selecione uma Ficha antes de salvar um Código."); return; }
+    if (codeFormMode === "idle") return;
+    setIsSavingCode(true); setError(null);
+    const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
+    const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
     let finalCode = codeForm.code.trim();
     if (!finalCode) {
       const episodeRaw = codeForm.episode.trim();
       if (!selectedWorld || !selectedFicha) { setError("Não foi possível gerar o código: selecione um Mundo e uma Ficha."); setIsSavingCode(false); return; }
       if (!episodeRaw) { setError('Para gerar o código automaticamente, preencha o campo "Episódio".'); setIsSavingCode(false); return; }
       if (!selectedFicha.tipo) { setError('Para gerar o código automaticamente, defina o "Tipo" da Ficha.'); setIsSavingCode(false); return; }
-      const worldPrefix = getWorldPrefix(selectedWorld.nome); const tipoPrefix = getTipoPrefix(selectedFicha.tipo); const episodeNumber = episodeRaw; const basePrefix = `${worldPrefix}${episodeNumber}-${tipoPrefix}`;
+      const worldPrefix = getWorldPrefix(selectedWorld.nome);
+      const tipoPrefix = getTipoPrefix(selectedFicha.tipo);
+      const episodeNumber = episodeRaw;
+      const basePrefix = `${worldPrefix}${episodeNumber}-${tipoPrefix}`;
       const { data: existingCodes, error: existingError } = await supabaseBrowser.from("codes").select("code").like("code", `${basePrefix}%`);
       if (existingError) { console.error(existingError); setError("Erro ao gerar código automaticamente."); setIsSavingCode(false); return; }
       let maxIndex = 0;
       (existingCodes || []).forEach((row) => { const c = row.code as string; if (typeof c === "string" && c.startsWith(basePrefix)) { const suffix = c.slice(basePrefix.length); const n = parseInt(suffix, 10); if (!Number.isNaN(n) && n > maxIndex) { maxIndex = n; } } });
-      const nextIndex = maxIndex + 1; finalCode = `${basePrefix}${nextIndex}`;
+      const nextIndex = maxIndex + 1;
+      finalCode = `${basePrefix}${nextIndex}`;
     }
     if (!finalCode) { setError("Código precisa de um valor."); setIsSavingCode(false); return; }
     const payload: any = { ficha_id: selectedFichaId, code: finalCode, label: codeForm.label.trim() || null, description: codeForm.description.trim() || null, updated_at: new Date().toISOString() };
@@ -496,30 +519,50 @@ export default function LoreAdminPage() {
     if (selectedFichaId) { await fetchCodes(selectedFichaId); }
   }
 
-  // --- FILTROS ---
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const dynamicTipos = Array.from(new Set<string>([...KNOWN_TIPOS, ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
+  
   const filteredFichas = fichas.filter((f) => {
-    if (fichaFilterTipos.length > 0) { const t = (f.tipo || "").toLowerCase(); if (!t || !fichaFilterTipos.includes(t)) return false; }
-    if (fichasSearchTerm.trim().length > 0) { const q = fichasSearchTerm.toLowerCase(); const inTitulo = (f.titulo || "").toLowerCase().includes(q); const inResumo = (f.resumo || "").toLowerCase().includes(q); const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q); if (!inTitulo && !inResumo && !inTags) return false; }
+    if (fichaFilterTipos.length > 0) {
+      const t = (f.tipo || "").toLowerCase();
+      if (!t || !fichaFilterTipos.includes(t)) return false;
+    }
+    if (fichasSearchTerm.trim().length > 0) {
+      const q = fichasSearchTerm.toLowerCase();
+      const inTitulo = (f.titulo || "").toLowerCase().includes(q);
+      const inResumo = (f.resumo || "").toLowerCase().includes(q);
+      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
+      if (!inTitulo && !inResumo && !inTags) return false;
+    }
     return true;
   });
-  function toggleFilterTipo(tipo: string) { const t = tipo.toLowerCase(); setFichaFilterTipos((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]); }
 
-  // --- VIEW ---
-  if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">Carregando...</div>;
-  if (view === "loggedOut") return (
-    <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
-      <form onSubmit={handleLogin} className="border border-neutral-800 rounded p-6 bg-neutral-950 w-80">
-        <h1 className="text-sm font-bold mb-4 uppercase tracking-widest">Lore Admin</h1>
-        {error && <div className="text-xs text-red-400 mb-2">{error}</div>}
-        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} className="w-full bg-black border border-zinc-800 rounded px-2 py-1 mb-2 text-sm" placeholder="Email" />
-        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full bg-black border border-zinc-800 rounded px-2 py-1 mb-4 text-sm" placeholder="Senha" />
-        <button disabled={isSubmitting} className="w-full bg-emerald-600 text-black text-xs font-bold py-2 rounded">{isSubmitting?"...":"Entrar"}</button>
-      </form>
-    </div>
-  );
+  function toggleFilterTipo(tipo: string) {
+    const t = tipo.toLowerCase();
+    setFichaFilterTipos((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
+
+  if (view === "loading") {
+    return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
+  }
+
+  if (view === "loggedOut") {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <form onSubmit={handleLogin} className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80">
+          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">/lore-admin – Mundos, Fichas e Códigos</h1>
+          <p className="text-[11px] text-neutral-500 mb-4">Acesse com seu e-mail e senha de admin.</p>
+          {error && <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">{error}</div>}
+          <div className="space-y-2 mb-3">
+            <div><label className="block text-[11px] text-neutral-500 mb-1">E-mail</label><input type="email" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
+            <div><label className="block text-[11px] text-neutral-500 mb-1">Senha</label><input type="password" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div>
+          </div>
+          <button type="submit" disabled={isSubmitting} className="w-full mt-1 text-[11px] px-3 py-1.5 rounded-full border border-emerald-500 text-emerald-200 hover:bg-emerald-500 hover:text-black transition-colors disabled:opacity-60">{isSubmitting ? "Entrando…" : "Entrar"}</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-black text-neutral-100 flex flex-col">
@@ -536,51 +579,97 @@ export default function LoreAdminPage() {
           >
             ⚡ Reconciliar Fichas
           </button>
-          <button onClick={handleLogout} className="text-[11px] text-neutral-500 hover:text-white">Sair</button>
+          <button onClick={handleLogout} className="text-[11px] px-3 py-1 rounded-full border border-neutral-700 text-neutral-300 hover:text-emerald-300 hover:border-emerald-500 transition-colors">Sair</button>
         </div>
       </header>
 
+      {error && <div className="px-4 py-2 text-[11px] text-red-400 bg-red-950/40 border-b border-red-900">{error}</div>}
+      {isLoadingData && <div className="px-4 py-1 text-[11px] text-neutral-500 border-b border-neutral-900">Carregando dados…</div>}
+
       <main className="flex flex-1 overflow-hidden relative">
-        {/* COLUNA MUNDOS */}
-        <section className="w-72 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
-          <div className="flex justify-between mb-3 items-center"><h2 className="text-[10px] uppercase tracking-widest text-zinc-500">Mundos</h2><button onClick={startCreateWorld} className="text-[10px] border border-zinc-700 px-2 py-0.5 rounded hover:bg-zinc-800">+</button></div>
-          <div className="flex-1 overflow-y-auto space-y-1">
-            {worlds.map(w => (
-              <div key={w.id} onClick={()=>{setSelectedWorldId(w.id); fetchFichas(w);}} className={`p-2 rounded cursor-pointer text-xs border ${selectedWorldId===w.id ? 'bg-zinc-900 border-emerald-500/50 text-emerald-100' : 'border-transparent hover:bg-zinc-900 text-zinc-400'}`}>
-                <div className="flex justify-between"><span className="font-medium">{w.nome}</span><button onClick={(e)=>{e.stopPropagation(); startEditWorld(w);}} className="opacity-0 hover:opacity-100 text-[9px] px-1">✎</button></div>
+        {/* Mundos */}
+        <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Mundos</h2>
+            <button onClick={startCreateWorld} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Novo</button>
+          </div>
+          <div className="text-[11px] text-neutral-500 mb-2">Selecione um Mundo para ver suas Fichas e Códigos.</div>
+          <div className="flex-1 overflow-auto space-y-1 pr-1">
+            {worlds.length === 0 && <div className="text-[11px] text-neutral-600">Nenhum Mundo cadastrado ainda.</div>}
+            {worlds.map((world) => (
+              <div key={world.id} className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${selectedWorldId === world.id ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-800 hover:border-neutral-500"}`} onClick={() => { setSelectedWorldId(world.id as string); fetchFichas(world); }} onDoubleClick={() => setWorldViewModal(world)}>
+                <div className="flex items-center justify-between">
+                  <div className="font-medium text-neutral-100">{world.nome}</div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={(e) => { e.stopPropagation(); startEditWorld(world); }}>Editar</button>
+                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={(e) => { e.stopPropagation(); handleDeleteWorld(world.id as string); }}>Del</button>
+                  </div>
+                </div>
+                {world.descricao && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{world.descricao}</div>}
               </div>
             ))}
           </div>
         </section>
 
-        {/* COLUNA FICHAS */}
-        <section className="w-96 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
-          <div className="flex justify-between mb-3 items-center"><h2 className="text-[10px] uppercase tracking-widest text-zinc-500">Fichas</h2><button onClick={startCreateFicha} className="text-[10px] border border-zinc-700 px-2 py-0.5 rounded hover:bg-zinc-800">+ Nova</button></div>
-          <input className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs mb-2" placeholder="Buscar..." value={fichasSearchTerm} onChange={e=>setFichasSearchTerm(e.target.value)} />
-          <div className="flex flex-wrap gap-1 mb-2"><button onClick={()=>setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] border rounded ${fichaFilterTipos.length===0?'border-emerald-500 text-emerald-400':'border-zinc-800 text-zinc-500'}`}>Todos</button>{dynamicTipos.slice(0,5).map(t => (<button key={t} onClick={()=>toggleFilterTipo(t)} className={`px-2 py-0.5 text-[9px] border rounded ${fichaFilterTipos.includes(t.toLowerCase())?'border-emerald-500 text-emerald-400':'border-zinc-800 text-zinc-500'}`}>{t}</button>))}</div>
-          <div className="flex-1 overflow-y-auto space-y-1">
-            {filteredFichas.map(f => (
-              <div key={f.id} onClick={()=>{setSelectedFichaId(f.id); fetchCodes(f.id);}} onDoubleClick={()=>startEditFicha(f)} className={`p-2 rounded cursor-pointer text-xs border ${selectedFichaId===f.id ? 'bg-zinc-900 border-emerald-500/50 text-emerald-100' : 'border-transparent hover:bg-zinc-900 text-zinc-400'}`}>
-                <div className="font-bold">{f.titulo}</div><div className="text-[10px] opacity-60 truncate">{f.resumo}</div>
+        {/* Fichas */}
+        <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Fichas do Mundo</h2>
+            <button onClick={startCreateFicha} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Nova</button>
+          </div>
+          <div className="text-[11px] text-neutral-500 mb-1">Mundo selecionado: <span className="text-neutral-300">{selectedWorld?.nome ?? "nenhum selecionado"}</span></div>
+          <div className="mb-2">
+            <input className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-[11px]" placeholder="Buscar fichas por título, resumo ou tags…" value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
+            <span className="text-neutral-500">Filtrar por tipo:</span>
+            <button type="button" onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 rounded-full border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300 bg-emerald-500/10" : "border-neutral-700 text-neutral-400 hover:border-neutral-500"}`}>Todos</button>
+            {dynamicTipos.map((tipo) => (
+              <button key={tipo} type="button" onClick={() => toggleFilterTipo(tipo)} className={`px-2 py-0.5 rounded-full border ${fichaFilterTipos.includes(tipo) ? "border-emerald-500 text-emerald-300 bg-emerald-500/10" : "border-neutral-700 text-neutral-400 hover:border-neutral-500"}`}>
+                {tipo === "personagem" ? "Personagens" : tipo === "local" ? "Locais" : tipo === "agencia" ? "Agências" : tipo === "empresa" ? "Empresas" : tipo === "midia" ? "Mídia" : tipo === "conceito" ? "Conceitos" : tipo === "epistemologia" ? "Epistemologia" : tipo === "evento" ? "Eventos" : tipo === "regra_de_mundo" ? "Regras de mundo" : tipo === "roteiro" ? "Roteiros" : tipo}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
+            {selectedWorldId == null && <div className="text-[11px] text-neutral-600">Selecione um Mundo na coluna da esquerda.</div>}
+            {selectedWorldId != null && filteredFichas.length === 0 && <div className="text-[11px] text-neutral-600">Nenhuma Ficha cadastrada para este filtro.</div>}
+            {filteredFichas.map((ficha) => (
+              <div key={ficha.id} className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${selectedFichaId === ficha.id ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-800 hover:border-neutral-500"}`} onClick={() => { setSelectedFichaId(ficha.id as string); fetchCodes(ficha.id as string); }} onDoubleClick={() => setFichaViewModal(ficha)}>
+                <div className="flex items-center justify-between">
+                  <div><div className="font-medium text-neutral-100">{ficha.titulo}</div><div className="text-[10px] text-neutral-500">{ficha.tipo || "sem tipo definido"}</div></div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={(e) => { e.stopPropagation(); startEditFicha(ficha); }}>Editar</button>
+                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={(e) => { e.stopPropagation(); handleDeleteFicha(ficha.id as string); }}>Del</button>
+                  </div>
+                </div>
+                {ficha.resumo && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{ficha.resumo}</div>}
               </div>
             ))}
           </div>
         </section>
-
-        {/* COLUNA DETALHES */}
-        <section className="flex-1 p-6 overflow-y-auto bg-zinc-950">
-          {!selectedFicha ? <div className="text-zinc-600 text-xs">Selecione uma ficha para ver detalhes.</div> : (
-            <div className="max-w-2xl space-y-6">
-              <div className="flex justify-between items-start">
-                <div><h1 className="text-2xl font-bold text-white">{selectedFicha.titulo}</h1><span className="text-xs bg-zinc-900 px-2 py-0.5 rounded text-zinc-400 uppercase tracking-wide">{selectedFicha.tipo}</span></div>
-                <div className="flex gap-2"><button onClick={()=>startEditFicha(selectedFicha)} className="px-3 py-1 border border-zinc-700 rounded text-xs hover:bg-zinc-900">Editar</button><button onClick={()=>handleDeleteFicha(selectedFicha.id)} className="px-3 py-1 border border-red-900 text-red-400 rounded text-xs hover:bg-red-900/20">Excluir</button></div>
+        
+        {/* Detalhes da Ficha */}
+        <section className="flex-1 p-4 flex flex-col min-h-0 bg-zinc-950">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Detalhes da Ficha</h2>
+            {selectedFicha && <button onClick={() => startEditFicha(selectedFicha)} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">Editar</button>}
+          </div>
+          {!selectedFicha ? <div className="text-[11px] text-neutral-500">Selecione uma ficha na coluna do meio para ver os detalhes aqui.</div> : (
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              <div className="space-y-1"><div className="text-[11px] text-neutral-500">Título</div><div className="text-sm text-neutral-100 font-medium">{selectedFicha.titulo}</div></div>
+              {selectedFicha.tipo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Tipo</div><div className="text-[12px] text-neutral-200">{selectedFicha.tipo}</div></div>}
+              {selectedFicha.slug && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Slug</div><div className="text-[12px] text-neutral-300">{selectedFicha.slug}</div></div>}
+              {selectedFicha.codigo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Código</div><div className="text-[12px] text-neutral-300">{selectedFicha.codigo}</div></div>}
+              {selectedFicha.imagem_url && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Imagem</div><div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40"><img src={selectedFicha.imagem_url} alt={selectedFicha.titulo || "imagem da ficha"} className="w-full max-h-80 object-contain" /></div></div>}
+              {selectedFicha.resumo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Resumo</div><div className="text-[12px] text-neutral-200 whitespace-pre-line">{renderWikiText(selectedFicha.resumo)}</div></div>}
+              {selectedFicha.conteudo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Conteúdo</div><div className="text-[12px] text-neutral-300 whitespace-pre-line">{renderWikiText(selectedFicha.conteudo)}</div></div>}
+              {selectedFicha.tags && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Tags</div><div className="text-[12px] text-neutral-300">{selectedFicha.tags}</div></div>}
+              {selectedFicha.aparece_em && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Aparece em</div><div className="text-[12px] text-neutral-300 whitespace-pre-line">{selectedFicha.aparece_em}</div></div>}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between"><div className="text-[11px] text-neutral-500">Códigos</div>{selectedFicha && <button onClick={startCreateCode} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Novo código</button>}</div>
+                {!codes.length && <div className="text-[11px] text-neutral-500 mt-1">Nenhum código cadastrado para esta ficha.</div>}
+                {codes.length > 0 && <div className="mt-1 space-y-1">{codes.map((code) => (<div key={code.id} className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px]"><div className="flex items-center justify-between"><div><div className="font-medium text-neutral-100">{code.code}</div>{code.label && <div className="text-[10px] text-neutral-500">{code.label}</div>}</div><div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={() => startEditCode(code)}>Editar</button><button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={() => handleDeleteCode(code.id as string)}>Del</button></div></div>{code.description && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{code.description}</div>}</div>))}</div>}
               </div>
-              {selectedFicha.imagem_url && <img src={selectedFicha.imagem_url} className="rounded border border-zinc-800 max-h-60 object-contain bg-black" alt="ref" />}
-              <div className="space-y-4 text-sm text-zinc-300 leading-relaxed">
-                {selectedFicha.resumo && <div className="p-3 bg-zinc-900/50 rounded border border-zinc-800 italic">{selectedFicha.resumo}</div>}
-                {selectedFicha.conteudo && <div className="whitespace-pre-wrap">{renderWikiText(selectedFicha.conteudo)}</div>}
-              </div>
-              <div className="pt-4 border-t border-zinc-800"><h3 className="text-xs font-bold text-zinc-500 uppercase mb-2">Códigos</h3><div className="flex flex-wrap gap-2">{codes.map(c => (<span key={c.id} className="px-2 py-1 bg-black border border-zinc-800 rounded text-xs font-mono text-emerald-500">{c.code}</span>))}<button onClick={startCreateCode} className="px-2 py-1 border border-zinc-800 border-dashed rounded text-xs text-zinc-500 hover:text-zinc-300">+ Código</button></div></div>
             </div>
           )}
         </section>
@@ -589,22 +678,53 @@ export default function LoreAdminPage() {
         {showReconcile && (
           <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in fade-in duration-200">
             <div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950">
-              <h2 className="text-lg font-bold text-purple-400 flex items-center gap-2">⚡ Modo Reconciliação</h2>
+              <h2 className="text-lg font-bold text-purple-400 flex items-center gap-2">
+                ⚡ Modo Reconciliação
+              </h2>
               <button onClick={()=>setShowReconcile(false)} className="text-zinc-400 hover:text-white text-sm">Fechar (Esc)</button>
             </div>
+            
             <div className="flex flex-1 overflow-hidden">
+              {/* Lista de Duplicatas */}
               <aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">
                 {reconcileLoading && <div className="text-xs text-zinc-500">Buscando duplicatas...</div>}
                 {!reconcileLoading && reconcilePairs.length === 0 && <div className="text-zinc-500 text-sm text-center mt-10">Nenhuma duplicata encontrada.<br/>O banco está limpo!</div>}
-                <div className="space-y-2">{reconcilePairs.map((pair, idx) => (<button key={idx} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 rounded border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-purple-500/50 transition-all group"><div className="flex justify-between mb-1"><span className="text-[10px] font-mono text-purple-400">{(pair.similarity*100).toFixed(0)}% similar</span></div><div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_a}</div><div className="text-[10px] text-zinc-600 my-0.5">vs</div><div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_b}</div></button>))}</div>
+                <div className="space-y-2">
+                  {reconcilePairs.map((pair, idx) => (
+                    <button key={idx} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 rounded border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-purple-500/50 transition-all group">
+                      <div className="flex justify-between mb-1">
+                        <span className="text-[10px] font-mono text-purple-400">{(pair.similarity*100).toFixed(0)}% similar</span>
+                      </div>
+                      <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_a}</div>
+                      <div className="text-[10px] text-zinc-600 my-0.5">vs</div>
+                      <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_b}</div>
+                    </button>
+                  ))}
+                </div>
               </aside>
+
+              {/* Área de Comparação */}
               <main className="flex-1 bg-black p-8 overflow-y-auto">
-                {!comparing ? (<div className="h-full flex items-center justify-center text-zinc-600 text-sm">Selecione um par na esquerda para resolver o conflito.</div>) : mergeDraft && (
+                {!comparing ? (
+                  <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                    Selecione um par na esquerda para resolver o conflito.
+                  </div>
+                ) : mergeDraft && (
                   <div className="max-w-4xl mx-auto pb-20">
                     <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4">
-                      <div><h3 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h3><p className="text-zinc-400 text-xs">Selecione qual versão de cada campo você quer manter.</p></div>
-                      <button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} disabled={reconcileProcessing} className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded font-bold text-sm shadow-lg shadow-purple-900/20 disabled:opacity-50">{reconcileProcessing ? "Fundindo..." : "Confirmar Fusão"}</button>
+                      <div>
+                        <h3 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h3>
+                        <p className="text-zinc-400 text-xs">Selecione qual versão de cada campo você quer manter. A ficha não escolhida será apagada.</p>
+                      </div>
+                      <button 
+                        onClick={()=>executeMerge(comparing.a.id, comparing.b.id)}
+                        disabled={reconcileProcessing}
+                        className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded font-bold text-sm shadow-lg shadow-purple-900/20 disabled:opacity-50"
+                      >
+                        {reconcileProcessing ? "Fundindo..." : "Confirmar Fusão & Apagar Duplicata"}
+                      </button>
                     </div>
+
                     <div className="grid gap-1">
                       <FieldChoice label="Título" field="titulo" />
                       <FieldChoice label="Tipo" field="tipo" />
@@ -612,9 +732,13 @@ export default function LoreAdminPage() {
                       <FieldChoice label="Conteúdo" field="conteudo" />
                       <FieldChoice label="Tags" field="tags" />
                       <FieldChoice label="Aparece Em" field="aparece_em" />
+                      
                       <div className="mt-8 pt-4 border-t border-zinc-800">
                         <h4 className="text-xs uppercase tracking-widest text-zinc-500 mb-4">Cronologia</h4>
-                        <div className="grid grid-cols-2 gap-4"><FieldChoice label="Ano Diegese" field="ano_diegese" /><FieldChoice label="Camada" field="camada_temporal" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <FieldChoice label="Ano Diegese" field="ano_diegese" />
+                          <FieldChoice label="Camada" field="camada_temporal" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -624,47 +748,871 @@ export default function LoreAdminPage() {
           </div>
         )}
 
-        {/* --- MODAIS DE EDIÇÃO (MANTIDOS IGUAIS) --- */}
-        {worldFormMode !== "idle" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-            <form onSubmit={handleSaveWorld} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96 space-y-4">
-              <h3 className="font-bold text-white">Editar Mundo</h3>
-              <input className="w-full bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Nome" value={worldForm.nome} onChange={e=>setWorldForm({...worldForm, nome:e.target.value})} />
-              <textarea className="w-full bg-black border border-zinc-800 p-2 text-sm rounded h-24" placeholder="Descrição" value={worldForm.descricao} onChange={e=>setWorldForm({...worldForm, descricao:e.target.value})} />
-              <div className="flex justify-end gap-2"><button type="button" onClick={cancelWorldForm} className="text-xs text-zinc-400 px-3 py-2">Cancelar</button><button className="bg-emerald-600 text-black text-xs font-bold px-4 py-2 rounded">Salvar</button></div>
-            </form>
-          </div>
-        )}
-
-        {fichaFormMode !== "idle" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-            <form onSubmit={handleSaveFicha} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-[600px] max-h-[90vh] overflow-y-auto space-y-4">
-              <h3 className="font-bold text-white">Editar Ficha</h3>
-              <div className="grid grid-cols-2 gap-4"><input className="bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Título" value={fichaForm.titulo} onChange={e=>setFichaForm({...fichaForm, titulo:e.target.value})} /><input className="bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Tipo" value={fichaForm.tipo} onChange={e=>setFichaForm({...fichaForm, tipo:e.target.value})} /></div>
-              <textarea className="w-full bg-black border border-zinc-800 p-2 text-sm rounded h-20" placeholder="Resumo" value={fichaForm.resumo} onChange={e=>setFichaForm({...fichaForm, resumo:e.target.value})} />
-              <textarea className="w-full bg-black border border-zinc-800 p-2 text-sm rounded h-40" placeholder="Conteúdo" value={fichaForm.conteudo} onChange={e=>setFichaForm({...fichaForm, conteudo:e.target.value})} />
-              <div className="grid grid-cols-2 gap-4"><input className="bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Tags" value={fichaForm.tags} onChange={e=>setFichaForm({...fichaForm, tags:e.target.value})} /><input className="bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Aparece Em" value={fichaForm.aparece_em} onChange={e=>setFichaForm({...fichaForm, aparece_em:e.target.value})} /></div>
-              <div className="p-3 bg-zinc-900 rounded border border-zinc-800 grid grid-cols-3 gap-2">
-                <input className="bg-black border border-zinc-800 p-2 text-xs rounded" type="number" placeholder="Ano" value={fichaForm.ano_diegese} onChange={e=>setFichaForm({...fichaForm, ano_diegese:e.target.value})} />
-                <input className="bg-black border border-zinc-800 p-2 text-xs rounded" placeholder="Camada Temporal" value={fichaForm.camada_temporal} onChange={e=>setFichaForm({...fichaForm, camada_temporal:e.target.value})} />
-                <input className="bg-black border border-zinc-800 p-2 text-xs rounded" placeholder="Data Descritiva" value={fichaForm.descricao_data} onChange={e=>setFichaForm({...fichaForm, descricao_data:e.target.value})} />
-              </div>
-              <div className="flex justify-end gap-2"><button type="button" onClick={cancelFichaForm} className="text-xs text-zinc-400 px-3 py-2">Cancelar</button><button className="bg-emerald-600 text-black text-xs font-bold px-4 py-2 rounded">Salvar</button></div>
-            </form>
-          </div>
-        )}
-
-        {codeFormMode !== "idle" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-            <form onSubmit={handleSaveCode} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96 space-y-4">
-              <h3 className="font-bold text-white">Código</h3>
-              <input className="w-full bg-black border border-zinc-800 p-2 text-sm rounded" placeholder="Código (ex: AV1-PS2)" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code:e.target.value})} />
-              <div className="flex justify-end gap-2"><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-400 px-3 py-2">Cancelar</button><button className="bg-emerald-600 text-black text-xs font-bold px-4 py-2 rounded">Salvar</button></div>
-            </form>
-          </div>
-        )}
-
       </main>
+
+
+      {/* Modais de leitura – Mundo */}
+      {worldViewModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[11px] text-neutral-400">
+                Mundo – visão geral
+              </div>
+              <button
+                type="button"
+                onClick={() => setWorldViewModal(null)}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[11px] text-neutral-500">Nome</div>
+              <div className="text-sm text-neutral-100 font-medium">
+                {worldViewModal.nome}
+              </div>
+            </div>
+
+            {worldViewModal.descricao && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Descrição
+                </div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {worldViewModal.descricao}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setWorldViewModal(null)}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  startEditWorld(worldViewModal);
+                  setWorldViewModal(null);
+                }}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400"
+              >
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modais de leitura – Ficha */}
+      {fichaViewModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80">
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[11px] text-neutral-400">
+                Ficha – visão geral
+              </div>
+              <button
+                type="button"
+                onClick={() => setFichaViewModal(null)}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[11px] text-neutral-500">Título</div>
+              <div className="text-sm text-neutral-100 font-medium">
+                {fichaViewModal.titulo}
+              </div>
+            </div>
+
+            {fichaViewModal.tipo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Tipo</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.tipo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.slug && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Slug</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.slug}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.resumo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Resumo</div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.resumo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.imagem_url && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Imagem</div>
+                <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={fichaViewModal.imagem_url}
+                    alt={fichaViewModal.titulo || "imagem da ficha"}
+                    className="w-full max-h-80 object-contain"
+                  />
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.conteudo && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Conteúdo
+                </div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.conteudo}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.tags && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">Tags</div>
+                <div className="text-[12px] text-neutral-200">
+                  {fichaViewModal.tags}
+                </div>
+              </div>
+            )}
+
+            {fichaViewModal.aparece_em && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-neutral-500">
+                  Aparece em
+                </div>
+                <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                  {fichaViewModal.aparece_em}
+                </div>
+              </div>
+            )}
+
+            {selectedFichaId === fichaViewModal.id && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-neutral-500">Códigos</div>
+                  <button
+                    type="button"
+                    onClick={startCreateCode}
+                    className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+                  >
+                    + Novo código
+                  </button>
+                </div>
+                {!codes.length && (
+                  <div className="text-[11px] text-neutral-500 mt-1">
+                    Nenhum código cadastrado para esta ficha.
+                  </div>
+                )}
+                {codes.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {codes.map((code) => (
+                      <div
+                        key={code.id}
+                        className="border border-neutral-800 rounded-md px-2 py-1 text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-neutral-100">
+                              {code.code}
+                            </div>
+                            {code.label && (
+                              <div className="text-[10px] text-neutral-500">
+                                {code.label}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+
+            {(fichaViewModal.ano_diegese ||
+              fichaViewModal.ordem_cronologica) && (
+              <div className="grid grid-cols-2 gap-3">
+                {fichaViewModal.ano_diegese && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ano da diegese
+                    </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ano_diegese}
+                    </div>
+                  </div>
+                )}
+                {fichaViewModal.ordem_cronologica && (
+                  <div className="space-y-1">
+                    <div className="text-[11px] text-neutral-500">
+                      Ordem cronológica
+                    </div>
+                    <div className="text-[12px] text-neutral-200">
+                      {fichaViewModal.ordem_cronologica}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(fichaViewModal.data_inicio ||
+              fichaViewModal.data_fim ||
+              fichaViewModal.granularidade_data ||
+              fichaViewModal.descricao_data ||
+              fichaViewModal.camada_temporal) && (
+              <div className={fichaForm.tipo === "evento" ? "mt-3 space-y-2" : "hidden"}>
+                <div className="text-[11px] text-neutral-500">
+                  Tempo (camadas)
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-[12px]">
+                  {fichaViewModal.data_inicio && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Data início
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.data_inicio}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.data_fim && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Data fim
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.data_fim}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.granularidade_data && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Granularidade
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.granularidade_data}
+                      </div>
+                    </div>
+                  )}
+                  {fichaViewModal.camada_temporal && (
+                    <div>
+                      <div className="text-[11px] text-neutral-500">
+                        Camada temporal
+                      </div>
+                      <div className="text-neutral-200">
+                        {fichaViewModal.camada_temporal}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {fichaViewModal.descricao_data && (
+                  <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                    {fichaViewModal.descricao_data}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setFichaViewModal(null)}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  startEditFicha(fichaViewModal);
+                  setFichaViewModal(null);
+                }}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400"
+              >
+                Editar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modais de edição – Mundo */}
+      {worldFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveWorld}
+            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Nome</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={worldForm.nome}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    nome: e.target.value,
+                  }))
+                }
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Descrição
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
+                value={worldForm.descricao}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    descricao: e.target.value,
+                  }))
+                }
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    has_episodes: !prev.has_episodes,
+                  }))
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  worldForm.has_episodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-neutral-700 text-neutral-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+                disabled={isSavingWorld}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingWorld}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {isSavingWorld ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modais de edição – Ficha */}
+      {fichaFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveFicha}
+            className="w-full max-w-3xl max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {fichaFormMode === "create" ? "Nova Ficha" : "Editar Ficha"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelFichaForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Título</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.titulo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    titulo: e.target.value,
+                  }))
+                }
+                placeholder="Ex: Delegada Cíntia"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Slug (opcional)
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.slug}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      slug: e.target.value,
+                    }))
+                  }
+                  placeholder="delegada-cintia, aris-042-corredor"
+                />
+              </div>
+              
+<div className="w-48 space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Tipo (categoria)
+                </label>
+   
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Código da ficha</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.codigo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    codigo: e.target.value,
+                  }))
+                }
+                placeholder="Deixe em branco para usar o código gerado automaticamente (ex: AV7-PS3)…"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                A Lore Machine pode gerar esse código automaticamente com base no Mundo, episódio e tipo.
+                Aqui você pode ajustar manualmente se precisar.
+              </p>
+            </div>
+             <select
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.tipo}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "__novo__") {
+                      const novo = window.prompt(
+                        "Digite o novo tipo/categoria (ex: personagem, local, veículo…):"
+                      );
+                      if (novo && novo.trim()) {
+                        const normalized = novo.trim().toLowerCase();
+                        setFichaForm((prev) => ({
+                          ...prev,
+                          tipo: normalized,
+                        }));
+                      }
+                    } else {
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        tipo: value,
+                      }));
+                    }
+                  }}
+                >
+                  <option value="">Selecione um tipo…</option>
+                  {dynamicTipos.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                  <option value="__novo__">+ Novo tipo…</option>
+                </select>
+                <p className="text-[10px] text-neutral-500 mt-0.5">
+                  Escolha um tipo existente ou crie um novo (ex: &quot;veiculo&quot;).
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Resumo</label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
+                value={fichaForm.resumo}
+  onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    resumo: e.target.value,
+                  }))
+                }
+                placeholder="Resumo curto da ficha…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Conteúdo
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[120px]"
+                value={fichaForm.conteudo}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    conteudo: e.target.value,
+                  }))
+                }
+                placeholder="Texto mais longo da ficha…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Tags</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.tags}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    tags: e.target.value,
+                  }))
+                }
+                placeholder="separe por vírgulas ou espaço, como preferir"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Imagem (URL)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.imagem_url}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    imagem_url: e.target.value,
+                  }))
+                }
+                placeholder="https://… (link de imagem)"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Por enquanto, cole aqui o link direto da imagem (pode ser do Supabase Storage, CDN, etc.).
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Aparece em
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={fichaForm.aparece_em}
+                onChange={(e) =>
+                  setFichaForm((prev) => ({
+                    ...prev,
+                    aparece_em: e.target.value,
+                  }))
+                }
+                placeholder="ex: AV Ep.1; A Sala – Experimento 3…"
+              />
+            </div>
+
+            <div className={fichaForm.tipo === "evento" ? "grid grid-cols-2 gap-2" : "hidden"}>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ano da diegese
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ano_diegese}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ano_diegese: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 1993"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Ordem cronológica
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                  value={fichaForm.ordem_cronologica}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      ordem_cronologica: e.target.value,
+                    }))
+                  }
+                  placeholder="ex: 10, 20, 30…"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
+                Tempo (camadas)
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data início
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_inicio}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_inicio: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Data fim
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.data_fim}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        data_fim: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Granularidade da data
+                  </label>
+                  <select
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.granularidade_data}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        granularidade_data: e.target.value,
+                      }))
+                    }
+                  >
+                    {GRANULARIDADES.map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">
+                    Passe o mouse sobre as opções para ver a explicação na Timeline.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-neutral-500">
+                    Camada temporal
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                    value={fichaForm.camada_temporal}
+                    onChange={(e) =>
+                      setFichaForm((prev) => ({
+                        ...prev,
+                        camada_temporal: e.target.value,
+                      }))
+                    }
+                    placeholder="ex: linha principal, flashback, mito, futuro…"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-neutral-500">
+                  Descrição da camada
+                </label>
+                <textarea
+                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[80px]"
+                  value={fichaForm.descricao_data}
+                  onChange={(e) =>
+                    setFichaForm((prev) => ({
+                      ...prev,
+                      descricao_data: e.target.value,
+                    }))
+                  }
+                  placeholder="Explique como esta ficha se encaixa na linha do tempo, se há ambiguidade, etc."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelFichaForm}
+                disabled={isSavingFicha}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingFicha}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {isSavingFicha ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modais de edição – Código */}
+      {codeFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveCode}
+            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {codeFormMode === "create" ? "Novo Código" : "Editar Código"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelCodeForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Código</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.code}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    code: e.target.value,
+                  }))
+                }
+                placeholder="Deixe em branco para gerar automaticamente…"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Se você deixar vazio e preencher o Episódio, a Lore Machine gera
+                algo como AV7-PS3 automaticamente.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Episódio (para geração automática)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.episode}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    episode: e.target.value,
+                  }))
+                }
+                placeholder="ex: 7"
+              />
+              <p className="text-[10px] text-neutral-500 mt-0.5">
+                Usado para gerar o código no formato AV7-PS3. Você também pode
+                ignorar e escrever o código manualmente.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Rótulo (opcional)
+              </label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={codeForm.label}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    label: e.target.value,
+                  }))
+                }
+                placeholder="Corredor – VHS 1993…"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Descrição (opcional)
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[60px]"
+                value={codeForm.description}
+                onChange={(e) =>
+                  setCodeForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                placeholder="Mais detalhes sobre onde esse código aparece…"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelCodeForm}
+                disabled={isSavingCode}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingCode}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {isSavingCode ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
