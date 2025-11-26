@@ -3,6 +3,8 @@
 import React, { useEffect, useState, useMemo, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+// AQUI ESTAVA FALTANDO O IMPORT:
+import { GRANULARIDADES } from "@/lib/dates/granularidade";
 
 // --- CONSTANTES DE UI ---
 const LORE_TYPES = [
@@ -18,6 +20,16 @@ const LORE_TYPES = [
   { value: "objeto", label: "Objetos" },
   { value: "roteiro", label: "Roteiro" },
   { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
+const CAMADAS_TEMPORAIS = [
+  { value: "linha_principal", label: "Linha Principal" },
+  { value: "flashback", label: "Flashback" },
+  { value: "flashforward", label: "Flashforward" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
+  { value: "historico_antigo", label: "Histórico / Antigo" },
+  { value: "outro", label: "Outro" },
 ];
 
 const RELATION_TYPES = [
@@ -705,10 +717,6 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAIS (MANTER CÓDIGO DE MODAL AQUI - Igual ao anterior, não precisa repetir se já tem no arquivo original, mas para integridade, vou omitir os modais para economizar tokens se você já tem. SE PRECISAR, ME AVISE QUE MANDO ELES TAMBÉM) */}
-      {/* ... Modais de Edit Ficha, World, etc ... */}
-      {/* Vou incluir o Modal de Ficha como exemplo para garantir que funcione */}
-      
       {/* MODAL DE EDIÇÃO DE FICHA */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -765,9 +773,13 @@ function LoreAdminContent() {
         </div>
       )}
       
-      {/* MANTENHA OS OUTROS MODAIS (MUNDO, CÓDIGO, VIEW, RECONCILE) IGUAIS AO ARQUIVO ANTERIOR. */}
+      {/* MODAL EDITAR MUNDO */}
       {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveWorld} className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"><div className="flex items-center justify-between"><div className="text-[11px] text-neutral-400">{worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}</div><button type="button" onClick={cancelWorldForm} className="text-[11px] text-neutral-500 hover:text-neutral-200">fechar</button></div><div className="space-y-1"><label className="text-[11px] text-neutral-500">Nome</label><input className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={worldForm.nome} onChange={(e) => setWorldForm((prev) => ({...prev, nome: e.target.value}))}/></div><div className="space-y-1"><label className="text-[11px] text-neutral-500">Descrição</label><textarea className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]" value={worldForm.descricao} onChange={(e) => setWorldForm((prev) => ({...prev, descricao: e.target.value}))}/></div><div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setWorldForm((prev) => ({...prev, has_episodes: !prev.has_episodes}))} className={`h-4 px-2 rounded border text-[11px] ${worldForm.has_episodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-neutral-700 text-neutral-400 bg-black/40"}`}>Este mundo possui episódios</button></div><div className="flex justify-end gap-2 pt-1"><button type="button" onClick={cancelWorldForm} className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500">Cancelar</button><button type="submit" className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400">Salvar</button></div></form></div>)}
+      
+      {/* MODAL EDITAR CÓDIGO */}
       {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
+      
+      {/* MODAL RECONCILE */}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
   );
