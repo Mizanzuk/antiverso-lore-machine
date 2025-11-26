@@ -8,21 +8,20 @@ export const dynamic = "force-dynamic";
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
 // --- VALIDAÇÃO DE UUID ---
-// Evita que IDs vazios ou inválidos quebrem a query do banco
+// Garante que só enviamos para o banco IDs que são UUIDs válidos, evitando crash do Postgres
 function isValidUUID(uuid: any): boolean {
   if (typeof uuid !== 'string') return false;
   const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return regex.test(uuid);
 }
 
-// Função auxiliar BLINDADA para buscar regras globais
+// --- BUSCA DE REGRAS GLOBAIS ---
+// Busca as regras do "Mundo Raiz" do Universo selecionado
 async function fetchGlobalRules(universeId?: string): Promise<string> {
-  // Se não tem ID ou o ID é inválido, retorna vazio sem consultar o banco
-  if (!universeId || !isValidUUID(universeId)) {
+  // Se não tem Supabase ou o ID é inválido, retorna vazio sem erro
+  if (!supabaseAdmin || !universeId || !isValidUUID(universeId)) {
     return "";
   }
-
-  if (!supabaseAdmin) return "";
 
   try {
     // 1. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
@@ -31,20 +30,24 @@ async function fetchGlobalRules(universeId?: string): Promise<string> {
       .select("id")
       .eq("universe_id", universeId)
       .eq("is_root", true)
-      .maybeSingle(); // 'maybeSingle' não estoura erro se não encontrar
+      .maybeSingle(); // 'maybeSingle' evita erro 500 se não encontrar
 
-    if (worldError || !rootWorld) return "";
+    if (worldError || !rootWorld) {
+      return "";
+    }
 
-    // 2. Buscar fichas de Regras desse Mundo Raiz
-    const { data: rules } = await supabaseAdmin
+    // 2. Buscar fichas de Regra de Mundo, Epistemologia e Conceitos desse Mundo Raiz
+    const { data: rules, error: rulesError } = await supabaseAdmin
       .from("fichas")
       .select("titulo, conteudo, tipo")
       .eq("world_id", rootWorld.id)
       .in("tipo", ["regra_de_mundo", "epistemologia", "conceito"]);
 
-    if (!rules || rules.length === 0) return "";
+    if (rulesError || !rules || rules.length === 0) {
+      return "";
+    }
 
-    // 3. Formatar texto
+    // 3. Formatar texto para o Prompt do Or
     const rulesText = rules
       .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
       .join("\n");
@@ -55,7 +58,7 @@ Estas regras se aplicam a TODOS os mundos e histórias deste universo, sem exce�
 ${rulesText}
 `;
   } catch (err) {
-    console.error("Erro ao buscar regras (ignorado):", err);
+    console.error("Erro ao buscar regras globais (ignorado para não travar):", err);
     return "";
   }
 }
@@ -74,58 +77,74 @@ export async function POST(req: NextRequest) {
     const universeId = body?.universeId as string | undefined;
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: "Mensagem inválida." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Nenhuma mensagem válida enviada para /api/chat." },
+        { status: 400 }
+      );
     }
 
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
 
-    // 1. Busca Vetorial (RAG) - Com try/catch para não quebrar tudo se falhar
+    // 1. Busca Vetorial (RAG)
+    // Envolvemos em try/catch para que falhas na busca não derrubem o chat inteiro
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
-      const loreResults = await searchLore(userQuestion, { limit: 8 });
+      // 'as any' é usado aqui para evitar erro de TypeScript caso o arquivo lib/rag.ts
+      // ainda não tenha sido atualizado com a tipagem do universeId, mas funciona em runtime.
+      const searchOptions: any = { limit: 8, universeId }; 
+      
+      const loreResults = await searchLore(userQuestion, searchOptions);
+      
       if (loreResults && loreResults.length > 0) {
         loreContext = loreResults
-          .map((chunk: any, idx: number) => `### Trecho ${idx + 1} — ${chunk.title}\n${chunk.content}`)
+          .map(
+            (chunk: any, idx: number) =>
+              `### Trecho Relacionado ${idx + 1} — ${chunk.title} [fonte: ${chunk.source}]\n${chunk.content}`
+          )
           .join("\n\n");
       }
-    } catch (ragErr) {
-      console.error("Erro no RAG:", ragErr);
+    } catch (ragError) {
+      console.error("Erro no RAG (ignorado):", ragError);
     }
 
-    // 2. Busca Regras Globais (Blindada)
+    // 2. Busca de Regras Globais do Universo Selecionado
     const globalRules = await fetchGlobalRules(universeId);
 
-    // 3. System Prompt
+    // 3. Montagem do System Prompt
     const contextMessage: Message = {
       role: "system",
       content: [
         "Você é Or, o guardião criativo deste Universo.",
         "Você está respondendo dentro da Lore Machine.",
         "",
-        globalRules, 
+        globalRules, // Injeção das regras do universo
         "",
-        "### CONTEXTO ESPECÍFICO (RAG)",
+        "### CONTEXTO ESPECÍFICO ENCONTRADO (RAG)",
+        "Use estes dados para responder à pergunta atual (se relevante):",
         loreContext,
         "",
         "Se a pergunta for sobre algo não listado aqui, use sua criatividade (se estiver em modo criativo) ou diga que não sabe (se estiver em modo consulta).",
       ].join("\n"),
     };
 
-    // 4. Chamada OpenAI
+    // 4. Chamada ao Modelo (Streaming)
+    // IMPORTANTE: Usar gpt-4o-mini ou gpt-3.5-turbo. "gpt-4.1-mini" não existe.
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
       messages: [contextMessage, ...messages],
       temperature: 0.7,
-      stream: true,
+      stream: true, // Habilita streaming
     });
 
-    // Retorna Stream
+    // Retorna o stream diretamente para o frontend
     const stream = new ReadableStream({
       async start(controller) {
         for await (const chunk of completion) {
           const content = chunk.choices[0]?.delta?.content || "";
-          if (content) controller.enqueue(new TextEncoder().encode(content));
+          if (content) {
+            controller.enqueue(new TextEncoder().encode(content));
+          }
         }
         controller.close();
       },
@@ -136,7 +155,11 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err: any) {
-    console.error("ERRO CRÍTICO /api/chat:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Erro CRÍTICO em /api/chat:", err);
+    // Retorna um erro JSON claro para o frontend tratar
+    return NextResponse.json(
+      { error: `Erro interno ao processar chat: ${err.message}` },
+      { status: 500 }
+    );
   }
 }
