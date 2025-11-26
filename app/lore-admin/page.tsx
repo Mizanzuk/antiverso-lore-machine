@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// --- CONSTANTES DE UI ---
+// --- CONSTANTES ---
 const LORE_TYPES = [
   { value: "personagem", label: "Personagem" },
   { value: "local", label: "Local" },
@@ -30,7 +30,7 @@ const CAMADAS_TEMPORAIS = [
   { value: "outro", label: "Outro" },
 ];
 
-// --- TIPOS DE DADOS ---
+// --- TIPOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 type WorldFormMode = "idle" | "create" | "edit";
@@ -85,20 +85,20 @@ export default function LoreAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dados Principais
+  // Dados
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
   const [codes, setCodes] = useState<any[]>([]);
-  const [relations, setRelations] = useState<Relation[]>([]); // Relações (Wiki)
+  const [relations, setRelations] = useState<Relation[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   // Filtros
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
-  // Formulários
+  // Forms
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
@@ -125,7 +125,7 @@ export default function LoreAdminPage() {
     id: string; code: string; label: string; description: string; episode: string;
   }>({ id: "", code: "", label: "", description: "", episode: "" });
 
-  // Modais de Visualização
+  // Modais Visuais
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
 
@@ -137,7 +137,7 @@ export default function LoreAdminPage() {
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
-  // --- AUTHENTICATION ---
+  // --- AUTH ---
   useEffect(() => {
     const checkSession = async () => {
       setView("loading");
@@ -171,7 +171,6 @@ export default function LoreAdminPage() {
       if (worldsError) { console.error(worldsError); setError("Erro ao carregar mundos."); setIsLoadingData(false); return; }
       
       const list = data || [];
-      // Ordenação: AntiVerso primeiro
       list.sort((a: any, b: any) => {
         const nameA = (a.nome || "").toLowerCase().trim();
         const nameB = (b.nome || "").toLowerCase().trim();
@@ -241,7 +240,6 @@ export default function LoreAdminPage() {
       .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
 
     if (candidates.length === 0) return text;
-    // Ordena por tamanho para evitar substituições parciais
     candidates.sort((a, b) => b.titulo.length - a.titulo.length);
 
     const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
@@ -375,10 +373,23 @@ export default function LoreAdminPage() {
     );
   };
 
-  // --- UI HELPER & RENDERS ---
+  // --- UI HELPER ---
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
-  const dynamicTipos = Array.from(new Set<string>([...LORE_TYPES.map(t=>t.value), ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
+
+  // Calcula tipos disponíveis dinamicamente para os filtros
+  const allTypes = useMemo(() => {
+    const standard = LORE_TYPES.map(t => t.value);
+    const fromData = fichas.map(f => (f.tipo || "").toLowerCase().trim()).filter(Boolean);
+    // Junta tudo num Set para remover duplicatas e ordena
+    return Array.from(new Set([...standard, ...fromData])).sort();
+  }, [fichas]);
+
+  // Helper para pegar o Label bonito do tipo
+  function getTypeLabel(typeValue: string) {
+    const found = LORE_TYPES.find(t => t.value === typeValue);
+    return found ? found.label : typeValue.charAt(0).toUpperCase() + typeValue.slice(1);
+  }
 
   const filteredFichas = fichas.filter((f) => {
     if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes((f.tipo || "").toLowerCase())) return false;
@@ -386,8 +397,7 @@ export default function LoreAdminPage() {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
-      if (!inTitulo && !inResumo && !inTags) return false;
+      if (!inTitulo && !inResumo) return false;
     }
     return true;
   });
@@ -425,7 +435,31 @@ export default function LoreAdminPage() {
         <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-900/20">
           <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorld?.nome || "Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
           <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-3 text-white focus:border-emerald-500 outline-none" placeholder="Buscar..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
-          <div className="flex flex-wrap gap-1 mb-3"><button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}>Todos</button>{dynamicTipos.slice(0, 5).map(t => (<button key={t} onClick={() => toggleFilterTipo(t)} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}>{t.slice(0,3)}</button>))}</div>
+          
+          {/* FILTROS DE CATEGORIA ATUALIZADOS */}
+          <div className="flex flex-wrap gap-1 mb-3">
+            <button 
+              onClick={() => setFichaFilterTipos([])} 
+              className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
+              title="Mostrar todas as categorias"
+            >
+              TODOS
+            </button>
+            {allTypes.map(t => {
+              const label = getTypeLabel(t);
+              return (
+                <button 
+                  key={t} 
+                  onClick={() => toggleFilterTipo(t)} 
+                  className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
+                  title={label} // Tooltip com nome completo
+                >
+                  {t.slice(0,3).toUpperCase()}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="flex-1 overflow-auto space-y-1 pr-1">{filteredFichas.map((f) => (<div key={f.id} className={`border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} onClick={() => handleSelectFicha(f.id)}><div className="flex justify-between items-start"><span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span><span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span></div>{f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed">{f.resumo}</span>}</div>))}</div>
         </section>
 
