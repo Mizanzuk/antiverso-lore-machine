@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
@@ -18,6 +18,22 @@ const LORE_TYPES = [
   { value: "objeto", label: "Objetos" },
   { value: "roteiro", label: "Roteiro" },
   { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
+const RELATION_TYPES = [
+  "relacionado_a",
+  "amigo_de",
+  "inimigo_de",
+  "localizado_em",
+  "mora_em",
+  "nasceu_em",
+  "participou_de",
+  "protagonizado_por",
+  "menciona",
+  "pai_de",
+  "filho_de",
+  "criador_de",
+  "parte_de"
 ];
 
 const CAMADAS_TEMPORAIS = [
@@ -98,7 +114,7 @@ export default function LoreAdminPage() {
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
-  // Forms
+  // Forms Principais
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
@@ -119,6 +135,7 @@ export default function LoreAdminPage() {
     data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "linha_principal"
   });
 
+  // Form de Código
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
@@ -136,6 +153,16 @@ export default function LoreAdminPage() {
   const [comparing, setComparing] = useState<{ a: FichaFull; b: FichaFull } | null>(null);
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
+
+  // ESTADOS NOVOS: Gerenciamento de Relações e Menções
+  const [isManagingRelations, setIsManagingRelations] = useState(false);
+  const [newRelationTarget, setNewRelationTarget] = useState("");
+  const [newRelationType, setNewRelationType] = useState("relacionado_a");
+  const [isSavingRelation, setIsSavingRelation] = useState(false);
+
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [activeTextarea, setActiveTextarea] = useState<"conteudo" | "resumo" | null>(null);
+
 
   // --- AUTH ---
   useEffect(() => {
@@ -229,7 +256,85 @@ export default function LoreAdminPage() {
     setSelectedFichaId(fichaId);
     fetchCodes(fichaId);
     fetchRelations(fichaId);
+    setIsManagingRelations(false); // Reseta modo de edição de relação ao trocar ficha
   }
+
+  // --- GERENCIAMENTO DE RELAÇÕES ---
+
+  async function handleAddRelation() {
+    if (!selectedFichaId || !newRelationTarget) return;
+    setIsSavingRelation(true);
+    
+    const { error } = await supabaseBrowser.from("lore_relations").insert({
+      source_ficha_id: selectedFichaId,
+      target_ficha_id: newRelationTarget,
+      tipo_relacao: newRelationType,
+      descricao: "Adicionado manualmente"
+    });
+
+    if (error) {
+      alert("Erro ao adicionar relação: " + error.message);
+    } else {
+      await fetchRelations(selectedFichaId);
+      setNewRelationTarget("");
+    }
+    setIsSavingRelation(false);
+  }
+
+  async function handleDeleteRelation(relationId: string) {
+    if (!confirm("Apagar esta conexão?")) return;
+    const { error } = await supabaseBrowser.from("lore_relations").delete().eq("id", relationId);
+    if (error) alert("Erro ao apagar: " + error.message);
+    else if (selectedFichaId) await fetchRelations(selectedFichaId);
+  }
+
+  // --- MENTIONS HELPERS ---
+
+  // Detecta se o usuário está digitando @...
+  function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>, field: "conteudo" | "resumo") {
+    const val = e.target.value;
+    setFichaForm({ ...fichaForm, [field]: val });
+
+    const cursor = e.target.selectionStart;
+    const textBefore = val.substring(0, cursor);
+    const lastAt = textBefore.lastIndexOf("@");
+
+    if (lastAt !== -1) {
+      // Verifica se há espaço entre o @ e o cursor (o que invalidaria a menção)
+      // ou se o @ faz parte de um email (ex: "a@" -> ok, "a @b" -> ok)
+      // Simplificação: Se o texto entre @ e cursor não tem espaço, é uma query
+      const query = textBefore.substring(lastAt + 1);
+      if (!/\s/.test(query)) {
+        setMentionQuery(query);
+        setActiveTextarea(field);
+        return;
+      }
+    }
+    setMentionQuery(null);
+    setActiveTextarea(null);
+  }
+
+  function insertMention(ficha: any) {
+    if (!activeTextarea) return;
+    const currentText = fichaForm[activeTextarea] || "";
+    
+    // Acha o último @ antes do cursor (aproximado, pois não temos ref do cursor aqui, mas assumimos fim do input no fluxo simples)
+    // Para uma implementação robusta de cursor, precisaríamos de refs.
+    // Vamos usar uma substituição simples do final da string se ela bater com a query
+    
+    const regex = new RegExp(`@${mentionQuery}$`);
+    if (regex.test(currentText)) {
+       const newText = currentText.replace(regex, ficha.titulo); // Apenas insere o nome. O renderWikiText fará o link.
+       setFichaForm({ ...fichaForm, [activeTextarea]: newText });
+    } else {
+       // Fallback: apenas concatena se algo deu errado no tracking
+       setFichaForm({ ...fichaForm, [activeTextarea]: currentText + ficha.titulo });
+    }
+    
+    setMentionQuery(null);
+    setActiveTextarea(null);
+  }
+
 
   // --- WIKI RENDERER ---
   const renderWikiText = (text: string | null | undefined) => {
@@ -252,12 +357,7 @@ export default function LoreAdminPage() {
       const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
       if (target) {
         elements.push(
-          <button
-            key={`${target.id}-${offset}`}
-            type="button"
-            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors"
-            onClick={() => handleSelectFicha(target.id)}
-          >
+          <button key={`${target.id}-${offset}`} type="button" className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors" onClick={() => handleSelectFicha(target.id)}>
             {match}
           </button>
         );
@@ -275,18 +375,13 @@ export default function LoreAdminPage() {
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true }); }
   function startEditWorld(world: any) { setWorldFormMode("edit"); setWorldForm({ id: world.id, nome: world.nome, descricao: world.descricao, tipo: world.tipo, ordem: world.ordem, has_episodes: world.has_episodes }); }
   function cancelWorldForm() { setWorldFormMode("idle"); }
-  
   async function handleSaveWorld(e: React.FormEvent) {
-    e.preventDefault(); 
-    setIsSavingWorld(true);
+    e.preventDefault(); setIsSavingWorld(true);
     const payload: any = { nome: worldForm.nome.trim(), descricao: worldForm.descricao.trim() || null, has_episodes: worldForm.has_episodes };
     if(worldFormMode==='create') await supabaseBrowser.from("worlds").insert([payload]);
     else await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
-    setIsSavingWorld(false); 
-    cancelWorldForm(); 
-    await fetchAllData();
+    setIsSavingWorld(false); cancelWorldForm(); await fetchAllData();
   }
-  
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if(!confirm("Tem certeza que deseja deletar este Mundo? Essa ação é irreversível.")) return;
@@ -310,7 +405,6 @@ export default function LoreAdminPage() {
     }); 
   }
   function cancelFichaForm() { setFichaFormMode("idle"); }
-  
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault(); setIsSavingFicha(true);
     const payload: any = {
@@ -337,7 +431,6 @@ export default function LoreAdminPage() {
     setIsSavingFicha(false); cancelFichaForm();
     const w = worlds.find(x => x.id === selectedWorldId); await fetchFichas(w);
   }
-  
   async function handleDeleteFicha(id: string) {
     if(!confirm("Tem certeza que deseja apagar esta ficha?")) return;
     await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
@@ -386,7 +479,6 @@ export default function LoreAdminPage() {
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
 
-  // Calcula tipos disponíveis dinamicamente para os filtros
   const allTypes = useMemo(() => {
     const standard = LORE_TYPES.map(t => t.value);
     const fromData = fichas.map(f => (f.tipo || "").toLowerCase().trim()).filter(Boolean);
@@ -414,6 +506,15 @@ export default function LoreAdminPage() {
     setFichaFilterTipos((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
   }
 
+  const filteredMentions = useMemo(() => {
+    if (!mentionQuery) return [];
+    const lower = mentionQuery.toLowerCase();
+    return fichas.filter(f => 
+      f.titulo.toLowerCase().includes(lower) || 
+      (f.tipo && f.tipo.toLowerCase().includes(lower))
+    ).slice(0, 6); // Limita a 6 sugestões
+  }, [mentionQuery, fichas]);
+
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
   if (view === "loggedOut") return (<div className="min-h-screen bg-black text-white flex items-center justify-center"><form onSubmit={handleLogin} className="p-8 border border-zinc-800 rounded bg-zinc-950"><h1 className="mb-4 text-sm uppercase tracking-widest">Login Admin</h1><input type="email" placeholder="Email" className="block w-full mb-2 p-2 bg-black border border-zinc-700 text-xs" value={email} onChange={e=>setEmail(e.target.value)}/><input type="password" placeholder="Senha" className="block w-full mb-4 p-2 bg-black border border-zinc-700 text-xs" value={password} onChange={e=>setPassword(e.target.value)}/><button className="w-full bg-emerald-600 py-2 text-xs uppercase font-bold">Entrar</button></form></div>);
 
@@ -438,7 +539,6 @@ export default function LoreAdminPage() {
         <section className="w-64 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-950/50">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2>
-            {/* Botão + agora chama o modal corretamente */}
             <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
           </div>
           <div className="flex-1 overflow-auto space-y-1 pr-1">
@@ -452,20 +552,10 @@ export default function LoreAdminPage() {
                   <span className="font-medium truncate">{w.nome}</span>
                 </div>
                 
-                {/* Botões EDIT e DEL aparecem no hover */}
+                {/* Botões EDIT e DEL */}
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5">
-                   <button 
-                     onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} 
-                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded"
-                   >
-                     Edit
-                   </button>
-                   <button 
-                     onClick={(e) => handleDeleteWorld(w.id, e)} 
-                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded"
-                   >
-                     Del
-                   </button>
+                   <button onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded">Edit</button>
+                   <button onClick={(e) => handleDeleteWorld(w.id, e)} className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded">Del</button>
                 </div>
               </div>
             ))}
@@ -477,57 +567,24 @@ export default function LoreAdminPage() {
           <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorld?.nome || "Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
           <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-3 text-white focus:border-emerald-500 outline-none" placeholder="Buscar..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
           
-          {/* Filtros de Categorias (Todas visíveis, com tooltip) */}
+          {/* Filtros de Categorias */}
           <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto scrollbar-thin">
-            <button 
-              onClick={() => setFichaFilterTipos([])} 
-              className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
-              title="Todas as categorias"
-            >
-              TODOS
-            </button>
+            <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`} title="Todas as categorias">TODOS</button>
             {allTypes.map(t => {
               const label = getTypeLabel(t);
-              return (
-                <button 
-                  key={t} 
-                  onClick={() => toggleFilterTipo(t)} 
-                  className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
-                  title={label}
-                >
-                  {t.slice(0,3).toUpperCase()}
-                </button>
-              );
+              return (<button key={t} onClick={() => toggleFilterTipo(t)} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`} title={label}>{t.slice(0,3).toUpperCase()}</button>);
             })}
           </div>
 
           <div className="flex-1 overflow-auto space-y-1 pr-1">
             {filteredFichas.map((f) => (
-              <div 
-                key={f.id} 
-                className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} 
-                onClick={() => handleSelectFicha(f.id)}
-              >
-                <div className="flex justify-between items-start pr-8">
-                  <span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span>
-                  <span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span>
-                </div>
+              <div key={f.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} onClick={() => handleSelectFicha(f.id)}>
+                <div className="flex justify-between items-start pr-8"><span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span><span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span></div>
                 {f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed pr-8">{f.resumo}</span>}
-
-                {/* Botões EDIT e DEL aparecem no hover */}
+                {/* Botões EDIT e DEL na Ficha */}
                 <div className="absolute right-2 top-2 hidden group-hover:flex flex-col gap-1 bg-black/90 rounded p-0.5 z-10">
-                   <button 
-                     onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} 
-                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-center"
-                   >
-                     Edit
-                   </button>
-                   <button 
-                     onClick={(e) => { e.stopPropagation(); handleDeleteFicha(f.id); }} 
-                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-center"
-                   >
-                     Del
-                   </button>
+                   <button onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-center">Edit</button>
+                   <button onClick={(e) => { e.stopPropagation(); handleDeleteFicha(f.id); }} className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-center">Del</button>
                 </div>
               </div>
             ))}
@@ -538,38 +595,92 @@ export default function LoreAdminPage() {
         <section className="flex-1 p-6 flex flex-col min-h-0 overflow-y-auto bg-black">
           {!selectedFicha ? <div className="flex items-center justify-center h-full text-neutral-600 text-xs">Selecione uma ficha para visualizar</div> : (
             <div className="max-w-3xl mx-auto w-full">
-              {/* Header Ficha */}
+              {/* Header */}
               <div className="mb-8 pb-6 border-b border-neutral-900">
-                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2">
-                  <span>{selectedFicha.tipo}</span>
-                  {selectedFicha.slug && <span className="text-neutral-600 font-normal lowercase">/ {selectedFicha.slug}</span>}
-                </div>
+                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2"><span>{selectedFicha.tipo}</span>{selectedFicha.slug && <span className="text-neutral-600 font-normal lowercase">/ {selectedFicha.slug}</span>}</div>
                 <h1 className="text-3xl font-bold text-white mb-3">{selectedFicha.titulo}</h1>
                 {selectedFicha.resumo && <p className="text-lg text-neutral-400 italic leading-relaxed">{renderWikiText(selectedFicha.resumo)}</p>}
               </div>
               
-              {/* Botões Principais de Ação (Duplicados aqui também por conveniência) */}
+              {/* Botões de Ação */}
               <div className="flex justify-end gap-2 mb-6">
                 <button onClick={() => startEditFicha(selectedFicha)} className="px-3 py-1 rounded border border-neutral-800 text-[10px] hover:bg-neutral-900 text-neutral-400">Editar Ficha</button>
                 <button onClick={() => handleDeleteFicha(selectedFicha.id)} className="px-3 py-1 rounded border border-red-900/30 text-[10px] hover:bg-red-900/20 text-red-400">Excluir Ficha</button>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-12">
-                {/* Conteúdo */}
+                {/* Conteúdo Principal */}
                 <div className="space-y-6">
                    {selectedFicha.imagem_url && <div className="rounded border border-neutral-800 overflow-hidden bg-neutral-900/30"><img src={selectedFicha.imagem_url} className="w-full object-cover opacity-80 hover:opacity-100" /></div>}
                    <div><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-neutral-300 leading-loose whitespace-pre-wrap font-light">{renderWikiText(selectedFicha.conteudo)}</div></div>
                    {selectedFicha.aparece_em && <div className="p-4 rounded bg-neutral-900/30 border border-neutral-800"><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">Aparece em</h3><div className="text-xs text-neutral-400 whitespace-pre-wrap">{renderWikiText(selectedFicha.aparece_em)}</div></div>}
                 </div>
                 
-                {/* Sidebar Metadados */}
+                {/* Sidebar: Relações e Metadados */}
                 <div className="space-y-8">
-                  <div>
-                    <h3 className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold mb-3 flex items-center gap-2">🔗 Conexões Detectadas</h3>
-                    {relations.length === 0 ? <p className="text-[10px] text-neutral-600">Nenhuma conexão registrada.</p> : (
-                      <div className="space-y-2">{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source; if (!other) return null; return (<button key={rel.id} onClick={() => handleSelectFicha(other.id)} className="w-full text-left p-2 rounded border border-neutral-800 hover:border-emerald-500/50 bg-neutral-900/20 hover:bg-neutral-900/50 transition-all group"><div><div className="text-[9px] text-neutral-500 uppercase tracking-wide group-hover:text-emerald-400 mb-0.5">{rel.tipo_relacao?.replace(/_/g, " ") || "Relacionado a"}</div><div className="text-xs font-medium text-neutral-300 group-hover:text-white">{other.titulo}</div></div><span className="text-[10px] text-neutral-600 group-hover:text-emerald-500">→</span></button>); })}</div>
+                  {/* Bloco de Relações com Modo de Edição */}
+                  <div className="border rounded border-neutral-800 bg-neutral-900/10 p-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold flex items-center gap-2">🔗 Conexões</h3>
+                      <button onClick={() => setIsManagingRelations(!isManagingRelations)} className={`text-[9px] px-2 py-0.5 rounded border ${isManagingRelations ? "bg-emerald-900/50 border-emerald-500 text-white" : "border-neutral-800 text-neutral-500 hover:text-white"}`}>
+                        {isManagingRelations ? "Concluir" : "Gerenciar"}
+                      </button>
+                    </div>
+
+                    {/* Lista de Relações */}
+                    <div className="space-y-1 mb-2">
+                      {relations.length === 0 && <p className="text-[10px] text-neutral-600 italic">Nenhuma conexão.</p>}
+                      {relations.map(rel => {
+                        const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source;
+                        if (!other) return null;
+                        return (
+                          <div key={rel.id} className="group flex items-center justify-between p-2 rounded bg-neutral-900/40 border border-neutral-800/50 hover:border-neutral-700 transition-all">
+                            <button onClick={() => !isManagingRelations && handleSelectFicha(other.id)} className={`text-left flex-1 ${!isManagingRelations ? "cursor-pointer" : "cursor-default"}`}>
+                              <div className="text-[9px] text-neutral-500 uppercase tracking-wide mb-0.5">{rel.tipo_relacao?.replace(/_/g, " ") || "Relacionado a"}</div>
+                              <div className="text-xs font-medium text-neutral-300">{other.titulo}</div>
+                            </button>
+                            {isManagingRelations && (
+                               <button onClick={() => handleDeleteRelation(rel.id)} className="text-red-500 hover:text-red-300 px-2 py-1 text-xs">×</button>
+                            )}
+                            {!isManagingRelations && <span className="text-[10px] text-neutral-600">→</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Form de Adicionar Relação */}
+                    {isManagingRelations && (
+                      <div className="mt-3 pt-3 border-t border-neutral-800 space-y-2">
+                        <div className="text-[9px] text-neutral-500 uppercase tracking-wide">Adicionar Conexão</div>
+                        <select 
+                          className="w-full bg-black border border-neutral-700 rounded text-[10px] p-1.5 text-neutral-300"
+                          value={newRelationTarget}
+                          onChange={(e) => setNewRelationTarget(e.target.value)}
+                        >
+                          <option value="">Selecione a ficha alvo...</option>
+                          {fichas.filter(f => f.id !== selectedFicha.id).map(f => (
+                            <option key={f.id} value={f.id}>{f.titulo} ({f.tipo})</option>
+                          ))}
+                        </select>
+                        <select 
+                          className="w-full bg-black border border-neutral-700 rounded text-[10px] p-1.5 text-neutral-300"
+                          value={newRelationType}
+                          onChange={(e) => setNewRelationType(e.target.value)}
+                        >
+                          {RELATION_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+                        </select>
+                        <button 
+                          onClick={handleAddRelation}
+                          disabled={isSavingRelation || !newRelationTarget}
+                          className="w-full bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-600/50 text-emerald-200 text-[10px] py-1.5 rounded uppercase tracking-wide disabled:opacity-50"
+                        >
+                          {isSavingRelation ? "Salvando..." : "Adicionar Conexão"}
+                        </button>
+                      </div>
                     )}
                   </div>
+                  
+                  {/* Metadados */}
                   <div>
                     <h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-3 flex items-center justify-between">
                       Metadados
@@ -578,14 +689,8 @@ export default function LoreAdminPage() {
                     <div className="space-y-2 text-[11px]">
                       {codes.map(c => (
                         <div key={c.id} className="flex justify-between items-center py-1 border-b border-neutral-900 group">
-                          <div className="flex flex-col">
-                            <span className="font-mono text-emerald-500">{c.code}</span>
-                            {c.label && <span className="text-[9px] text-neutral-600">{c.label}</span>}
-                          </div>
-                          <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-                            <button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button>
-                            <button onClick={()=>handleDeleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button>
-                          </div>
+                          <div className="flex flex-col"><span className="font-mono text-emerald-500">{c.code}</span>{c.label && <span className="text-[9px] text-neutral-600">{c.label}</span>}</div>
+                          <div className="opacity-0 group-hover:opacity-100 flex gap-1"><button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button><button onClick={()=>handleDeleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button></div>
                         </div>
                       ))}
                       {selectedFicha.ano_diegese && <div className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Ano</span><span className="text-neutral-300">{selectedFicha.ano_diegese}</span></div>}
@@ -602,26 +707,14 @@ export default function LoreAdminPage() {
       {/* MODAL DE EDIÇÃO DE FICHA */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+          <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl relative">
             <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">Editar Ficha</h2>
             <div className="grid gap-4">
               
-              {/* TIPO (DROPDOWN COM SUPORTE A NOVO TIPO) */}
+              {/* TIPO */}
               <div className="space-y-1">
                 <label className="text-[10px] uppercase text-zinc-500">Tipo</label>
-                <select 
-                  className="w-full bg-black border border-zinc-800 p-2 text-xs rounded"
-                  value={LORE_TYPES.some(t => t.value === fichaForm.tipo) ? fichaForm.tipo : "novo"}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "novo") {
-                      const custom = prompt("Digite o nome da nova categoria:");
-                      if (custom) setFichaForm({...fichaForm, tipo: custom.toLowerCase().trim()});
-                    } else {
-                      setFichaForm({...fichaForm, tipo: val});
-                    }
-                  }}
-                >
+                <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={LORE_TYPES.some(t => t.value === fichaForm.tipo) ? fichaForm.tipo : "novo"} onChange={(e) => { const val = e.target.value; if (val === "novo") { const custom = prompt("Digite o nome da nova categoria:"); if (custom) setFichaForm({...fichaForm, tipo: custom.toLowerCase().trim()}); } else { setFichaForm({...fichaForm, tipo: val}); } }}>
                   {LORE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   {!LORE_TYPES.some(t => t.value === fichaForm.tipo) && <option value={fichaForm.tipo}>{fichaForm.tipo} (Atual)</option>}
                   <option value="novo">+ Nova Categoria...</option>
@@ -635,37 +728,44 @@ export default function LoreAdminPage() {
                  <div><label className="text-[10px] uppercase text-zinc-500">Ano Diegese</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.ano_diegese} onChange={e=>setFichaForm({...fichaForm, ano_diegese: e.target.value})} /></div>
               </div>
               
-              <div><label className="text-[10px] uppercase text-zinc-500">Resumo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo} onChange={e=>setFichaForm({...fichaForm, resumo: e.target.value})} /></div>
-              <div><label className="text-[10px] uppercase text-zinc-500">Conteúdo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono leading-relaxed" value={fichaForm.conteudo} onChange={e=>setFichaForm({...fichaForm, conteudo: e.target.value})} /></div>
+              {/* RESUMO com Menção */}
+              <div className="relative">
+                <label className="text-[10px] uppercase text-zinc-500">Resumo</label>
+                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo} onChange={(e) => handleTextareaChange(e, "resumo")} />
+                {activeTextarea === "resumo" && filteredMentions.length > 0 && (
+                  <div className="absolute left-0 top-full mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded shadow-xl z-50">
+                    {filteredMentions.map(sug => (
+                       <button key={sug.id} type="button" onClick={() => insertMention(sug)} className="block w-full text-left px-3 py-2 text-xs hover:bg-zinc-800 text-zinc-300">{sug.titulo} <span className="text-zinc-500 text-[9px]">({sug.tipo})</span></button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* CONTEÚDO com Menção */}
+              <div className="relative">
+                <label className="text-[10px] uppercase text-zinc-500">Conteúdo</label>
+                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono leading-relaxed" value={fichaForm.conteudo} onChange={(e) => handleTextareaChange(e, "conteudo")} />
+                {activeTextarea === "conteudo" && filteredMentions.length > 0 && (
+                  <div className="absolute left-0 top-full mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded shadow-xl z-50">
+                    {filteredMentions.map(sug => (
+                       <button key={sug.id} type="button" onClick={() => insertMention(sug)} className="block w-full text-left px-3 py-2 text-xs hover:bg-zinc-800 text-zinc-300">{sug.titulo} <span className="text-zinc-500 text-[9px]">({sug.tipo})</span></button>
+                    ))}
+                  </div>
+                )}
+              </div>
               
-              {/* CAMPOS DE TIMELINE (APARECEM APENAS SE FOR EVENTO) */}
+              {/* CAMPOS DE TIMELINE */}
               {fichaForm.tipo === 'evento' && (
                 <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
-                   
-                   <div>
-                     <label className="text-[10px] uppercase text-zinc-500">Descrição da Data</label>
-                     <input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} placeholder='ex: "Na tarde de 23 de agosto..."' />
-                   </div>
-
+                   <div><label className="text-[10px] uppercase text-zinc-500">Descrição da Data</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} /></div>
                    <div className="grid grid-cols-2 gap-2">
                       <div><label className="text-[10px] uppercase text-zinc-500">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_inicio || ''} onChange={e=>setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
                       <div><label className="text-[10px] uppercase text-zinc-500">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_fim || ''} onChange={e=>setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
                    </div>
-
                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] uppercase text-zinc-500">Granularidade</label>
-                        <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.granularidade_data || 'vago'} onChange={e=>setFichaForm({...fichaForm, granularidade_data: e.target.value})}>
-                           {GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase text-zinc-500">Camada</label>
-                        <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.camada_temporal || 'linha_principal'} onChange={e=>setFichaForm({...fichaForm, camada_temporal: e.target.value})}>
-                           {CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                        </select>
-                      </div>
+                      <div><label className="text-[10px] uppercase text-zinc-500">Granularidade</label><select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.granularidade_data || 'vago'} onChange={e=>setFichaForm({...fichaForm, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                      <div><label className="text-[10px] uppercase text-zinc-500">Camada</label><select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.camada_temporal || 'linha_principal'} onChange={e=>setFichaForm({...fichaForm, camada_temporal: e.target.value})}>{CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
                    </div>
                 </div>
               )}
@@ -673,141 +773,16 @@ export default function LoreAdminPage() {
               <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tags} onChange={e=>setFichaForm({...fichaForm, tags: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
-
             </div>
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
           </form>
         </div>
       )}
       
-      {/* MODAL DE CRIAÇÃO/EDIÇÃO DE MUNDO */}
-      {worldFormMode !== "idle" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-          <form
-            onSubmit={handleSaveWorld}
-            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] text-neutral-400">
-                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
-              </div>
-              <button
-                type="button"
-                onClick={cancelWorldForm}
-                className="text-[11px] text-neutral-500 hover:text-neutral-200"
-              >
-                fechar
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] text-neutral-500">Nome</label>
-              <input
-                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                value={worldForm.nome}
-                onChange={(e) =>
-                  setWorldForm((prev) => ({
-                    ...prev,
-                    nome: e.target.value,
-                  }))
-                }
-                placeholder="Ex: Arquivos Vermelhos"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] text-neutral-500">
-                Descrição
-              </label>
-              <textarea
-                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
-                value={worldForm.descricao}
-                onChange={(e) =>
-                  setWorldForm((prev) => ({
-                    ...prev,
-                    descricao: e.target.value,
-                  }))
-                }
-                placeholder="Resumo do Mundo…"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setWorldForm((prev) => ({
-                    ...prev,
-                    has_episodes: !prev.has_episodes,
-                  }))
-                }
-                className={`h-4 px-2 rounded border text-[11px] ${
-                  worldForm.has_episodes
-                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
-                    : "border-neutral-700 text-neutral-400 bg-black/40"
-                }`}
-              >
-                Este mundo possui episódios
-              </button>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={cancelWorldForm}
-                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
-                disabled={isSavingWorld}
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSavingWorld}
-                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
-              >
-                {isSavingWorld ? "Salvando…" : "Salvar"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL DE CÓDIGO */}
-      {codeFormMode !== "idle" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-          <form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl">
-            <div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div>
-            <div className="space-y-3">
-               <div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div>
-               <div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div>
-               <div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL DE VISUALIZAÇÃO RÁPIDA (DOUBLE CLICK) */}
-      {fichaViewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-           <div className="w-full max-w-3xl bg-zinc-950 border border-zinc-800 p-8 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl relative">
-             <button onClick={() => setFichaViewModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white text-xs">FECHAR</button>
-             <div className="mb-6 pb-4 border-b border-zinc-800">
-               <div className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2">{fichaViewModal.tipo}</div>
-               <h1 className="text-3xl font-bold text-white">{fichaViewModal.titulo}</h1>
-             </div>
-             <div className="space-y-4 text-sm text-zinc-300 leading-relaxed">
-               <div className="p-4 bg-zinc-900/30 rounded border border-zinc-800/50 italic text-zinc-400">{renderWikiText(fichaViewModal.resumo)}</div>
-               <div className="whitespace-pre-wrap">{renderWikiText(fichaViewModal.conteudo)}</div>
-             </div>
-             <div className="mt-8 flex justify-end gap-2">
-               <button onClick={() => { startEditFicha(fichaViewModal); setFichaViewModal(null); }} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Editar</button>
-             </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL DE RECONCILIAÇÃO (Mantido) */}
+      {/* MODAIS DE MUNDO, CÓDIGO, VISUALIZAÇÃO, RECONCILIAÇÃO (MANTIDOS) */}
+      {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveWorld} className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"><div className="flex items-center justify-between"><div className="text-[11px] text-neutral-400">{worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}</div><button type="button" onClick={cancelWorldForm} className="text-[11px] text-neutral-500 hover:text-neutral-200">fechar</button></div><div className="space-y-1"><label className="text-[11px] text-neutral-500">Nome</label><input className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={worldForm.nome} onChange={(e) => setWorldForm((prev) => ({...prev, nome: e.target.value}))}/></div><div className="space-y-1"><label className="text-[11px] text-neutral-500">Descrição</label><textarea className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]" value={worldForm.descricao} onChange={(e) => setWorldForm((prev) => ({...prev, descricao: e.target.value}))}/></div><div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setWorldForm((prev) => ({...prev, has_episodes: !prev.has_episodes}))} className={`h-4 px-2 rounded border text-[11px] ${worldForm.has_episodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-neutral-700 text-neutral-400 bg-black/40"}`}>Este mundo possui episódios</button></div><div className="flex justify-end gap-2 pt-1"><button type="button" onClick={cancelWorldForm} className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500">Cancelar</button><button type="submit" className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400">Salvar</button></div></form></div>)}
+      {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
+      {fichaViewModal && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"><div className="w-full max-w-3xl bg-zinc-950 border border-zinc-800 p-8 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl relative"><button onClick={() => setFichaViewModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white text-xs">FECHAR</button><div className="mb-6 pb-4 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2">{fichaViewModal.tipo}</div><h1 className="text-3xl font-bold text-white">{fichaViewModal.titulo}</h1></div><div className="space-y-4 text-sm text-zinc-300 leading-relaxed"><div className="p-4 bg-zinc-900/30 rounded border border-zinc-800/50 italic text-zinc-400">{renderWikiText(fichaViewModal.resumo)}</div><div className="whitespace-pre-wrap">{renderWikiText(fichaViewModal.conteudo)}</div></div><div className="mt-8 flex justify-end gap-2"><button onClick={() => { startEditFicha(fichaViewModal); setFichaViewModal(null); }} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Editar</button></div></div></div>)}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
   );
