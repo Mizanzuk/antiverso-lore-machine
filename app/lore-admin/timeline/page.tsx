@@ -17,6 +17,7 @@ type World = {
   ordem?: number | null;
   has_episodes?: boolean | null;
   universe_id?: string | null;
+  is_root?: boolean; // Importante para filtrar
 };
 
 type TimelineEvent = {
@@ -24,7 +25,7 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
-  conteudo: string | null; // Mantido a correção anterior
+  conteudo: string | null;
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -37,7 +38,7 @@ type TimelineEvent = {
 };
 
 type TimelineGroup = {
-  label: string; // "Anos 1990", "2025", "Sem data"
+  label: string; 
   type: "decade" | "year" | "unknown";
   children?: TimelineGroup[];
   events?: TimelineEvent[];
@@ -87,7 +88,6 @@ function formatDescricaoData(event: TimelineEvent) {
   if (event.data_inicio) {
     try {
       const date = new Date(event.data_inicio);
-      // Ajuste de fuso horário simples para visualização
       const userTimezoneOffset = date.getTimezoneOffset() * 60000;
       const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
 
@@ -117,7 +117,6 @@ export default function TimelinePage() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   
-  // Estado de expansão dos grupos (chave: label do grupo)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // --- ESTADOS DE EDIÇÃO/CRIAÇÃO ---
@@ -129,7 +128,7 @@ export default function TimelinePage() {
   const [createData, setCreateData] = useState<Partial<TimelineEvent>>({});
   const [isSavingCreate, setIsSavingCreate] = useState(false);
 
-  // Estados de Criação de Mundo (Reaproveitado se necessário, mantendo compatibilidade)
+  // Estados para criação de mundo (caso queira manter a funcionalidade aqui também)
   const [showNewWorldModal, setShowNewWorldModal] = useState(false);
   const [newWorldName, setNewWorldName] = useState("");
   const [newWorldDescription, setNewWorldDescription] = useState("");
@@ -151,9 +150,7 @@ export default function TimelinePage() {
         
         if (data && data.length > 0) {
           setUniverses(data);
-          // Seleciona o primeiro universo por padrão se nenhum estiver selecionado
           if (!selectedUniverseId) {
-             // Tenta achar o AntiVerso
              const antiverso = data.find(u => u.nome.toLowerCase() === 'antiverso');
              setSelectedUniverseId(antiverso ? antiverso.id : data[0].id);
           }
@@ -163,9 +160,9 @@ export default function TimelinePage() {
       }
     }
     fetchUniverses();
-  }, []); // Executa apenas no mount
+  }, []);
 
-  // 2. CARREGAR MUNDOS (Depende do Universo Selecionado)
+  // 2. CARREGAR MUNDOS (Filtrando Root)
   useEffect(() => {
     if (!selectedUniverseId) return;
 
@@ -174,21 +171,19 @@ export default function TimelinePage() {
       try {
         const { data, error } = await supabaseBrowser
           .from("worlds")
-          .select("id, nome, descricao, ordem, has_episodes")
+          .select("id, nome, descricao, ordem, has_episodes, is_root") // is_root importante
           .eq("universe_id", selectedUniverseId)
           .order("ordem", { ascending: true });
 
         if (error) throw error;
 
         const list = (data || []) as World[];
-        // Ordenação para garantir que "Mundos Raiz" fiquem no topo se tiver
-        list.sort((a, b) => {
-           // Lógica simples de ordenação
-           return (a.ordem ?? 0) - (b.ordem ?? 0);
-        });
+        
+        // 3. FILTRO: Removemos mundos que são ROOT da lista de seleção da timeline
+        // O Root contém regras globais, geralmente não tem eventos de timeline narrativa direta, ou se tiver, aparecem no "Todos"
+        const playableWorlds = list.filter(w => !w.is_root);
 
-        setWorlds(list);
-        // Resetar o mundo selecionado para null (para ver "Todos do Universo") ou manter se ainda existir
+        setWorlds(playableWorlds);
         setSelectedWorldId(null);
       } catch (err) {
         console.error(err);
@@ -200,7 +195,7 @@ export default function TimelinePage() {
     fetchWorlds();
   }, [selectedUniverseId]);
 
-  // 3. CARREGAR EVENTOS (Depende do Universo e Mundo)
+  // 3. CARREGAR EVENTOS
   useEffect(() => {
     if (!selectedUniverseId) return;
 
@@ -216,22 +211,18 @@ export default function TimelinePage() {
           .order("created_at", { ascending: true });
 
         if (selectedWorldId) {
-          // Se tem mundo específico selecionado
           query = query.eq("world_id", selectedWorldId);
         } else {
-          // Se não tem mundo selecionado, pega TODOS do universo
-          // Primeiro precisamos dos IDs dos mundos deste universo
+          // Busca TODOS os eventos do universo (incluindo root se houver)
           const { data: wData } = await supabaseBrowser
             .from("worlds")
             .select("id")
             .eq("universe_id", selectedUniverseId);
             
           const worldIds = wData?.map(w => w.id) || [];
-          
           if (worldIds.length > 0) {
             query = query.in("world_id", worldIds);
           } else {
-            // Universo sem mundos? Retorna vazio
             setEvents([]);
             setIsLoadingData(false);
             return;
@@ -243,7 +234,6 @@ export default function TimelinePage() {
         }
 
         const { data, error } = await query;
-
         if (error) throw error;
 
         const mappedEvents: TimelineEvent[] = (data || []).map((row: any) => ({
@@ -275,7 +265,7 @@ export default function TimelinePage() {
     fetchEvents();
   }, [selectedUniverseId, selectedWorldId, selectedCamada, reloadCounter]);
 
-  // 4. LÓGICA DE AGRUPAMENTO (Mantida Intacta)
+  // 4. LÓGICA DE AGRUPAMENTO
   const groupedData = useMemo(() => {
     if (viewMode === "flat") return null;
 
@@ -336,7 +326,6 @@ export default function TimelinePage() {
     return groups;
   }, [events, viewMode, expandedGroups]);
 
-  // Handlers UI
   function toggleGroup(id: string) {
     const newSet = new Set(expandedGroups);
     if (newSet.has(id)) newSet.delete(id);
@@ -358,16 +347,12 @@ export default function TimelinePage() {
     setExpandedGroups(new Set());
   }
 
-  // --- CRUD HANDLERS ---
+  // CRUD
   async function handleDeleteEvent(event: TimelineEvent) {
     if (!confirm(`Apagar evento "${event.titulo}"?`)) return;
     try {
-      // Chama direto o Supabase ou via API. Como a API existe, usamos ela para consistência.
       const res = await fetch(`/api/lore/timeline?ficha_id=${event.ficha_id}`, { method: "DELETE" });
-      if (!res.ok) {
-         const json = await res.json();
-         throw new Error(json.error);
-      }
+      if (!res.ok) throw new Error("Erro ao deletar");
       setEvents(prev => prev.filter(e => e.ficha_id !== event.ficha_id));
       setSelectedEvent(null);
     } catch (e: any) { alert(e.message); }
@@ -382,9 +367,7 @@ export default function TimelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editData),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      
+      if (!res.ok) throw new Error("Erro ao salvar");
       setEvents(prev => prev.map(e => e.ficha_id === editData.ficha_id ? { ...e, ...editData } as TimelineEvent : e));
       setSelectedEvent(prev => prev?.ficha_id === editData.ficha_id ? { ...prev, ...editData } as TimelineEvent : prev);
       setIsEditOpen(false);
@@ -400,85 +383,48 @@ export default function TimelinePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(createData),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      if (!res.ok) throw new Error("Erro ao criar");
       setReloadCounter(c => c + 1);
       setIsCreateOpen(false);
       setCreateData({});
     } catch (e: any) { alert(e.message); } finally { setIsSavingCreate(false); }
   }
 
-  // --- HANDLERS NOVO MUNDO ---
+  // Handlers Mundo
   function handleWorldChangeInCreate(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
-    if (value === "create_new") {
-      setShowNewWorldModal(true);
-      return;
-    }
+    if (value === "create_new") { setShowNewWorldModal(true); return; }
     setCreateData({ ...createData, world_id: value });
   }
 
   function handleCancelWorldModal() {
-    setShowNewWorldModal(false);
-    setNewWorldName("");
-    setNewWorldDescription("");
-    setNewWorldHasEpisodes(true);
+    setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true);
   }
 
   async function handleCreateWorldFromModal() {
-    if (!newWorldName.trim()) {
-      alert("Dê um nome ao novo Mundo.");
-      return;
-    }
+    if (!newWorldName.trim()) return alert("Nome obrigatório");
     setIsCreatingWorld(true);
-
     try {
-      const baseId = newWorldName
-        .trim()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-
-      const newId = `${baseId}_${Date.now().toString().slice(-4)}`;
-
+      const slugId = newWorldName.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
       const payload: any = {
-        id: newId,
-        nome: newWorldName.trim(),
-        descricao: newWorldDescription.trim() || null,
-        has_episodes: newWorldHasEpisodes,
-        tipo: "mundo_ficcional",
-        universe_id: selectedUniverseId // Vincula ao universo atual
+        id: slugId, nome: newWorldName.trim(), descricao: newWorldDescription.trim() || null,
+        has_episodes: newWorldHasEpisodes, tipo: "mundo_ficcional", universe_id: selectedUniverseId
       };
-
       const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
-
       if (error) throw error;
-
-      const inserted = (data?.[0] || null) as World | null;
+      const inserted = data?.[0] as World;
       if (inserted) {
-        setWorlds((prev) => [...prev, inserted]);
+        setWorlds(prev => [...prev, inserted]);
         setCreateData(prev => ({ ...prev, world_id: inserted.id }));
         setShowNewWorldModal(false);
-        setNewWorldName("");
-        setNewWorldDescription("");
-        setNewWorldHasEpisodes(true);
       }
-    } catch (err: any) {
-      console.error(err);
-      alert("Erro ao criar mundo: " + err.message);
-    } finally {
-      setIsCreatingWorld(false);
-    }
+    } catch (err: any) { alert(err.message); } finally { setIsCreatingWorld(false); }
   }
 
-  // Helper para o nome do universo atual
   const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Carregando...";
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-50 flex-col">
-      {/* HEADER */}
       <header className="border-b border-zinc-900 px-4 py-2 flex items-center justify-between bg-black/40">
         <div className="flex items-center gap-4">
           <a href="/" className="text-[11px] text-zinc-300 hover:text-white">← Home</a>
@@ -491,27 +437,17 @@ export default function TimelinePage() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* SIDEBAR: UNIVERSO & MUNDOS */}
+        {/* SIDEBAR */}
         <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto bg-zinc-950/50">
-          
-          {/* SEÇÃO UNIVERSO */}
-          <div className="mb-6">
-             <label className="text-[9px] uppercase text-zinc-500 font-bold mb-1 block">Universo</label>
-             <select 
-                className="w-full bg-black border border-zinc-800 rounded text-xs p-2 text-white outline-none focus:border-emerald-500" 
-                value={selectedUniverseId || ""} 
-                onChange={e => setSelectedUniverseId(e.target.value)}
-             >
+          <div className="mb-4">
+             <label className="text-[9px] uppercase text-zinc-500 font-bold">Universo</label>
+             <select className="w-full bg-black border border-zinc-800 rounded text-xs p-1 mt-1" value={selectedUniverseId || ""} onChange={e => setSelectedUniverseId(e.target.value)}>
                {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
              </select>
           </div>
 
-          <h1 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 flex justify-between items-center">
-            Mundos
-          </h1>
-          
+          <h1 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Mundos</h1>
           <div className="space-y-1">
-            {/* Botão "Todos do Universo" */}
             <button
                 onClick={() => { setSelectedWorldId(null); setSelectedEvent(null); }}
                 className={clsx(
@@ -519,13 +455,12 @@ export default function TimelinePage() {
                   !selectedWorldId ? "bg-zinc-800 text-white border-l-2 border-emerald-500 font-bold" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 border-l-2 border-transparent"
                 )}
               >
-                <span>🪐</span>
+                {/* 1. ÍCONE REMOVIDO AQUI */}
                 <span>{currentUniverseName} (Completo)</span>
             </button>
 
             <div className="h-px bg-zinc-800 my-2"></div>
 
-            {/* Lista de Mundos */}
             {worlds.map((w) => (
               <button
                 key={w.id}
@@ -536,15 +471,13 @@ export default function TimelinePage() {
                 )}
               >
                 <span className="truncate">{w.nome}</span>
-                {w.has_episodes && <span className="text-[9px] opacity-30">Episódios</span>}
               </button>
             ))}
           </div>
         </aside>
 
-        {/* ÁREA PRINCIPAL (TIMELINE) */}
+        {/* MAIN */}
         <main className="flex-1 border-r border-zinc-800 p-0 flex flex-col bg-black relative">
-          {/* Barra de Ferramentas */}
           <div className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900/30 backdrop-blur-sm z-10">
              <div className="flex items-center gap-3">
                 <h2 className="text-sm font-bold text-white">
@@ -568,7 +501,6 @@ export default function TimelinePage() {
                   {CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 <button onClick={() => {
-                  // Ao criar, pré-seleciona o mundo atual ou o primeiro da lista
                   const defWorld = selectedWorldId || (worlds.length > 0 ? worlds[0].id : "");
                   setCreateData({ world_id: defWorld, titulo: "", resumo: "", episodio: "", camada_temporal: "", descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "" });
                   setIsCreateOpen(true);
@@ -577,61 +509,34 @@ export default function TimelinePage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-8 scrollbar-thin relative">
-             {/* Linha central decorativa */}
              <div className="absolute left-[48px] top-0 bottom-0 w-px bg-zinc-800 pointer-events-none z-0"></div>
 
              {isLoadingData && <div className="text-center text-xs text-zinc-500 mt-10">Carregando linha do tempo...</div>}
-             
-             {!isLoadingData && events.length === 0 && (
-               <div className="text-center text-zinc-500 mt-10 flex flex-col items-center">
-                 <span className="text-2xl mb-2">⏳</span>
-                 <p className="text-sm">Nenhum evento encontrado.</p>
-                 <p className="text-xs opacity-60">Tente mudar os filtros ou adicionar um novo evento.</p>
-               </div>
-             )}
+             {!isLoadingData && events.length === 0 && <div className="text-center text-zinc-500 mt-10 text-sm">Nenhum evento encontrado.</div>}
 
-             {/* MODO AGRUPADO */}
              {viewMode === "grouped" && groupedData && (
                <div className="space-y-6 relative z-10">
                  {groupedData.map((group) => (
                    <div key={group.type === 'decade' ? `dec-${group.label}` : group.label} className="relative">
-                      {/* CARD DA DÉCADA */}
                       <div className="flex items-center gap-4 mb-2 group/decade">
                          <div className="w-12 text-right text-[10px] font-bold text-zinc-500 pt-1">{group.type === 'decade' ? group.label.replace('Anos ', '') : '???'}</div>
-                         <button 
-                           onClick={() => toggleGroup(group.type === 'decade' ? `dec-${group.label.split(' ')[1]}` : 'unknown')}
-                           className="flex-1 flex items-center gap-3 p-2 rounded-lg border border-zinc-800 bg-zinc-950 hover:border-zinc-700 transition-all text-left"
-                         >
-                            <div className={clsx("w-2 h-2 rounded-full", group.isOpen ? "bg-emerald-500" : "bg-zinc-700 group-hover/decade:bg-zinc-500")}></div>
+                         <button onClick={() => toggleGroup(group.type === 'decade' ? `dec-${group.label.split(' ')[1]}` : 'unknown')} className="flex-1 flex items-center gap-3 p-2 rounded-lg border border-zinc-800 bg-zinc-950 hover:border-zinc-700 transition-all text-left">
+                            <div className={clsx("w-2 h-2 rounded-full", group.isOpen ? "bg-emerald-500" : "bg-zinc-700")}></div>
                             <span className="text-sm font-bold text-zinc-200 uppercase tracking-wide">{group.label}</span>
                             <span className="ml-auto text-[10px] bg-zinc-900 px-2 py-0.5 rounded text-zinc-500">{group.count} eventos</span>
                          </button>
                       </div>
-
-                      {/* CONTEÚDO DA DÉCADA (ANOS) */}
                       {group.isOpen && (
                          <div className="ml-16 border-l border-zinc-800 pl-6 space-y-4 pt-2 pb-4">
                             {group.type === 'unknown' ? (
-                              <div className="space-y-3">
-                                {group.events?.map(ev => <EventCard key={ev.ficha_id} event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />)}
-                              </div>
+                              <div className="space-y-3">{group.events?.map(ev => <EventCard key={ev.ficha_id} event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />)}</div>
                             ) : (
                               group.children?.map(yearGroup => (
                                 <div key={yearGroup.label}>
-                                   <button 
-                                     onClick={() => toggleGroup(yearGroup.label)}
-                                     className="flex items-center gap-2 text-xs font-bold text-zinc-400 hover:text-white mb-2 transition-colors"
-                                   >
-                                      <span className={clsx("transition-transform", yearGroup.isOpen ? "rotate-90" : "")}>▶</span>
-                                      {yearGroup.label} <span className="opacity-40 font-normal">({yearGroup.count})</span>
+                                   <button onClick={() => toggleGroup(yearGroup.label)} className="flex items-center gap-2 text-xs font-bold text-zinc-400 hover:text-white mb-2">
+                                      <span>{yearGroup.isOpen ? "▼" : "▶"}</span> {yearGroup.label}
                                    </button>
-                                   {yearGroup.isOpen && (
-                                     <div className="space-y-3 pl-2 border-l border-zinc-800/50 ml-1">
-                                        {yearGroup.events?.map(ev => (
-                                          <EventCard key={ev.ficha_id} event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />
-                                        ))}
-                                     </div>
-                                   )}
+                                   {yearGroup.isOpen && <div className="space-y-3 pl-2 border-l border-zinc-800/50 ml-1">{yearGroup.events?.map(ev => <EventCard key={ev.ficha_id} event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />)}</div>}
                                 </div>
                               ))
                             )}
@@ -642,7 +547,6 @@ export default function TimelinePage() {
                </div>
              )}
 
-             {/* MODO PLANO (FLAT) */}
              {viewMode === "flat" && (
                <div className="space-y-4 pl-12 relative z-10">
                  {events.map(ev => (
@@ -656,60 +560,30 @@ export default function TimelinePage() {
           </div>
         </main>
 
-        {/* COLUNA DIREITA: DETALHES */}
+        {/* DETAILS PANEL */}
         <section className="w-80 p-6 overflow-y-auto bg-zinc-950 border-l border-zinc-800">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Detalhes do Evento</h2>
-
-          {!selectedEvent && (
-            <div className="text-sm text-zinc-500 italic text-center mt-10">
-              Clique em um evento na linha do tempo para ver os detalhes aqui.
-            </div>
-          )}
-
-          {selectedEvent && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
+          {!selectedEvent ? <div className="text-sm text-zinc-500 italic text-center mt-10">Selecione um evento</div> : (
+            <div className="space-y-6">
               <div>
-                <span className="text-[10px] uppercase tracking-wide text-emerald-500 font-bold">{selectedEvent.tipo || "Evento"}</span>
-                <h3 className="text-xl font-bold text-white mt-1 leading-tight">{selectedEvent.titulo || "Sem título"}</h3>
-                <div className="flex flex-wrap gap-2 mt-3">
-                   {selectedEvent.episodio && <span className="text-[10px] px-2 py-0.5 bg-zinc-800 rounded text-zinc-300 border border-zinc-700">Ep. {selectedEvent.episodio}</span>}
-                   {selectedEvent.camada_temporal && <span className="text-[10px] px-2 py-0.5 bg-zinc-800 rounded text-zinc-300 border border-zinc-700 capitalize">{selectedEvent.camada_temporal.replace(/_/g, " ")}</span>}
-                </div>
+                <span className="text-[10px] uppercase tracking-wide text-emerald-500 font-bold">{selectedEvent.tipo}</span>
+                <h3 className="text-xl font-bold text-white mt-1 leading-tight">{selectedEvent.titulo}</h3>
               </div>
-
               <div className="p-3 bg-zinc-900/50 rounded border border-zinc-800">
-                 <div className="text-[10px] text-zinc-500 uppercase mb-1">Data / Momento</div>
-                 <div className="text-sm text-white font-mono">
-                    {formatDescricaoData(selectedEvent) || "Data desconhecida"}
-                 </div>
+                 <div className="text-[10px] text-zinc-500 uppercase mb-1">Data</div>
+                 <div className="text-sm text-white font-mono">{formatDescricaoData(selectedEvent)}</div>
               </div>
-
-              <div>
-                <div className="text-[10px] text-zinc-500 uppercase mb-1">Resumo</div>
-                <p className="text-sm text-zinc-300 leading-relaxed">{selectedEvent.resumo || "Sem resumo."}</p>
-              </div>
-
-              {selectedEvent.conteudo && (
-                <div>
-                  <div className="text-[10px] text-zinc-500 uppercase mb-1">Conteúdo Completo</div>
-                  <div className="text-xs text-zinc-400 leading-relaxed max-h-60 overflow-y-auto pr-2 whitespace-pre-wrap border-l-2 border-zinc-800 pl-3">
-                    {selectedEvent.conteudo}
-                  </div>
-                </div>
-              )}
-
+              <p className="text-sm text-zinc-300 leading-relaxed">{selectedEvent.resumo}</p>
+              {selectedEvent.conteudo && <div className="text-xs text-zinc-400 max-h-60 overflow-y-auto whitespace-pre-wrap border-l-2 border-zinc-800 pl-3">{selectedEvent.conteudo}</div>}
               <div className="pt-4 border-t border-zinc-800 flex gap-2">
-                 <button onClick={() => { setEditData({...selectedEvent}); setIsEditOpen(true); }} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs py-2 rounded font-medium transition-colors">Editar</button>
-                 <button onClick={() => handleDeleteEvent(selectedEvent)} className="flex-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 text-xs py-2 rounded font-medium transition-colors">Apagar</button>
+                 <button onClick={() => { setEditData({...selectedEvent}); setIsEditOpen(true); }} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs py-2 rounded">Editar</button>
+                 <button onClick={() => handleDeleteEvent(selectedEvent)} className="flex-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 text-xs py-2 rounded">Apagar</button>
               </div>
             </div>
           )}
         </section>
       </div>
 
-      {/* --- MODAIS --- */}
-      
-      {/* EDITAR */}
+      {/* MODAL EDITAR (2. GRANULARIDADE/CAMADA ADICIONADOS) */}
       {isEditOpen && editData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
@@ -717,24 +591,29 @@ export default function TimelinePage() {
               <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
                  <div><label className="text-[10px] text-zinc-500 uppercase">Título</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.titulo || ''} onChange={e => setEditData({...editData, titulo: e.target.value})} /></div>
                  <div><label className="text-[10px] text-zinc-500 uppercase">Resumo</label><textarea className="w-full bg-black border border-zinc-700 rounded p-2 text-xs h-20" value={editData.resumo || ''} onChange={e => setEditData({...editData, resumo: e.target.value})} /></div>
+                 
                  <div className="grid grid-cols-2 gap-2">
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_inicio || ''} onChange={e => setEditData({...editData, data_inicio: e.target.value})} /></div>
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_fim || ''} onChange={e => setEditData({...editData, data_fim: e.target.value})} /></div>
                  </div>
+
+                 {/* NOVOS CAMPOS */}
                  <div className="grid grid-cols-2 gap-2">
                     <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.granularidade_data || 'vago'} onChange={e => setEditData({...editData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} /></div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.camada_temporal || 'linha_principal'} onChange={e => setEditData({...editData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
                  </div>
+
+                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} /></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button onClick={() => setIsEditOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
-                 <button onClick={handleSaveEdit} disabled={isSavingEdit} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingEdit ? "Salvando..." : "Salvar"}</button>
+                 <button onClick={handleSaveEdit} disabled={isSavingEdit} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">Salvar</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* CRIAR */}
+      {/* MODAL CRIAR */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
@@ -754,28 +633,34 @@ export default function TimelinePage() {
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_inicio || ''} onChange={e => setCreateData({...createData, data_inicio: e.target.value})} /></div>
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_fim || ''} onChange={e => setCreateData({...createData, data_fim: e.target.value})} /></div>
                  </div>
+
+                 {/* NOVOS CAMPOS NO CREATE TAMBÉM */}
                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.granularidade_data || 'vago'} onChange={e => setCreateData({...createData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
                     <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.camada_temporal || 'linha_principal'} onChange={e => setCreateData({...createData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
                  </div>
+
+                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
-                 <button onClick={handleSaveCreate} disabled={isSavingCreate} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingCreate ? "Criando..." : "Criar"}</button>
+                 <button onClick={handleSaveCreate} disabled={isSavingCreate} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">Criar</button>
               </div>
            </div>
         </div>
       )}
 
-      {/* MODAL NOVO MUNDO (CHAMADO VIA DROPDOWN) */}
+      {/* MODAL NOVO MUNDO */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
-            <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
-            <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
-            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
+          <div className="w-full max-w-md border border-zinc-800 rounded-lg p-6 bg-zinc-950">
+            <h3 className="text-white font-bold mb-4">Novo Mundo</h3>
+            <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome" value={newWorldName} onChange={e=>setNewWorldName(e.target.value)} />
+            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24 text-xs" placeholder="Descrição" value={newWorldDescription} onChange={e=>setNewWorldDescription(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowNewWorldModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
+              <button onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs">Salvar</button>
+            </div>
           </div>
         </div>
       )}
@@ -783,8 +668,7 @@ export default function TimelinePage() {
   );
 }
 
-// Componente Auxiliar para Renderizar o Card (Igual ao Original)
-function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: { event: TimelineEvent, selectedEvent: TimelineEvent | null, onSelect: (e: TimelineEvent) => void, onDelete: (e: TimelineEvent) => void, onEdit: (e: TimelineEvent) => void }) {
+function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: any) {
   const isSelected = selectedEvent?.ficha_id === event.ficha_id;
   return (
     <div 
@@ -801,7 +685,6 @@ function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: { event
       <h4 className={clsx("font-semibold text-sm mb-1", isSelected ? "text-white" : "text-zinc-300")}>{event.titulo || "Sem título"}</h4>
       {event.resumo && <p className="text-xs text-zinc-500 line-clamp-2">{event.resumo}</p>}
       
-      {/* Botões de ação rápida no hover */}
       <div className="absolute top-2 right-2 hidden group-hover:flex gap-1">
          <button onClick={(e) => { e.stopPropagation(); onEdit(event); }} className="p-1 bg-zinc-700 text-zinc-300 rounded hover:bg-zinc-600 hover:text-white text-[10px]">✎</button>
          <button onClick={(e) => { e.stopPropagation(); onDelete(event); }} className="p-1 bg-red-900/50 text-red-300 rounded hover:bg-red-900 hover:text-white text-[10px]">×</button>
