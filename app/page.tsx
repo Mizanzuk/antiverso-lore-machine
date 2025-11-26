@@ -17,6 +17,7 @@ type ChatMessage = {
 };
 
 type ChatMode = "consulta" | "criativo";
+type ViewMode = "chat" | "catalog";
 
 type ChatSession = {
   id: string;
@@ -24,12 +25,42 @@ type ChatSession = {
   mode: ChatMode;
   createdAt: number;
   messages: ChatMessage[];
+  universeId?: string; // Vincula sessão ao universo
+};
+
+type World = {
+  id: string;
+  nome: string;
+  descricao?: string | null;
+  tipo?: string | null;
+  ordem?: number | null;
 };
 
 type Universe = {
   id: string;
   nome: string;
 };
+
+type LoreEntity = {
+  id: string;
+  slug: string;
+  tipo: string;
+  titulo: string;
+  resumo?: string | null;
+  world_id?: string | null;
+  ano_diegese?: number | null;
+  ordem_cronologica?: number | null;
+  tags?: string[] | null;
+  codes?: string[] | null;
+};
+
+type CatalogResponse = {
+  worlds: World[];
+  entities: LoreEntity[];
+  types: { id: string; label: string }[];
+};
+
+type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 function createIntroMessage(): ChatMessage {
   return {
@@ -102,7 +133,7 @@ function buildTitleFromQuestion(text: string): string {
 }
 
 export default function Page() {
-  const [view, setView] = useState<"loading" | "loggedOut" | "loggedIn">("loading");
+  const [view, setView] = useState<ViewState>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -110,7 +141,7 @@ export default function Page() {
   const [userId, setUserId] = useState<string | null>(null);
   const [remoteLoaded, setRemoteLoaded] = useState(false);
 
-  // Universos
+  // --- ESTADOS DE UNIVERSO ---
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
   
@@ -138,11 +169,24 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("chat"); // Mantido fixo em chat
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
   
+  // Estados de Catálogo (mantidos para compatibilidade futura ou se quiser reativar a aba)
+  const [worlds, setWorlds] = useState<World[]>([]);
+  const [entities, setEntities] = useState<LoreEntity[]>([]);
+  const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
+  const [selectedType, setSelectedType] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 20;
+
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
 
+  // --- INIT ---
   useEffect(() => {
     const checkSession = async () => {
       try {
@@ -165,7 +209,6 @@ export default function Page() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
     if (data && data.length > 0) {
       setUniverses(data);
-      // Seleciona o primeiro se não tiver nenhum
       if (!selectedUniverseId) setSelectedUniverseId(data[0].id);
     }
   }
@@ -174,6 +217,7 @@ export default function Page() {
     if (!activeSessionId && sessions.length > 0) setActiveSessionId(sessions[0].id);
   }, [activeSessionId, sessions]);
 
+  // Persistência Local
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -182,6 +226,7 @@ export default function Page() {
     } catch (err) { console.error(err); }
   }, [sessions]);
 
+  // Persistência Remota (Load)
   useEffect(() => {
     if (view !== "loggedIn" || !userId || remoteLoaded) return;
     const loadRemote = async () => {
@@ -197,6 +242,7 @@ export default function Page() {
     loadRemote();
   }, [view, userId, remoteLoaded]);
 
+  // Persistência Remota (Save)
   useEffect(() => {
     if (view !== "loggedIn" || !userId) return;
     const saveRemote = async () => {
@@ -212,7 +258,13 @@ export default function Page() {
   const messages = activeSession?.messages ?? [];
   const mode: ChatMode = activeSession?.mode ?? "consulta";
 
+  // Filtro de Sessões (agora considera o universo)
   const filteredSessions = sessions.filter((s) => {
+    // Se a sessão tem universeId, só mostra se bater com o selecionado
+    if (s.universeId && s.universeId !== selectedUniverseId) return false;
+    // Se não tem universeId (legado), mostra apenas se estivermos no primeiro universo (padrão)
+    if (!s.universeId && selectedUniverseId && universes.length > 0 && selectedUniverseId !== universes[0].id) return false;
+
     if (!historySearchTerm.trim()) return true;
     const q = normalize(historySearchTerm);
     const inTitle = normalize(s.title).includes(q);
@@ -220,9 +272,22 @@ export default function Page() {
     return inTitle || inMessages;
   });
 
+  // Efeito para trocar de sessão ao mudar universo
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length]);
+    // Se não houver sessão visível para este universo, reseta a seleção
+    const isVisible = filteredSessions.some(s => s.id === activeSessionId);
+    if (!isVisible && filteredSessions.length > 0) {
+      setActiveSessionId(filteredSessions[0].id);
+    } else if (!isVisible) {
+      // Se não tem nenhuma sessão, cria uma nova para este universo
+      // (Mas evitamos loop infinito, só criamos se realmente não houver nada)
+      // newChat(); // Comentado para evitar criação automática excessiva, usuário clica em +
+    }
+  }, [selectedUniverseId, filteredSessions]);
+
+  useEffect(() => {
+    if (viewMode === "chat") scrollToBottom();
+  }, [messages.length, viewMode]);
 
   function renderAssistantMarkdown(text: string) {
     const lines = text.split(/\r?\n/);
@@ -310,7 +375,7 @@ export default function Page() {
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
           messages: payloadMessages,
-          universeId: selectedUniverseId || null 
+          universeId: selectedUniverseId || null // Correção principal: evita string vazia
         }) 
       });
       
@@ -378,9 +443,17 @@ export default function Page() {
   function scrollToBottom() { const el = viewportRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }
   function newChat() {
     const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
-    const newSession: ChatSession = { id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage()] };
+    const newSession: ChatSession = { 
+      id, 
+      title: "Nova conversa", 
+      mode: "consulta", 
+      createdAt: Date.now(), 
+      messages: [createIntroMessage()],
+      universeId: selectedUniverseId // Vincula ao universo atual
+    };
     setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
     setActiveSessionId(id); setInput("");
+    setViewMode("chat");
   }
   function handleModeChange(newMode: ChatMode) { if (!activeSession) return; setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, mode: newMode } : s)); }
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!loading) void onSubmit(); } }
@@ -426,35 +499,95 @@ export default function Page() {
     setShowUniverseModal(false);
     setNewUniverseName("");
     setNewUniverseDesc("");
+    
+    // Cria um chat novo para o novo universo
+    newChat();
   }
 
-  if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
+  // --- CARREGAR CATÁLOGO (Mantido, mas não usado na view principal) ---
+  useEffect(() => {
+    async function loadCatalog() {
+      try {
+        setLoadingCatalog(true);
+        setCatalogError(null);
+        const res = await fetch("/api/catalog");
+        if (!res.ok) throw new Error("Erro ao carregar catálogo");
+        const data = (await res.json()) as CatalogResponse;
+        setWorlds(data.worlds ?? []);
+        setEntities(data.entities ?? []);
+      } catch (err) {
+        console.error(err);
+        setCatalogError("Não foi possível carregar o catálogo do AntiVerso agora.");
+      } finally {
+        setLoadingCatalog(false);
+      }
+    }
+    loadCatalog();
+  }, []);
 
-  if (view === "loggedOut") {
+  // Helpers de Catálogo
+  const catalogTypes: { id: string; label: string }[] = [
+    { id: "all", label: "Todos os tipos" },
+    { id: "personagem", label: "Personagens" },
+    { id: "local", label: "Locais" },
+    { id: "organizacao", label: "Empresas / Agências" },
+    { id: "midia", label: "Mídias" },
+    { id: "arquivo_aris", label: "Arquivos ARIS" },
+    { id: "episodio", label: "Episódios" },
+    { id: "evento", label: "Eventos" },
+    { id: "conceito", label: "Conceitos" },
+    { id: "objeto", label: "Objetos" },
+  ];
+  const filteredEntitiesAll = entities.filter((e) => {
+    if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
+    if (selectedType !== "all" && e.tipo !== selectedType) return false;
+    if (searchTerm.trim().length > 0) {
+      const q = normalize(searchTerm);
+      const inTitle = normalize(e.titulo).includes(q);
+      const inResumo = normalize(e.resumo).includes(q);
+      const inSlug = normalize(e.slug).includes(q);
+      const inTags = (e.tags ?? []).map((t) => t.toLowerCase()).some((t) => t.includes(q));
+      const inCodes = (e.codes ?? []).map((c) => c.toLowerCase()).some((c) => c.includes(q));
+      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) return false;
+    }
+    return true;
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredEntitiesAll.length / itemsPerPage));
+  const safePage = currentPage > totalPages ? totalPages : Math.max(1, currentPage);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const pageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
+  function getWorldName(worldId?: string | null): string | null {
+    if (!worldId) return null;
+    const w = worlds.find((w) => w.id === worldId);
+    return w ? w.nome : worldId;
+  }
+  function handleCatalogClick(entity: LoreEntity) {
+    const titulo = entity.titulo;
+    const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
+    setInput(prompt);
+    setViewMode("chat");
+  }
+  const CatalogPagination = () => {
+    if (totalPages <= 1) return null;
+    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
     return (
-      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
-        <form onSubmit={handleLogin} className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80">
-          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">AntiVerso Lore Machine</h1>
-          <p className="text-[11px] text-neutral-500 mb-4">Acesse com seu e-mail e senha de admin.</p>
-          {authError && <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">{authError}</div>}
-          <div className="space-y-2 mb-3">
-            <div><label className="block text-[11px] text-neutral-500 mb-1">E-mail</label><input type="email" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
-            <div><label className="block text-[11px] text-neutral-500 mb-1">Senha</label><input type="password" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div>
-          </div>
-          <button type="submit" disabled={authSubmitting} className="w-full mt-1 text-[11px] px-3 py-1.5 rounded border border-emerald-500 bg-emerald-600/80 hover:bg-emerald-400 hover:border-emerald-400 hover:text-black transition-colors disabled:opacity-60">{authSubmitting ? "Entrando…" : "Entrar"}</button>
-        </form>
+      <div className="flex flex-wrap items-center justify-center gap-1 text-xs text-gray-300 my-2">
+        {pages.map((p) => (<button key={p} onClick={() => setCurrentPage(p)} className={clsx("px-2 py-1 rounded-md border", p === safePage ? "bg-white/20 border-white text-white" : "bg-transparent border-white/20 hover:bg-white/10")}>{p}</button>))}
       </div>
     );
-  }
+  };
 
   const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Or";
+
+  if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
+  if (view === "loggedOut") return (<div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><form onSubmit={handleLogin} className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80"><h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">AntiVerso Lore Machine</h1><p className="text-[11px] text-neutral-500 mb-4">Acesse com seu e-mail e senha de admin.</p>{authError && <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">{authError}</div>}<div className="space-y-2 mb-3"><div><label className="block text-[11px] text-neutral-500 mb-1">E-mail</label><input type="email" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div><div><label className="block text-[11px] text-neutral-500 mb-1">Senha</label><input type="password" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div></div><button type="submit" disabled={authSubmitting} className="w-full mt-1 text-[11px] px-3 py-1.5 rounded border border-emerald-500 bg-emerald-600/80 hover:bg-emerald-400 hover:border-emerald-400 hover:text-black transition-colors disabled:opacity-60">{authSubmitting ? "Entrando…" : "Entrar"}</button></form></div>);
 
   return (
     <div className="h-screen w-screen flex bg-[#050509] text-gray-100">
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-72 border-r border-white/10 bg-black/40">
         
-        {/* SELETOR DE UNIVERSO + NOVO */}
+        {/* SELETOR DE UNIVERSO (NOVO) */}
         <div className="px-4 pt-4 pb-2">
           <label className="text-[10px] uppercase text-zinc-500 font-bold block mb-1">Universo do Chat</label>
           <select 
@@ -476,15 +609,15 @@ export default function Page() {
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-xs text-gray-400 space-y-4">
           <div>
-            <p className="font-semibold text-gray-200 text-[11px] uppercase tracking-wide">AntiVerso Lore Machine</p>
+            <p className="font-semibold text-gray-200 text-[11px] uppercase tracking-wide">Lore Machine</p>
             <p className="mt-1">Este ambiente é fechado e usa apenas os dados do Universo selecionado.</p>
           </div>
 
           {/* Histórico */}
           <div>
             <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">Histórico</p>
-            {sessions.length === 0 && <p className="text-gray-500 text-[11px]">Nenhuma conversa ainda.</p>}
-            {sessions.length > 0 && (
+            {filteredSessions.length === 0 && <p className="text-gray-500 text-[11px]">Nenhuma conversa.</p>}
+            {filteredSessions.length > 0 && (
               <>
                 <input className="mb-2 w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200" placeholder="Buscar no histórico..." value={historySearchTerm} onChange={(e) => setHistorySearchTerm(e.target.value)} />
                 <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
@@ -495,7 +628,7 @@ export default function Page() {
                     const modeLabel = sessionMode === "consulta" ? "Consulta" : "Criativo";
                     return (
                       <div key={session.id} className={clsx("group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20", isActive ? "bg-white/10 border-white/30" : "bg-transparent")}>
-                        <button className="flex-1 text-left" onClick={() => { setActiveSessionId(session.id); }}>
+                        <button className="flex-1 text-left" onClick={() => { setActiveSessionId(session.id); setViewMode("chat"); }}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <div className="text-[11px] font-medium text-gray-100 leading-snug break-words max-w-[200px]">{isRenaming ? (<input className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100" value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} onBlur={confirmRenameSession} onKeyDown={(e) => { if (e.key === "Enter") { confirmRenameSession(); } else if (e.key === "Escape") { cancelRenameSession(); } }} autoFocus />) : (session.title)}</div>
@@ -529,11 +662,11 @@ export default function Page() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col">
-        {/* Top bar SEM BOTÕES EXTRAS */}
+        {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-red-600 via-purple-500 to-blue-500" />
-            <div className="flex flex-col"><span className="text-sm font-medium">Or</span><span className="text-[11px] text-gray-400">Guardião do AntiVerso — {mode === "consulta" ? "Modo consulta" : "Modo criativo"}</span></div>
+            <div className="flex flex-col"><span className="text-sm font-medium">Or</span><span className="text-[11px] text-gray-400">Guardião do Universo — {mode === "consulta" ? "Modo consulta" : "Modo criativo"}</span></div>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-2"><span className="text-gray-400">Modo:</span><button onClick={() => handleModeChange("consulta")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "consulta" ? "bg-emerald-500/20 border-emerald-400 text-emerald-200" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Consulta</button><button onClick={() => handleModeChange("criativo")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "criativo" ? "bg-purple-600/30 border-purple-400 text-purple-100" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Criativo</button></div>
@@ -543,17 +676,29 @@ export default function Page() {
         {/* Conteúdo principal */}
         <section className="flex-1 overflow-y-auto px-4 py-4" ref={viewportRef}>
           <div className="max-w-4xl mx-auto">
-            <div className="space-y-4 max-w-2xl mx-auto">
-              {messages.map((msg) => (
-                <div key={msg.id} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-                  <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : "bg-white/5 text-gray-100 border border-white/10")}>
-                    {msg.role === "user" ? (<div className="whitespace-pre-wrap">{msg.content}</div>) : (renderAssistantMarkdown(msg.content))}
+            {/* MODO CHAT */}
+            {viewMode === "chat" && (
+              <div className="space-y-4 max-w-2xl mx-auto">
+                {messages.map((msg) => (
+                  <div key={msg.id} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                    <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : "bg-white/5 text-gray-100 border border-white/10")}>
+                      {msg.role === "user" ? (<div className="whitespace-pre-wrap">{msg.content}</div>) : (renderAssistantMarkdown(msg.content))}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>Or está escrevendo…</span></div></div>}
-              {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com Or escrevendo abaixo.</p>}
-            </div>
+                ))}
+                {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>Or está escrevendo…</span></div></div>}
+                {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com Or escrevendo abaixo.</p>}
+              </div>
+            )}
+
+            {/* MODO CATÁLOGO (Opcional, mantido oculto por padrão na UI mas funcional se necessário) */}
+            {viewMode === "catalog" && (
+               <div className="space-y-3">
+                  {/* (Código do catálogo mantido caso decida reativar) */}
+                  <h2 className="text-sm font-semibold text-gray-100">Catálogo do AntiVerso</h2>
+                  {/* ... */}
+               </div>
+            )}
           </div>
         </section>
 
