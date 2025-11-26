@@ -2,26 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { supabaseAdmin } from "@/lib/supabase";
 
+// Permite execução de até 60 segundos na Vercel (Pro) para textos longos
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+// --- TIPOS ---
 
 type FichaMeta = {
   periodo_diegese?: string | null;
-  ordem_cronologica?: number | null;
-  referencias_temporais?: string[];
-  aparece_em_detalhado?: {
-    mundo?: string;
-    codigo_mundo?: string | null;
-    episodio?: string | number | null;
-  }[];
+  status?: "ativo" | "obsoleto" | "mesclado";
   relacoes?: {
     tipo: string;
     alvo_titulo?: string;
     alvo_id?: string;
   }[];
-  fontes?: string[];
-  notas_do_autor?: string;
-  nivel_sigilo?: "publico" | "interno" | "rascunho";
-  status?: "ativo" | "obsoleto" | "mesclado";
   [key: string]: any;
 };
 
@@ -41,6 +35,7 @@ type ExtractedFicha = {
   meta?: FichaMeta;
 };
 
+// Tipos permitidos para guiar a IA
 const allowedTypes = [
   "personagem",
   "local",
@@ -55,11 +50,145 @@ const allowedTypes = [
   "objeto",
 ];
 
+// --- HELPERS ---
+
 function normalizeEpisode(unitNumber: string): string {
   const onlyDigits = (unitNumber || "").replace(/\D+/g, "");
   if (!onlyDigits) return "0";
   return String(parseInt(onlyDigits, 10));
 }
+
+// Divide texto em blocos de ~12.000 caracteres para caber na janela de contexto
+function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
+  if (!text || text.length <= maxChars) return [text];
+  
+  const chunks: string[] = [];
+  let currentChunk = "";
+  
+  // Divide por parágrafos para não cortar frases no meio
+  const paragraphs = text.split("\n");
+
+  for (const p of paragraphs) {
+    if ((currentChunk.length + p.length) > maxChars) {
+      chunks.push(currentChunk);
+      currentChunk = "";
+    }
+    currentChunk += p + "\n";
+  }
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk);
+  }
+  
+  return chunks;
+}
+
+// Processa um único bloco de texto com a IA
+async function processChunk(text: string, chunkIndex: number, totalChunks: number): Promise<ExtractedFicha[]> {
+  const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
+
+  const systemPrompt = `
+Você é o Motor de Lore do AntiVerso.
+Sua tarefa é ler o trecho de texto (Parte ${chunkIndex + 1} de ${totalChunks}) e extrair FICHAS DE LORE estruturadas.
+
+TIPOS PERMITIDOS:
+${typeInstructions}
+
+DIRETRIZES DE EXTRAÇÃO:
+1. **Seja Específico:** Não crie fichas para conceitos genéricos (ex: "medo", "escuro") a menos que sejam entidades sobrenaturais definidas.
+2. **Personagens:** Identifique nomes próprios. Se for um figurante sem nome, ignore.
+3. **Eventos:** Se houver uma cena datada ou um acontecimento chave, crie uma ficha de EVENTO com o máximo de dados temporais (ano, data).
+4. **Relações Cruzadas:** O campo "meta.relacoes" é CRÍTICO. Conecte quem fez o quê, onde e com quem.
+
+FORMATO JSON ESPERADO:
+{
+  "fichas": [
+    {
+      "tipo": "personagem", // use apenas os tipos permitidos
+      "titulo": "Nome Principal",
+      "resumo": "Uma frase resumindo quem é.",
+      "conteudo": "Descrição detalhada baseada no texto.",
+      "tags": ["tag1", "tag2"],
+      "aparece_em": "Citação breve de onde aparece no texto",
+      "ano_diegese": 1995, // número ou null
+      "descricao_data": "Verão de 95", // string ou null
+      "data_inicio": "1995-02-15", // YYYY-MM-DD ou null
+      "granularidade_data": "mes", // dia, mes, ano, vago
+      "camada_temporal": "linha_principal", // flashback, sonho_visao, linha_principal
+      "meta": { 
+        "relacoes": [
+           {"tipo": "amigo_de", "alvo_titulo": "Outro Personagem"},
+           {"tipo": "localizado_em", "alvo_titulo": "Nome do Local"}
+        ] 
+      }
+    }
+  ]
+}
+`.trim();
+
+  const userPrompt = `Texto para análise:\n"""${text}"""`;
+
+  try {
+    const completion = await openai!.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.1, // Baixa temperatura para ser mais factual
+      max_tokens: 4000,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const rawContent = completion.choices[0]?.message?.content;
+    if (!rawContent) return [];
+
+    const parsed = JSON.parse(rawContent);
+    return Array.isArray(parsed.fichas) ? parsed.fichas : [];
+  } catch (err) {
+    console.error(`Erro ao processar chunk ${chunkIndex}:`, err);
+    return [];
+  }
+}
+
+// Mescla fichas duplicadas (mesmo título e tipo) encontradas em diferentes chunks
+function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
+  const map = new Map<string, ExtractedFicha>();
+
+  for (const f of allFichas) {
+    // Chave única baseada em tipo + título normalizado
+    const key = `${f.tipo}-${f.titulo.toLowerCase().trim()}`;
+
+    if (map.has(key)) {
+      const existing = map.get(key)!;
+      // Mescla conteúdo (concatena informações novas)
+      existing.conteudo += `\n\n[Continuação extraída]: ${f.conteudo}`;
+      
+      // Mescla tags
+      const mergedTags = new Set([...existing.tags, ...f.tags]);
+      existing.tags = Array.from(mergedTags);
+
+      // Mescla relações
+      if (f.meta?.relacoes) {
+        const existingRels = existing.meta?.relacoes || [];
+        existing.meta = {
+          ...existing.meta,
+          relacoes: [...existingRels, ...f.meta.relacoes]
+        };
+      }
+      
+      // Mantém a data mais específica se a existente for nula
+      if (!existing.ano_diegese && f.ano_diegese) existing.ano_diegese = f.ano_diegese;
+      if (!existing.data_inicio && f.data_inicio) existing.data_inicio = f.data_inicio;
+
+    } else {
+      map.set(key, f);
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+// --- HANDLER PRINCIPAL ---
 
 export async function POST(req: NextRequest) {
   try {
@@ -85,164 +214,81 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Salvar Roteiro
+    // 1. SALVAR ROTEIRO BRUTO NO SUPABASE
+    // Isso garante que temos o texto original preservado
     let roteiroId: string | null = null;
     if (supabaseAdmin) {
       const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
       const titulo = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
+      
+      // Tenta inserir na tabela 'roteiros'. Se ela não existir ou der erro, apenas loga e segue.
       try {
         const { data, error } = await supabaseAdmin
           .from("roteiros")
           .insert({ world_id: worldId ?? null, titulo, conteudo: text, episodio })
           .select("id")
           .single();
-        if (data?.id) roteiroId = data.id;
+        if (!error && data) roteiroId = data.id;
       } catch (err) {
-        console.error("Erro ao salvar roteiro:", err);
+        console.warn("Aviso: Não foi possível salvar na tabela 'roteiros' (pode não existir ainda).", err);
       }
     }
 
-    // 2) Extração com IA - PROMPT REFINADO PARA RELAÇÕES
-    const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
+    // 2. DIVIDIR E CONQUISTAR (CHUNKING)
+    const chunks = splitTextIntoChunks(text);
+    console.log(`Texto dividido em ${chunks.length} bloco(s) para análise.`);
 
-    const systemPrompt = `
-Você é o Motor de Lore do AntiVerso.
-Sua tarefa é ler o texto e criar FICHAS DE LORE para cada elemento relevante.
+    // Processa todos os chunks em paralelo
+    const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length));
+    const results = await Promise.all(promises);
 
-TIPOS PERMITIDOS:
-${typeInstructions}
+    // Flatten: junta todos os arrays de resultados em um só
+    const allRawFichas = results.flat();
 
-REGRAS DE EXTRAÇÃO:
-1. **Personagens:** Crie uma ficha para cada indivíduo.
-2. **Eventos:** Se houver datas ou cenas específicas, crie fichas de EVENTO.
-3. **Locais:** Crie fichas para os lugares onde os eventos ocorrem.
+    // 3. DEDUPLICAÇÃO E LIMPEZA
+    const uniqueFichas = deduplicateFichas(allRawFichas);
 
-REGRAS DE CONEXÃO (Obrigatório):
-- O campo "meta.relacoes" DEVE ser preenchido.
-- Se um **Evento** envolve o personagem "João", adicione em "meta.relacoes": { "tipo": "envolve", "alvo_titulo": "João" }.
-- Se um **Personagem** estava em um **Local**, adicione: { "tipo": "esteve_em", "alvo_titulo": "Nome do Local" }.
-- Tente cruzar o máximo de referências entre as fichas que você está criando agora.
-
-FORMATO DE SAÍDA (JSON):
-{
-  "fichas": [
-    {
-      "tipo": "personagem",
-      "titulo": "Nome",
-      "resumo": "Resumo.",
-      "conteudo": "Detalhes.",
-      "tags": ["tag"],
-      "aparece_em": "Contexto",
-      "meta": { 
-        "relacoes": [
-           {"tipo": "amigo_de", "alvo_titulo": "Outro Personagem"},
-           {"tipo": "participou_de", "alvo_titulo": "Título do Evento"}
-        ] 
-      }
-    },
-    {
-      "tipo": "evento",
-      "titulo": "O que aconteceu",
-      "resumo": "Resumo do evento",
-      "conteudo": "Detalhes do evento",
-      "descricao_data": "Texto da data",
-      "data_inicio": "YYYY-MM-DD",
-      "granularidade_data": "dia",
-      "camada_temporal": "linha_principal",
-      "meta": {
-        "relacoes": [
-           {"tipo": "protagonizado_por", "alvo_titulo": "Nome do Personagem"},
-           {"tipo": "ocorreu_em", "alvo_titulo": "Nome do Local"}
-        ]
-      }
-    }
-  ]
-}
-`.trim();
-
-    const userPrompt = `Texto:\n"""${text}"""\n\nExtraia tudo com o máximo de relações cruzadas possível.`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.1,
-      max_tokens: 4000,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      response_format: { type: "json_object" },
-    });
-
-    const rawContent = completion.choices[0]?.message?.content ?? '{"fichas": []}';
-    let parsed: any = { fichas: [] };
-    try { parsed = JSON.parse(rawContent); } catch (e) { console.error(e); }
-
-    const rawFichas = Array.isArray(parsed.fichas) ? parsed.fichas : [];
-
-    const cleanFichas: ExtractedFicha[] = rawFichas.map((f: any) => {
-      const tipo = String(f.tipo || "conceito").toLowerCase().trim();
-      const isEvento = tipo === "evento";
-      
-      // Metadados
-      const meta: FichaMeta = {
-        relacoes: Array.isArray(f.meta?.relacoes) ? f.meta.relacoes : [],
-        notas_do_autor: f.meta?.notas_do_autor,
-        status: f.meta?.status
-      };
-
-      return {
-        tipo,
-        titulo: String(f.titulo ?? "").trim(),
-        resumo: String(f.resumo ?? "").trim(),
-        conteudo: String(f.conteudo ?? "").trim(),
-        tags: Array.isArray(f.tags) ? f.tags : [],
-        ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
-        aparece_em: String(f.aparece_em ?? "").trim(),
-        
-        // Campos Temporais
-        descricao_data: isEvento ? (f.descricao_data || null) : null,
-        data_inicio: isEvento ? (f.data_inicio || null) : null,
-        data_fim: isEvento ? (f.data_fim || null) : null,
-        granularidade_data: isEvento ? (f.granularidade_data || null) : null,
-        camada_temporal: isEvento ? (f.camada_temporal || null) : null,
-        
-        meta
-      };
-    });
-
-    // Adiciona Roteiro
-    const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
-    const tituloRoteiro = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
+    // 4. ADICIONAR FICHA DO PRÓPRIO ROTEIRO (Manual)
+    // Garante que sempre haja uma ficha representando o documento em si
+    const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
+    const tituloDoc = documentName?.trim() || "Roteiro Processado";
     
-    cleanFichas.unshift({
+    const fichaRoteiro: ExtractedFicha = {
       tipo: "roteiro",
-      titulo: tituloRoteiro,
-      resumo: episodio ? `Roteiro do ep. ${episodio}` : "Roteiro completo.",
-      conteudo: text,
-      tags: ["roteiro"],
+      titulo: tituloDoc,
+      resumo: `Ficha técnica automática do documento/episódio ${episodio}.`,
+      conteudo: text.slice(0, 2000) + (text.length > 2000 ? "..." : ""), // Preview do texto
+      tags: ["roteiro", `ep-${episodio}`],
       ano_diegese: null,
-      aparece_em: episodio ? `Ep. ${episodio}` : "",
-    });
+      aparece_em: `Episódio ${episodio}`,
+      meta: { status: "ativo" }
+    };
 
-    // Filtros de compatibilidade
-    const personagens = cleanFichas.filter(f => f.tipo === "personagem");
-    const locais = cleanFichas.filter(f => f.tipo === "local");
-    const empresas = cleanFichas.filter(f => f.tipo === "empresa");
-    const agencias = cleanFichas.filter(f => f.tipo === "agencia");
-    const midias = cleanFichas.filter(f => f.tipo === "midia");
+    // Coloca a ficha do roteiro no topo da lista
+    uniqueFichas.unshift(fichaRoteiro);
+
+    // 5. PREPARAR RESPOSTA FILTRADA PARA O FRONTEND
+    // Filtros simples para ajudar o frontend a categorizar se necessário,
+    // embora o frontend atual mostre tudo junto.
+    const cleanFichas = uniqueFichas.map(f => ({
+      ...f,
+      titulo: f.titulo.trim(),
+      tipo: f.tipo.toLowerCase().trim(),
+      // Garante que meta.relacoes exista
+      meta: {
+        ...f.meta,
+        relacoes: f.meta?.relacoes || []
+      }
+    }));
 
     return NextResponse.json({
       fichas: cleanFichas,
       roteiroId,
-      personagens,
-      locais,
-      empresas,
-      agencias,
-      midias
+      totalExtracted: cleanFichas.length
     });
 
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Erro na extração." }, { status: 500 });
+  } catch (err: any) {
+    console.error("Erro fatal na rota de extração:", err);
+    return NextResponse.json({ error: `Erro interno: ${err.message}` }, { status: 500 });
   }
 }
