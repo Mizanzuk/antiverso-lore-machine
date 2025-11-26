@@ -30,7 +30,7 @@ type SuggestedFicha = {
   data_fim?: string;
   granularidade_data?: string;
   camada_temporal?: string;
-  // Metadados completos (inclui relações)
+  // Metadados completos
   meta?: any;
 };
 
@@ -53,6 +53,34 @@ type ApiFicha = {
 type ExtractResponse = {
   fichas: ApiFicha[];
 };
+
+// --- MAPA DE PREFIXOS POR TIPO ---
+const TYPE_PREFIX_MAP: Record<string, string> = {
+  personagem: "PS",
+  local: "LO",
+  conceito: "CC",
+  evento: "EV",
+  midia: "MD",
+  "mídia": "MD",
+  empresa: "EM",
+  agencia: "AG",
+  "agência": "AG",
+  registro_anomalo: "RA",
+  "registro anômalo": "RA",
+  roteiro: "RT",
+};
+
+function getTypePrefix(tipo: string): string {
+  const key = (tipo || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
+  // Fallback: 2 primeiras letras ou "XX"
+  return key.slice(0, 2).toUpperCase() || "XX";
+}
 
 function createEmptyFicha(id: string): SuggestedFicha {
   return {
@@ -101,6 +129,7 @@ function getWorldPrefix(world: World | null): string {
   if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV";
   if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC";
   if (cleaned.startsWith("EVANGELHO DE OR")) return "EO";
+  if (cleaned.startsWith("CULTO DE OR")) return "CO";
   if (cleaned.startsWith("ANTIVERSO")) return "ANT";
   if (cleaned.startsWith("ARIS")) return "ARIS";
 
@@ -299,7 +328,9 @@ export default function LoreUploadPage() {
       const selected = worlds.find((w) => w.id === selectedWorldId) || null;
       const prefix = getWorldPrefix(selected);
       const normalizedEpisode = normalizeEpisode(unitNumber || "");
-      let fichaCounter = 1;
+      
+      // Contadores individuais por tipo para gerar PS01, PS02, LO01...
+      const typeCounters: Record<string, number> = {};
 
       const mapped: SuggestedFicha[] = rawFichas.map((rawFicha) => {
         const base = createEmptyFicha(
@@ -349,11 +380,25 @@ export default function LoreUploadPage() {
 
         const appearsEmValue = appearsParts.join("\n\n");
 
+        // Geração de Código Corrigida
         let codigoGerado = "";
+        
         if (prefix && normalizedEpisode) {
-          const counterStr = String(fichaCounter).padStart(2, "0");
-          codigoGerado = `${prefix}${normalizedEpisode}-PS${counterStr}`;
-          fichaCounter += 1;
+          // Identifica o prefixo do tipo (PS, LO, EV...)
+          const typePrefix = getTypePrefix(tipo);
+          
+          // Se for roteiro, a lógica é um pouco diferente (sem contador)
+          if (typePrefix === "RT") {
+             codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`;
+          } else {
+             // Incrementa o contador específico para esse tipo
+             if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1;
+             const count = typeCounters[typePrefix]++;
+             const counterStr = String(count).padStart(2, "0");
+             
+             // Gera: AV1-PS01, AV1-LO01, etc.
+             codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`;
+          }
         }
 
         return {
@@ -371,7 +416,7 @@ export default function LoreUploadPage() {
           data_fim: dataFim,
           granularidade_data: granularidadeData,
           camada_temporal: camadaTemporal,
-          meta: meta, // Guardando aqui
+          meta: meta, 
         };
       });
 
@@ -430,7 +475,7 @@ export default function LoreUploadPage() {
         data_fim: f.data_fim || null,
         granularidade_data: f.granularidade_data || null,
         camada_temporal: f.camada_temporal || null,
-        // Passando o META para o backend salvar as relações
+        codigo: f.codigo, // Envia o código gerado no frontend para o backend respeitar
         meta: f.meta || {}, 
       }));
 
@@ -472,10 +517,6 @@ export default function LoreUploadPage() {
     }
   }
 
-  // ... Restante do código (handleEditFicha, Renderização, Modais) permanece igual ao original ...
-  // Vou resumir a renderização para caber na resposta, mas mantenha a lógica de UI original.
-  // As funções handleEditFicha, applyEditingFicha, handleRemoveFicha, handleClearAll são as mesmas.
-  
   function handleEditFicha(id: string) {
     const ficha = suggestedFichas.find((f) => f.id === id);
     if (!ficha) return;
@@ -590,7 +631,6 @@ export default function LoreUploadPage() {
         </div>
       </div>
 
-      {/* Mantenha os modais de Novo Mundo e Edição de Ficha aqui, iguais ao código original, apenas garantindo que funcionem com as novas estruturas. Como são puramente visuais, não precisam de alteração lógica profunda. */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
