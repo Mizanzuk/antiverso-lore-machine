@@ -15,7 +15,9 @@
     "typescript": "^5.5.0",
     "@supabase/supabase-js": "^2.49.1",
     "openai": "^4.56.0",
-    "clsx": "^2.1.1"
+    "clsx": "^2.1.1",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
