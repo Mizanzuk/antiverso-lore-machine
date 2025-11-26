@@ -118,40 +118,6 @@ export default function LoreAdminPage() {
     data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: ""
   });
 
-  const renderWikiText = (text: string | null | undefined) => {
-    if (!text) return null;
-    const currentFichaId = selectedFichaId;
-    const candidates = fichas
-      .filter((f) => f.id !== currentFichaId && typeof f.titulo === "string" && f.titulo.trim().length > 0)
-      .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
-
-    if (candidates.length === 0) return text;
-
-    const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
-    const elements: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    text.replace(pattern, (match, _group, offset) => {
-      if (typeof offset !== "number") return match;
-      if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
-      const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
-      if (target) {
-        elements.push(
-          <button key={`${target.id}-${offset}`} type="button"
-            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
-            onClick={() => { setSelectedFichaId(target.id); setFichaFormMode("idle"); }}
-          >
-            {match}
-          </button>,
-        );
-      } else { elements.push(match); }
-      lastIndex = offset + match.length;
-      return match;
-    });
-    if (lastIndex < text.length) elements.push(text.slice(lastIndex));
-    return <>{elements}</>;
-  };
-
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
@@ -181,7 +147,9 @@ export default function LoreAdminPage() {
   }, []);
 
   async function handleLogin(e: React.FormEvent) {
-    e.preventDefault(); setIsSubmitting(true); setError(null);
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
     const { data, error: loginError } = await supabaseBrowser.auth.signInWithPassword({ email, password });
     setIsSubmitting(false);
     if (loginError) { setError(loginError.message); return; }
@@ -189,27 +157,53 @@ export default function LoreAdminPage() {
   }
 
   async function handleLogout() {
-    await supabaseBrowser.auth.signOut(); setView("loggedOut"); setEmail(""); setPassword("");
+    await supabaseBrowser.auth.signOut();
+    setView("loggedOut"); setEmail(""); setPassword("");
   }
 
+  // --- DATA FETCHING ---
   async function fetchAllData() {
     try {
       setIsLoadingData(true); setError(null);
       const { data, error: worldsError } = await supabaseBrowser
         .from("worlds").select("*").order("ordem", { ascending: true });
+      
       if (worldsError) {
         console.error(worldsError); setError("Erro ao carregar mundos."); setIsLoadingData(false); return;
       }
-      const list = data || [];
+
+      let list = data || [];
+      
+      // ALTERAÇÃO SOLICITADA: Ordenar para que "AntiVerso" fique sempre em primeiro
+      list.sort((a: any, b: any) => {
+        const nameA = (a.nome || "").toLowerCase().trim();
+        const nameB = (b.nome || "").toLowerCase().trim();
+        
+        // Se A for antiverso, ele vem antes (-1)
+        if (nameA === "antiverso") return -1;
+        // Se B for antiverso, ele vem antes (1, jogando A pra depois)
+        if (nameB === "antiverso") return 1;
+        
+        // Caso contrário, respeita a ordem numérica original
+        return (a.ordem || 0) - (b.ordem || 0);
+      });
+
       setWorlds(list);
+
+      // SELEÇÃO PADRÃO: Se nada selecionado, tenta selecionar "AntiVerso"
       if (!selectedWorldId && list.length > 0) {
-        const first = list[0];
-        setSelectedWorldId(first.id as string);
-        await fetchFichas(first);
+        const antiVerso = list.find((w: any) => (w.nome || "").toLowerCase().trim() === "antiverso");
+        // Se achar antiverso, usa o ID dele, senão usa o primeiro da lista
+        const defaultWorld = antiVerso || list[0];
+        
+        setSelectedWorldId(defaultWorld.id as string);
+        await fetchFichas(defaultWorld);
       } else if (selectedWorldId) {
-        const current = list.find((w) => w.id === selectedWorldId) || null;
+        // Se já tem algo selecionado, recarrega as fichas dele
+        const current = list.find((w: any) => w.id === selectedWorldId) || null;
         await fetchFichas(current);
       }
+      
       setIsLoadingData(false);
     } catch (err: any) {
       console.error(err); setError("Erro inesperado ao carregar dados."); setIsLoadingData(false);
@@ -544,21 +538,67 @@ export default function LoreAdminPage() {
   }
 
   if (view === "loading") {
-    return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
+        <div className="text-xs text-neutral-500">Carregando…</div>
+      </div>
+    );
   }
 
   if (view === "loggedOut") {
     return (
       <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center">
-        <form onSubmit={handleLogin} className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80">
-          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">/lore-admin – Mundos, Fichas e Códigos</h1>
-          <p className="text-[11px] text-neutral-500 mb-4">Acesse com seu e-mail e senha de admin.</p>
-          {error && <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">{error}</div>}
+        <form
+          onSubmit={handleLogin}
+          className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80"
+        >
+          <h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">
+            /lore-admin – Mundos, Fichas e Códigos
+          </h1>
+          <p className="text-[11px] text-neutral-500 mb-4">
+            Acesse com seu e-mail e senha de admin.
+          </p>
+
+          {error && (
+            <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-2 mb-3">
-            <div><label className="block text-[11px] text-neutral-500 mb-1">E-mail</label><input type="email" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
-            <div><label className="block text-[11px] text-neutral-500 mb-1">Senha</label><input type="password" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div>
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
+                E-mail
+              </label>
+              <input
+                type="email"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-neutral-500 mb-1">
+                Senha
+              </label>
+              <input
+                type="password"
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
           </div>
-          <button type="submit" disabled={isSubmitting} className="w-full mt-1 text-[11px] px-3 py-1.5 rounded-full border border-emerald-500 text-emerald-200 hover:bg-emerald-500 hover:text-black transition-colors disabled:opacity-60">{isSubmitting ? "Entrando…" : "Entrar"}</button>
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full mt-1 text-[11px] px-3 py-1.5 rounded-full border border-emerald-500 text-emerald-200 hover:bg-emerald-500 hover:text-black transition-colors disabled:opacity-60"
+          >
+            {isSubmitting ? "Entrando…" : "Entrar"}
+          </button>
         </form>
       </div>
     );
@@ -568,10 +608,26 @@ export default function LoreAdminPage() {
     <div className="h-screen bg-black text-neutral-100 flex flex-col">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between bg-neutral-950">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-[11px] text-neutral-300 hover:text-white">← Home</a>
-          <a href="/lore-upload" className="text-[11px] text-neutral-400 hover:text-white">Upload</a>
-          <a href="/lore-admin/timeline" className="text-[11px] text-neutral-400 hover:text-white">Timeline</a>
+          <a
+            href="/"
+            className="text-[11px] text-neutral-300 hover:text-white"
+          >
+            ← Home
+          </a>
+          <a
+            href="/lore-upload"
+            className="text-[11px] text-neutral-400 hover:text-white"
+          >
+            Upload
+          </a>
+          <a
+            href="/lore-admin/timeline"
+            className="text-[11px] text-neutral-400 hover:text-white"
+          >
+            Timeline
+          </a>
         </div>
+
         <div className="flex items-center gap-4">
           <button 
             onClick={openReconcile}
@@ -583,29 +639,90 @@ export default function LoreAdminPage() {
         </div>
       </header>
 
-      {error && <div className="px-4 py-2 text-[11px] text-red-400 bg-red-950/40 border-b border-red-900">{error}</div>}
-      {isLoadingData && <div className="px-4 py-1 text-[11px] text-neutral-500 border-b border-neutral-900">Carregando dados…</div>}
+      {error && (
+        <div className="px-4 py-2 text-[11px] text-red-400 bg-red-950/40 border-b border-red-900">
+          {error}
+        </div>
+      )}
 
-      <main className="flex flex-1 overflow-hidden relative">
+      {isLoadingData && (
+        <div className="px-4 py-1 text-[11px] text-neutral-500 border-b border-neutral-900">
+          Carregando dados…
+        </div>
+      )}
+
+      <main className="flex flex-1 overflow-hidden">
         {/* Mundos */}
         <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Mundos</h2>
-            <button onClick={startCreateWorld} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Novo</button>
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+              Mundos
+            </h2>
+            <button
+              onClick={startCreateWorld}
+              className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+            >
+              + Novo
+            </button>
           </div>
-          <div className="text-[11px] text-neutral-500 mb-2">Selecione um Mundo para ver suas Fichas e Códigos.</div>
+
+          <div className="text-[11px] text-neutral-500 mb-2">
+            Selecione um Mundo para ver suas Fichas e Códigos.
+          </div>
+
           <div className="flex-1 overflow-auto space-y-1 pr-1">
-            {worlds.length === 0 && <div className="text-[11px] text-neutral-600">Nenhum Mundo cadastrado ainda.</div>}
+            {worlds.length === 0 && (
+              <div className="text-[11px] text-neutral-600">
+                Nenhum Mundo cadastrado ainda.
+              </div>
+            )}
+
             {worlds.map((world) => (
-              <div key={world.id} className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${selectedWorldId === world.id ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-800 hover:border-neutral-500"}`} onClick={() => { setSelectedWorldId(world.id as string); fetchFichas(world); }} onDoubleClick={() => setWorldViewModal(world)}>
+              <div
+                key={world.id}
+                className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
+                  selectedWorldId === world.id
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-neutral-800 hover:border-neutral-500"
+                }`}
+                onClick={() => {
+                  setSelectedWorldId(world.id as string);
+                  fetchFichas(world);
+                }}
+                onDoubleClick={() => setWorldViewModal(world)}
+              >
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-neutral-100">{world.nome}</div>
+                  <div className="font-medium text-neutral-100">
+                    {world.nome}
+                  </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={(e) => { e.stopPropagation(); startEditWorld(world); }}>Editar</button>
-                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={(e) => { e.stopPropagation(); handleDeleteWorld(world.id as string); }}>Del</button>
+                    <button
+                      type="button"
+                      className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditWorld(world);
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteWorld(world.id as string);
+                      }}
+                    >
+                      Del
+                    </button>
                   </div>
                 </div>
-                {world.descricao && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{world.descricao}</div>}
+                {world.descricao && (
+                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                    {world.descricao}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -614,140 +731,328 @@ export default function LoreAdminPage() {
         {/* Fichas */}
         <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Fichas do Mundo</h2>
-            <button onClick={startCreateFicha} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Nova</button>
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+              Fichas do Mundo
+            </h2>
+            <button
+              onClick={startCreateFicha}
+              className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+            >
+              + Nova
+            </button>
           </div>
-          <div className="text-[11px] text-neutral-500 mb-1">Mundo selecionado: <span className="text-neutral-300">{selectedWorld?.nome ?? "nenhum selecionado"}</span></div>
+
+          <div className="text-[11px] text-neutral-500 mb-1">
+            Mundo selecionado:{" "}
+            <span className="text-neutral-300">
+              {selectedWorld?.nome ?? "nenhum selecionado"}
+            </span>
+          </div>
+
           <div className="mb-2">
-            <input className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-[11px]" placeholder="Buscar fichas por título, resumo ou tags…" value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
+            <input
+              className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-[11px]"
+              placeholder="Buscar fichas por título, resumo ou tags…"
+              value={fichasSearchTerm}
+              onChange={(e) => setFichasSearchTerm(e.target.value)}
+            />
           </div>
+
           <div className="flex flex-wrap items-center gap-2 mb-2 text-[11px]">
             <span className="text-neutral-500">Filtrar por tipo:</span>
-            <button type="button" onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 rounded-full border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300 bg-emerald-500/10" : "border-neutral-700 text-neutral-400 hover:border-neutral-500"}`}>Todos</button>
+            <button
+              type="button"
+              onClick={() => setFichaFilterTipos([])}
+              className={`px-2 py-0.5 rounded-full border ${
+                fichaFilterTipos.length === 0
+                  ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
+                  : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
+              }`}
+            >
+              Todos
+            </button>
             {dynamicTipos.map((tipo) => (
-              <button key={tipo} type="button" onClick={() => toggleFilterTipo(tipo)} className={`px-2 py-0.5 rounded-full border ${fichaFilterTipos.includes(tipo) ? "border-emerald-500 text-emerald-300 bg-emerald-500/10" : "border-neutral-700 text-neutral-400 hover:border-neutral-500"}`}>
-                {tipo === "personagem" ? "Personagens" : tipo === "local" ? "Locais" : tipo === "agencia" ? "Agências" : tipo === "empresa" ? "Empresas" : tipo === "midia" ? "Mídia" : tipo === "conceito" ? "Conceitos" : tipo === "epistemologia" ? "Epistemologia" : tipo === "evento" ? "Eventos" : tipo === "regra_de_mundo" ? "Regras de mundo" : tipo === "roteiro" ? "Roteiros" : tipo}
+              <button
+                key={tipo}
+                type="button"
+                onClick={() => toggleFilterTipo(tipo)}
+                className={`px-2 py-0.5 rounded-full border ${
+                  fichaFilterTipos.includes(tipo)
+                    ? "border-emerald-500 text-emerald-300 bg-emerald-500/10"
+                    : "border-neutral-700 text-neutral-400 hover:border-neutral-500"
+                }`}
+              >
+                {tipo === "personagem"
+                  ? "Personagens"
+                  : tipo === "local"
+                  ? "Locais"
+                  : tipo === "agencia"
+                  ? "Agências"
+                  : tipo === "empresa"
+                  ? "Empresas"
+                  : tipo === "midia"
+                  ? "Mídia"
+                  : tipo === "conceito"
+                  ? "Conceitos"
+                  : tipo === "epistemologia"
+                  ? "Epistemologia"
+                  : tipo === "evento"
+                  ? "Eventos"
+                  : tipo === "regra_de_mundo"
+                  ? "Regras de mundo"
+                  : tipo === "roteiro"
+                  ? "Roteiros"
+                  : tipo}
               </button>
             ))}
           </div>
+
           <div className="flex-1 overflow-auto space-y-1 pr-1 mb-3">
-            {selectedWorldId == null && <div className="text-[11px] text-neutral-600">Selecione um Mundo na coluna da esquerda.</div>}
-            {selectedWorldId != null && filteredFichas.length === 0 && <div className="text-[11px] text-neutral-600">Nenhuma Ficha cadastrada para este filtro.</div>}
+            {selectedWorldId == null && (
+              <div className="text-[11px] text-neutral-600">
+                Selecione um Mundo na coluna da esquerda.
+              </div>
+            )}
+
+            {selectedWorldId != null && filteredFichas.length === 0 && (
+              <div className="text-[11px] text-neutral-600">
+                Nenhuma Ficha cadastrada para este filtro.
+              </div>
+            )}
+
             {filteredFichas.map((ficha) => (
-              <div key={ficha.id} className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${selectedFichaId === ficha.id ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-800 hover:border-neutral-500"}`} onClick={() => { setSelectedFichaId(ficha.id as string); fetchCodes(ficha.id as string); }} onDoubleClick={() => setFichaViewModal(ficha)}>
+              <div
+                key={ficha.id}
+                className={`group border rounded-md px-2 py-1 text-[11px] cursor-pointer mb-1 ${
+                  selectedFichaId === ficha.id
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-neutral-800 hover:border-neutral-500"
+                }`}
+                onClick={() => {
+                  setSelectedFichaId(ficha.id as string);
+                  fetchCodes(ficha.id as string);
+                }}
+                onDoubleClick={() => setFichaViewModal(ficha)}
+              >
                 <div className="flex items-center justify-between">
-                  <div><div className="font-medium text-neutral-100">{ficha.titulo}</div><div className="text-[10px] text-neutral-500">{ficha.tipo || "sem tipo definido"}</div></div>
+                  <div>
+                    <div className="font-medium text-neutral-100">
+                      {ficha.titulo}
+                    </div>
+                    <div className="text-[10px] text-neutral-500">
+                      {ficha.tipo || "sem tipo definido"}
+                    </div>
+                  </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={(e) => { e.stopPropagation(); startEditFicha(ficha); }}>Editar</button>
-                    <button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={(e) => { e.stopPropagation(); handleDeleteFicha(ficha.id as string); }}>Del</button>
+                    <button
+                      type="button"
+                      className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEditFicha(ficha);
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFicha(ficha.id as string);
+                      }}
+                    >
+                      Del
+                    </button>
                   </div>
                 </div>
-                {ficha.resumo && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{ficha.resumo}</div>}
+                {ficha.resumo && (
+                  <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                    {ficha.resumo}
+                  </div>
+                )}
               </div>
             ))}
           </div>
+
         </section>
+
         
         {/* Detalhes da Ficha */}
         <section className="flex-1 p-4 flex flex-col min-h-0 bg-zinc-950">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">Detalhes da Ficha</h2>
-            {selectedFicha && <button onClick={() => startEditFicha(selectedFicha)} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">Editar</button>}
+            <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+              Detalhes da Ficha
+            </h2>
+            {selectedFicha && (
+              <button
+                onClick={() => startEditFicha(selectedFicha)}
+                className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+              >
+                Editar
+              </button>
+            )}
           </div>
-          {!selectedFicha ? <div className="text-[11px] text-neutral-500">Selecione uma ficha na coluna do meio para ver os detalhes aqui.</div> : (
+
+          {!selectedFicha ? (
+            <div className="text-[11px] text-neutral-500">
+              Selecione uma ficha na coluna do meio para ver os detalhes aqui.
+            </div>
+          ) : (
             <div className="flex-1 overflow-y-auto pr-1 space-y-4">
-              <div className="space-y-1"><div className="text-[11px] text-neutral-500">Título</div><div className="text-sm text-neutral-100 font-medium">{selectedFicha.titulo}</div></div>
-              {selectedFicha.tipo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Tipo</div><div className="text-[12px] text-neutral-200">{selectedFicha.tipo}</div></div>}
-              {selectedFicha.slug && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Slug</div><div className="text-[12px] text-neutral-300">{selectedFicha.slug}</div></div>}
-              {selectedFicha.codigo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Código</div><div className="text-[12px] text-neutral-300">{selectedFicha.codigo}</div></div>}
-              {selectedFicha.imagem_url && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Imagem</div><div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40"><img src={selectedFicha.imagem_url} alt={selectedFicha.titulo || "imagem da ficha"} className="w-full max-h-80 object-contain" /></div></div>}
-              {selectedFicha.resumo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Resumo</div><div className="text-[12px] text-neutral-200 whitespace-pre-line">{renderWikiText(selectedFicha.resumo)}</div></div>}
-              {selectedFicha.conteudo && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Conteúdo</div><div className="text-[12px] text-neutral-300 whitespace-pre-line">{renderWikiText(selectedFicha.conteudo)}</div></div>}
-              {selectedFicha.tags && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Tags</div><div className="text-[12px] text-neutral-300">{selectedFicha.tags}</div></div>}
-              {selectedFicha.aparece_em && <div className="space-y-1"><div className="text-[11px] text-neutral-500">Aparece em</div><div className="text-[12px] text-neutral-300 whitespace-pre-line">{selectedFicha.aparece_em}</div></div>}
               <div className="space-y-1">
-                <div className="flex items-center justify-between"><div className="text-[11px] text-neutral-500">Códigos</div>{selectedFicha && <button onClick={startCreateCode} className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors">+ Novo código</button>}</div>
-                {!codes.length && <div className="text-[11px] text-neutral-500 mt-1">Nenhum código cadastrado para esta ficha.</div>}
-                {codes.length > 0 && <div className="mt-1 space-y-1">{codes.map((code) => (<div key={code.id} className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px]"><div className="flex items-center justify-between"><div><div className="font-medium text-neutral-100">{code.code}</div>{code.label && <div className="text-[10px] text-neutral-500">{code.label}</div>}</div><div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button type="button" className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400" onClick={() => startEditCode(code)}>Editar</button><button type="button" className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40" onClick={() => handleDeleteCode(code.id as string)}>Del</button></div></div>{code.description && <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">{code.description}</div>}</div>))}</div>}
+                <div className="text-[11px] text-neutral-500">Título</div>
+                <div className="text-sm text-neutral-100 font-medium">
+                  {selectedFicha.titulo}
+                </div>
+              </div>
+
+              {selectedFicha.tipo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Tipo</div>
+                  <div className="text-[12px] text-neutral-200">
+                    {selectedFicha.tipo}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.slug && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Slug</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.slug}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.codigo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Código</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.codigo}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.imagem_url && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Imagem</div>
+                  <div className="border border-neutral-800 rounded-md overflow-hidden bg-black/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={selectedFicha.imagem_url}
+                      alt={selectedFicha.titulo || "imagem da ficha"}
+                      className="w-full max-h-80 object-contain"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.resumo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Resumo</div>
+                  <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                    {renderWikiText(selectedFicha.resumo)}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.conteudo && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Conteúdo</div>
+                  <div className="text-[12px] text-neutral-300 whitespace-pre-line">
+                    {renderWikiText(selectedFicha.conteudo)}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.tags && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">Tags</div>
+                  <div className="text-[12px] text-neutral-300">
+                    {selectedFicha.tags}
+                  </div>
+                </div>
+              )}
+
+              {selectedFicha.aparece_em && (
+                <div className="space-y-1">
+                  <div className="text-[11px] text-neutral-500">
+                    Aparece em
+                  </div>
+                  <div className="text-[12px] text-neutral-300 whitespace-pre-line">
+                    {selectedFicha.aparece_em}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-neutral-500">Códigos</div>
+                  {selectedFicha && (
+                    <button
+                      onClick={startCreateCode}
+                      className="text-[11px] px-2 py-1 rounded-full border border-neutral-700 hover:border-emerald-500 hover:text-emerald-300 transition-colors"
+                    >
+                      + Novo código
+                    </button>
+                  )}
+                </div>
+
+                {!codes.length && (
+                  <div className="text-[11px] text-neutral-500 mt-1">
+                    Nenhum código cadastrado para esta ficha.
+                  </div>
+                )}
+
+                {codes.length > 0 && (
+                  <div className="mt-1 space-y-1">
+                    {codes.map((code) => (
+                      <div
+                        key={code.id}
+                        className="group border border-neutral-800 rounded-md px-2 py-1 text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-neutral-100">
+                              {code.code}
+                            </div>
+                            {code.label && (
+                              <div className="text-[10px] text-neutral-500">
+                                {code.label}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              className="text-[10px] px-1 py-0.5 rounded border border-neutral-700 hover:border-neutral-400"
+                              onClick={() => startEditCode(code)}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
+                              onClick={() => handleDeleteCode(code.id as string)}
+                            >
+                              Del
+                            </button>
+                          </div>
+                        </div>
+                        {code.description && (
+                          <div className="text-[10px] text-neutral-500 mt-0.5 line-clamp-2">
+                            {code.description}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
         </section>
-
-        {/* --- OVERLAY RECONCILIAÇÃO --- */}
-        {showReconcile && (
-          <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in fade-in duration-200">
-            <div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950">
-              <h2 className="text-lg font-bold text-purple-400 flex items-center gap-2">
-                ⚡ Modo Reconciliação
-              </h2>
-              <button onClick={()=>setShowReconcile(false)} className="text-zinc-400 hover:text-white text-sm">Fechar (Esc)</button>
-            </div>
-            
-            <div className="flex flex-1 overflow-hidden">
-              {/* Lista de Duplicatas */}
-              <aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">
-                {reconcileLoading && <div className="text-xs text-zinc-500">Buscando duplicatas...</div>}
-                {!reconcileLoading && reconcilePairs.length === 0 && <div className="text-zinc-500 text-sm text-center mt-10">Nenhuma duplicata encontrada.<br/>O banco está limpo!</div>}
-                <div className="space-y-2">
-                  {reconcilePairs.map((pair, idx) => (
-                    <button key={idx} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 rounded border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-purple-500/50 transition-all group">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-[10px] font-mono text-purple-400">{(pair.similarity*100).toFixed(0)}% similar</span>
-                      </div>
-                      <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_a}</div>
-                      <div className="text-[10px] text-zinc-600 my-0.5">vs</div>
-                      <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_b}</div>
-                    </button>
-                  ))}
-                </div>
-              </aside>
-
-              {/* Área de Comparação */}
-              <main className="flex-1 bg-black p-8 overflow-y-auto">
-                {!comparing ? (
-                  <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
-                    Selecione um par na esquerda para resolver o conflito.
-                  </div>
-                ) : mergeDraft && (
-                  <div className="max-w-4xl mx-auto pb-20">
-                    <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h3>
-                        <p className="text-zinc-400 text-xs">Selecione qual versão de cada campo você quer manter. A ficha não escolhida será apagada.</p>
-                      </div>
-                      <button 
-                        onClick={()=>executeMerge(comparing.a.id, comparing.b.id)}
-                        disabled={reconcileProcessing}
-                        className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded font-bold text-sm shadow-lg shadow-purple-900/20 disabled:opacity-50"
-                      >
-                        {reconcileProcessing ? "Fundindo..." : "Confirmar Fusão & Apagar Duplicata"}
-                      </button>
-                    </div>
-
-                    <div className="grid gap-1">
-                      <FieldChoice label="Título" field="titulo" />
-                      <FieldChoice label="Tipo" field="tipo" />
-                      <FieldChoice label="Resumo" field="resumo" />
-                      <FieldChoice label="Conteúdo" field="conteudo" />
-                      <FieldChoice label="Tags" field="tags" />
-                      <FieldChoice label="Aparece Em" field="aparece_em" />
-                      
-                      <div className="mt-8 pt-4 border-t border-zinc-800">
-                        <h4 className="text-xs uppercase tracking-widest text-zinc-500 mb-4">Cronologia</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <FieldChoice label="Ano Diegese" field="ano_diegese" />
-                          <FieldChoice label="Camada" field="camada_temporal" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </main>
-            </div>
-          </div>
-        )}
-
       </main>
 
 
@@ -970,65 +1275,6 @@ export default function LoreAdminPage() {
                     <div className="text-[12px] text-neutral-200">
                       {fichaViewModal.ordem_cronologica}
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(fichaViewModal.data_inicio ||
-              fichaViewModal.data_fim ||
-              fichaViewModal.granularidade_data ||
-              fichaViewModal.descricao_data ||
-              fichaViewModal.camada_temporal) && (
-              <div className={fichaForm.tipo === "evento" ? "mt-3 space-y-2" : "hidden"}>
-                <div className="text-[11px] text-neutral-500">
-                  Tempo (camadas)
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-[12px]">
-                  {fichaViewModal.data_inicio && (
-                    <div>
-                      <div className="text-[11px] text-neutral-500">
-                        Data início
-                      </div>
-                      <div className="text-neutral-200">
-                        {fichaViewModal.data_inicio}
-                      </div>
-                    </div>
-                  )}
-                  {fichaViewModal.data_fim && (
-                    <div>
-                      <div className="text-[11px] text-neutral-500">
-                        Data fim
-                      </div>
-                      <div className="text-neutral-200">
-                        {fichaViewModal.data_fim}
-                      </div>
-                    </div>
-                  )}
-                  {fichaViewModal.granularidade_data && (
-                    <div>
-                      <div className="text-[11px] text-neutral-500">
-                        Granularidade
-                      </div>
-                      <div className="text-neutral-200">
-                        {fichaViewModal.granularidade_data}
-                      </div>
-                    </div>
-                  )}
-                  {fichaViewModal.camada_temporal && (
-                    <div>
-                      <div className="text-[11px] text-neutral-500">
-                        Camada temporal
-                      </div>
-                      <div className="text-neutral-200">
-                        {fichaViewModal.camada_temporal}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {fichaViewModal.descricao_data && (
-                  <div className="text-[12px] text-neutral-200 whitespace-pre-line">
-                    {fichaViewModal.descricao_data}
                   </div>
                 )}
               </div>
@@ -1347,7 +1593,7 @@ export default function LoreAdminPage() {
               />
             </div>
 
-            <div className={fichaForm.tipo === "evento" ? "grid grid-cols-2 gap-2" : "hidden"}>
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <label className="text-[11px] text-neutral-500">
                   Ano da diegese
