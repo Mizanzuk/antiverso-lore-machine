@@ -174,17 +174,14 @@ export default function LoreAdminPage() {
 
       let list = data || [];
       
-      // ALTERAÇÃO SOLICITADA: Ordenar para que "AntiVerso" fique sempre em primeiro
+      // ORDENAÇÃO: AntiVerso sempre em primeiro
       list.sort((a: any, b: any) => {
         const nameA = (a.nome || "").toLowerCase().trim();
         const nameB = (b.nome || "").toLowerCase().trim();
         
-        // Se A for antiverso, ele vem antes (-1)
         if (nameA === "antiverso") return -1;
-        // Se B for antiverso, ele vem antes (1, jogando A pra depois)
         if (nameB === "antiverso") return 1;
         
-        // Caso contrário, respeita a ordem numérica original
         return (a.ordem || 0) - (b.ordem || 0);
       });
 
@@ -193,13 +190,11 @@ export default function LoreAdminPage() {
       // SELEÇÃO PADRÃO: Se nada selecionado, tenta selecionar "AntiVerso"
       if (!selectedWorldId && list.length > 0) {
         const antiVerso = list.find((w: any) => (w.nome || "").toLowerCase().trim() === "antiverso");
-        // Se achar antiverso, usa o ID dele, senão usa o primeiro da lista
         const defaultWorld = antiVerso || list[0];
         
         setSelectedWorldId(defaultWorld.id as string);
         await fetchFichas(defaultWorld);
       } else if (selectedWorldId) {
-        // Se já tem algo selecionado, recarrega as fichas dele
         const current = list.find((w: any) => w.id === selectedWorldId) || null;
         await fetchFichas(current);
       }
@@ -284,7 +279,6 @@ export default function LoreAdminPage() {
       setComparing(null);
       setMergeDraft(null);
       
-      // Recarrega lista e fichas
       const resList = await fetch("/api/lore/reconcile");
       const jsonList = await resList.json();
       setReconcilePairs(jsonList.duplicates || []);
@@ -298,6 +292,75 @@ export default function LoreAdminPage() {
       setReconcileProcessing(false);
     }
   }
+
+  // --- FUNÇÃO RESTAURADA: renderWikiText ---
+  const renderWikiText = (text: string | null | undefined) => {
+    if (!text) return null;
+
+    const currentFichaId = selectedFichaId;
+    const candidates = fichas
+      .filter(
+        (f) =>
+          f.id !== currentFichaId &&
+          typeof f.titulo === "string" &&
+          f.titulo.trim().length > 0,
+      )
+      .map((f) => ({
+        id: f.id as string,
+        titulo: (f.titulo as string).trim(),
+      }));
+
+    if (candidates.length === 0) {
+      return text;
+    }
+
+    const pattern = new RegExp(
+      `\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`,
+      "gi",
+    );
+
+    const elements: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    text.replace(pattern, (match, _group, offset) => {
+      if (typeof offset !== "number") return match;
+
+      if (offset > lastIndex) {
+        elements.push(text.slice(lastIndex, offset));
+      }
+
+      const target = candidates.find(
+        (c) => c.titulo.toLowerCase() === match.toLowerCase(),
+      );
+
+      if (target) {
+        elements.push(
+          <button
+            key={`${target.id}-${offset}`}
+            type="button"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
+            onClick={() => {
+              setSelectedFichaId(target.id);
+              setFichaFormMode("idle");
+            }}
+          >
+            {match}
+          </button>,
+        );
+      } else {
+        elements.push(match);
+      }
+
+      lastIndex = offset + match.length;
+      return match;
+    });
+
+    if (lastIndex < text.length) {
+      elements.push(text.slice(lastIndex));
+    }
+
+    return <>{elements}</>;
+  };
 
   const FieldChoice = ({ label, field }: { label: string; field: keyof FichaFull }) => {
     if (!comparing || !mergeDraft) return null;
@@ -449,92 +512,276 @@ export default function LoreAdminPage() {
     await fetchFichas(currentWorld);
   }
   async function handleDeleteFicha(fichaId: string) {
-    setError(null); const ok = window.confirm("Tem certeza que deseja deletar esta Ficha? Essa ação não pode ser desfeita.");
+    setError(null);
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar esta Ficha? Essa ação não pode ser desfeita.",
+    );
     if (!ok) return;
-    const { error: deleteCodesError } = await supabaseBrowser.from("codes").delete().eq("ficha_id", fichaId);
-    if (deleteCodesError) { console.error(deleteCodesError); setError("Erro ao deletar códigos vinculados à Ficha."); return; }
-    const { error: deleteError } = await supabaseBrowser.from("fichas").delete().eq("id", fichaId);
-    if (deleteError) { console.error(deleteError); setError("Erro ao deletar Ficha."); return; }
-    if (selectedFichaId === fichaId) { setSelectedFichaId(null); setCodes([]); }
-    const currentWorld = worlds.find((w) => w.id === selectedWorldId) || null;
+
+    // Primeiro, apagar códigos associados a esta ficha (para não violar FK)
+    const { error: deleteCodesError } = await supabaseBrowser
+      .from("codes")
+      .delete()
+      .eq("ficha_id", fichaId);
+
+    if (deleteCodesError) {
+      console.error(deleteCodesError);
+      setError("Erro ao deletar códigos vinculados à Ficha.");
+      return;
+    }
+
+    // Depois, apagar a ficha em si
+    const { error: deleteError } = await supabaseBrowser
+      .from("fichas")
+      .delete()
+      .eq("id", fichaId);
+
+    if (deleteError) {
+      console.error(deleteError);
+      setError("Erro ao deletar Ficha.");
+      return;
+    }
+
+    if (selectedFichaId === fichaId) {
+      setSelectedFichaId(null);
+      setCodes([]);
+    }
+
+    const currentWorld =
+      worlds.find((w) => w.id === selectedWorldId) || null;
     await fetchFichas(currentWorld);
   }
 
-  // --- CRUD CÓDIGOS ---
   function startCreateCode() {
-    if (!selectedFichaId) { setError("Selecione uma Ficha antes de criar um Código."); return; }
+    if (!selectedFichaId) {
+      setError("Selecione uma Ficha antes de criar um Código.");
+      return;
+    }
     setCodeFormMode("create");
-    setCodeForm({ id: "", code: "", label: "", description: "", episode: "" });
+    setCodeForm({
+      id: "",
+      code: "",
+      label: "",
+      description: "",
+      episode: "",
+    });
   }
+
   function startEditCode(code: any) {
     let episode = "";
-    if (typeof code.code === "string") { const m = code.code.match(/^[A-Z]{2}(\d+)-[A-Z]{2}\d+$/); if (m && m[1]) { episode = m[1]; } }
+    if (typeof code.code === "string") {
+      const m = code.code.match(/^[A-Z]{2}(\d+)-[A-Z]{2}\d+$/);
+      if (m && m[1]) {
+        episode = m[1];
+      }
+    }
     setCodeFormMode("edit");
-    setCodeForm({ id: code.id ?? "", code: code.code ?? "", label: code.label ?? "", description: code.description ?? "", episode });
+    setCodeForm({
+      id: code.id ?? "",
+      code: code.code ?? "",
+      label: code.label ?? "",
+      description: code.description ?? "",
+      episode,
+    });
   }
-  function cancelCodeForm() { setCodeFormMode("idle"); setCodeForm({ id: "", code: "", label: "", description: "", episode: "" }); }
+
+  function cancelCodeForm() {
+    setCodeFormMode("idle");
+    setCodeForm({
+      id: "",
+      code: "",
+      label: "",
+      description: "",
+      episode: "",
+    });
+  }
+
   async function handleSaveCode(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedFichaId) { setError("Selecione uma Ficha antes de salvar um Código."); return; }
+    if (!selectedFichaId) {
+      setError("Selecione uma Ficha antes de salvar um Código.");
+      return;
+    }
     if (codeFormMode === "idle") return;
-    setIsSavingCode(true); setError(null);
-    const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-    const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
+
+    setIsSavingCode(true);
+    setError(null);
+
+    const selectedWorld =
+      worlds.find((w) => w.id === selectedWorldId) || null;
+    const selectedFicha =
+      fichas.find((f) => f.id === selectedFichaId) || null;
+
     let finalCode = codeForm.code.trim();
+
+    // GERAÇÃO AUTOMÁTICA
     if (!finalCode) {
       const episodeRaw = codeForm.episode.trim();
-      if (!selectedWorld || !selectedFicha) { setError("Não foi possível gerar o código: selecione um Mundo e uma Ficha."); setIsSavingCode(false); return; }
-      if (!episodeRaw) { setError('Para gerar o código automaticamente, preencha o campo "Episódio".'); setIsSavingCode(false); return; }
-      if (!selectedFicha.tipo) { setError('Para gerar o código automaticamente, defina o "Tipo" da Ficha.'); setIsSavingCode(false); return; }
+      if (!selectedWorld || !selectedFicha) {
+        setError(
+          "Não foi possível gerar o código: selecione um Mundo e uma Ficha.",
+        );
+        setIsSavingCode(false);
+        return;
+      }
+      if (!episodeRaw) {
+        setError(
+          'Para gerar o código automaticamente, preencha o campo "Episódio".',
+        );
+        setIsSavingCode(false);
+        return;
+      }
+      if (!selectedFicha.tipo) {
+        setError(
+          'Para gerar o código automaticamente, defina o "Tipo" da Ficha (personagem, local, etc.).',
+        );
+        setIsSavingCode(false);
+        return;
+      }
+
       const worldPrefix = getWorldPrefix(selectedWorld.nome);
       const tipoPrefix = getTipoPrefix(selectedFicha.tipo);
       const episodeNumber = episodeRaw;
+
       const basePrefix = `${worldPrefix}${episodeNumber}-${tipoPrefix}`;
-      const { data: existingCodes, error: existingError } = await supabaseBrowser.from("codes").select("code").like("code", `${basePrefix}%`);
-      if (existingError) { console.error(existingError); setError("Erro ao gerar código automaticamente."); setIsSavingCode(false); return; }
+
+      const { data: existingCodes, error: existingError } =
+        await supabaseBrowser
+          .from("codes")
+          .select("code")
+          .like("code", `${basePrefix}%`);
+
+      if (existingError) {
+        console.error(existingError);
+        setError("Erro ao gerar código automaticamente.");
+        setIsSavingCode(false);
+        return;
+      }
+
       let maxIndex = 0;
-      (existingCodes || []).forEach((row) => { const c = row.code as string; if (typeof c === "string" && c.startsWith(basePrefix)) { const suffix = c.slice(basePrefix.length); const n = parseInt(suffix, 10); if (!Number.isNaN(n) && n > maxIndex) { maxIndex = n; } } });
+      (existingCodes || []).forEach((row) => {
+        const c = row.code as string;
+        if (typeof c === "string" && c.startsWith(basePrefix)) {
+          const suffix = c.slice(basePrefix.length);
+          const n = parseInt(suffix, 10);
+          if (!Number.isNaN(n) && n > maxIndex) {
+            maxIndex = n;
+          }
+        }
+      });
+
       const nextIndex = maxIndex + 1;
       finalCode = `${basePrefix}${nextIndex}`;
     }
-    if (!finalCode) { setError("Código precisa de um valor."); setIsSavingCode(false); return; }
-    const payload: any = { ficha_id: selectedFichaId, code: finalCode, label: codeForm.label.trim() || null, description: codeForm.description.trim() || null, updated_at: new Date().toISOString() };
+
+    if (!finalCode) {
+      setError("Código precisa de um valor.");
+      setIsSavingCode(false);
+      return;
+    }
+
+    const payload: any = {
+      ficha_id: selectedFichaId,
+      code: finalCode,
+      label: codeForm.label.trim() || null,
+      description: codeForm.description.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+
     let saveError = null;
-    if (codeFormMode === "create") { const { error } = await supabaseBrowser.from("codes").insert([payload]); saveError = error; } 
-    else { const { error } = await supabaseBrowser.from("codes").update(payload).eq("id", codeForm.id); saveError = error; }
+
+    if (codeFormMode === "create") {
+      const { error } = await supabaseBrowser.from("codes").insert([payload]);
+      saveError = error;
+    } else {
+      const { error } = await supabaseBrowser
+        .from("codes")
+        .update(payload)
+        .eq("id", codeForm.id);
+      saveError = error;
+    }
+
     setIsSavingCode(false);
-    if (saveError) { console.error(saveError); setError("Erro ao salvar Código."); return; }
-    cancelCodeForm(); if (selectedFichaId) { await fetchCodes(selectedFichaId); }
-  }
-  async function handleDeleteCode(codeId: string) {
-    setError(null); const ok = window.confirm("Tem certeza que deseja deletar este Código? Essa ação não pode ser desfeita."); if (!ok) return;
-    const { error: deleteError } = await supabaseBrowser.from("codes").delete().eq("id", codeId);
-    if (deleteError) { console.error(deleteError); setError("Erro ao deletar Código."); return; }
-    if (selectedFichaId) { await fetchCodes(selectedFichaId); }
+
+    if (saveError) {
+      console.error(saveError);
+      setError("Erro ao salvar Código.");
+      return;
+    }
+
+    cancelCodeForm();
+    if (selectedFichaId) {
+      await fetchCodes(selectedFichaId);
+    }
   }
 
-  const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-  const dynamicTipos = Array.from(new Set<string>([...KNOWN_TIPOS, ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
+  async function handleDeleteCode(codeId: string) {
+    setError(null);
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar este Código? Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
+
+    const { error: deleteError } = await supabaseBrowser
+      .from("codes")
+      .delete()
+      .eq("id", codeId);
+
+    if (deleteError) {
+      console.error(deleteError);
+      setError("Erro ao deletar Código.");
+      return;
+    }
+
+    if (selectedFichaId) {
+      await fetchCodes(selectedFichaId);
+    }
+  }
+
+  const selectedWorld =
+    worlds.find((w) => w.id === selectedWorldId) || null;
+
+  const dynamicTipos = Array.from(
+    new Set<string>([
+      ...KNOWN_TIPOS,
+      ...fichas
+        .map((f) => (f.tipo || "").toLowerCase())
+        .filter((t) => !!t),
+    ]),
+  );
+
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
-  
+
   const filteredFichas = fichas.filter((f) => {
+    // filtro por tipo
     if (fichaFilterTipos.length > 0) {
       const t = (f.tipo || "").toLowerCase();
-      if (!t || !fichaFilterTipos.includes(t)) return false;
+      if (!t || !fichaFilterTipos.includes(t)) {
+        return false;
+      }
     }
+
+    // filtro por busca
     if (fichasSearchTerm.trim().length > 0) {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
-      if (!inTitulo && !inResumo && !inTags) return false;
+      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || ""))
+        .toLowerCase()
+        .includes(q);
+      if (!inTitulo && !inResumo && !inTags) {
+        return false;
+      }
     }
+
     return true;
   });
 
   function toggleFilterTipo(tipo: string) {
     const t = tipo.toLowerCase();
-    setFichaFilterTipos((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+    setFichaFilterTipos((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+    );
   }
 
   if (view === "loading") {
@@ -606,7 +853,7 @@ export default function LoreAdminPage() {
 
   return (
     <div className="h-screen bg-black text-neutral-100 flex flex-col">
-      <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between bg-neutral-950">
+      <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <a
             href="/"
@@ -653,7 +900,7 @@ export default function LoreAdminPage() {
 
       <main className="flex flex-1 overflow-hidden">
         {/* Mundos */}
-        <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
+        <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Mundos
@@ -729,7 +976,7 @@ export default function LoreAdminPage() {
         </section>
 
         {/* Fichas */}
-        <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-black">
+        <section className="w-[32rem] border-r border-neutral-800 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Fichas do Mundo
@@ -879,7 +1126,7 @@ export default function LoreAdminPage() {
 
         
         {/* Detalhes da Ficha */}
-        <section className="flex-1 p-4 flex flex-col min-h-0 bg-zinc-950">
+        <section className="flex-1 p-4 flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
               Detalhes da Ficha
@@ -1628,102 +1875,6 @@ export default function LoreAdminPage() {
               </div>
             </div>
 
-            <div className="mt-3 space-y-2">
-              <div className="text-[11px] text-neutral-500 uppercase tracking-[0.14em]">
-                Tempo (camadas)
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Data início
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.data_inicio}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        data_inicio: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Data fim
-                  </label>
-                  <input
-                    type="date"
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.data_fim}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        data_fim: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Granularidade da data
-                  </label>
-                  <select
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.granularidade_data}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        granularidade_data: e.target.value,
-                      }))
-                    }
-                  >
-                    {GRANULARIDADES.map((g) => (
-                      <option key={g.value} value={g.value}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-neutral-500 mt-0.5">
-                    Passe o mouse sobre as opções para ver a explicação na Timeline.
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-neutral-500">
-                    Camada temporal
-                  </label>
-                  <input
-                    className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
-                    value={fichaForm.camada_temporal}
-                    onChange={(e) =>
-                      setFichaForm((prev) => ({
-                        ...prev,
-                        camada_temporal: e.target.value,
-                      }))
-                    }
-                    placeholder="ex: linha principal, flashback, mito, futuro…"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-neutral-500">
-                  Descrição da camada
-                </label>
-                <textarea
-                  className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[80px]"
-                  value={fichaForm.descricao_data}
-                  onChange={(e) =>
-                    setFichaForm((prev) => ({
-                      ...prev,
-                      descricao_data: e.target.value,
-                    }))
-                  }
-                  placeholder="Explique como esta ficha se encaixa na linha do tempo, se há ambiguidade, etc."
-                />
-              </div>
-            </div>
-
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -1857,6 +2008,80 @@ export default function LoreAdminPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* --- OVERLAY RECONCILIAÇÃO --- */}
+      {showReconcile && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col animate-in fade-in duration-200">
+          <div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950">
+            <h2 className="text-lg font-bold text-purple-400 flex items-center gap-2">
+              ⚡ Modo Reconciliação
+            </h2>
+            <button onClick={() => setShowReconcile(false)} className="text-zinc-400 hover:text-white text-sm">Fechar (Esc)</button>
+          </div>
+          
+          <div className="flex flex-1 overflow-hidden">
+            {/* Lista de Duplicatas */}
+            <aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">
+              {reconcileLoading && <div className="text-xs text-zinc-500">Buscando duplicatas...</div>}
+              {!reconcileLoading && reconcilePairs.length === 0 && <div className="text-zinc-500 text-sm text-center mt-10">Nenhuma duplicata encontrada.<br/>O banco está limpo!</div>}
+              <div className="space-y-2">
+                {reconcilePairs.map((pair, idx) => (
+                  <button key={idx} onClick={() => handleSelectReconcilePair(pair)} className="w-full text-left p-3 rounded border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900 hover:border-purple-500/50 transition-all group">
+                    <div className="flex justify-between mb-1">
+                      <span className="text-[10px] font-mono text-purple-400">{(pair.similarity * 100).toFixed(0)}% similar</span>
+                    </div>
+                    <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_a}</div>
+                    <div className="text-[10px] text-zinc-600 my-0.5">vs</div>
+                    <div className="text-xs font-bold text-zinc-300 group-hover:text-white">{pair.titulo_b}</div>
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            {/* Área de Comparação */}
+            <main className="flex-1 bg-black p-8 overflow-y-auto">
+              {!comparing ? (
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+                  Selecione um par na esquerda para resolver o conflito.
+                </div>
+              ) : mergeDraft && (
+                <div className="max-w-4xl mx-auto pb-20">
+                  <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-white mb-1">Resolvendo Conflito</h3>
+                      <p className="text-zinc-400 text-xs">Selecione qual versão de cada campo você quer manter. A ficha não escolhida será apagada.</p>
+                    </div>
+                    <button 
+                      onClick={() => executeMerge(comparing.a.id, comparing.b.id)}
+                      disabled={reconcileProcessing}
+                      className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded font-bold text-sm shadow-lg shadow-purple-900/20 disabled:opacity-50"
+                    >
+                      {reconcileProcessing ? "Fundindo..." : "Confirmar Fusão & Apagar Duplicata"}
+                    </button>
+                  </div>
+
+                  <div className="grid gap-1">
+                    <FieldChoice label="Título" field="titulo" />
+                    <FieldChoice label="Tipo" field="tipo" />
+                    <FieldChoice label="Resumo" field="resumo" />
+                    <FieldChoice label="Conteúdo" field="conteudo" />
+                    <FieldChoice label="Tags" field="tags" />
+                    <FieldChoice label="Aparece Em" field="aparece_em" />
+                    
+                    <div className="mt-8 pt-4 border-t border-zinc-800">
+                      <h4 className="text-xs uppercase tracking-widest text-zinc-500 mb-4">Cronologia</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <FieldChoice label="Ano Diegese" field="ano_diegese" />
+                        <FieldChoice label="Camada" field="camada_temporal" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </main>
+          </div>
         </div>
       )}
     </div>
