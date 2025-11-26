@@ -18,7 +18,7 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
-  conteudo: string | null; // <--- CORREÇÃO AQUI: Adicionado o campo conteudo
+  conteudo: string | null;
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -81,10 +81,14 @@ function formatDescricaoData(event: TimelineEvent) {
   if (event.data_inicio) {
     try {
       const date = new Date(event.data_inicio);
-      if (event.granularidade_data === "ano") return `${date.getFullYear()}`;
-      if (event.granularidade_data === "mes") return `${date.getMonth() + 1}/${date.getFullYear()}`;
-      // Para dia ou indefinido
-      return date.toLocaleDateString("pt-BR");
+      // Ajuste de fuso horário simples para visualização (evita dia anterior)
+      const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+      const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+
+      if (event.granularidade_data === "ano") return `${adjustedDate.getFullYear()}`;
+      if (event.granularidade_data === "mes") return `${adjustedDate.getMonth() + 1}/${adjustedDate.getFullYear()}`;
+      
+      return adjustedDate.toLocaleDateString("pt-BR");
     } catch { /* ignore */ }
   }
   return "";
@@ -104,17 +108,25 @@ export default function TimelinePage() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   
-  // Estado de expansão dos grupos (chave: label do grupo)
+  // Estado de expansão dos grupos
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Estados de Edição/Criação
+  // Estados de Edição
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<Partial<TimelineEvent>>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
+  // Estados de Criação de Evento
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createData, setCreateData] = useState<Partial<TimelineEvent>>({});
   const [isSavingCreate, setIsSavingCreate] = useState(false);
+
+  // Estados de Criação de Mundo (NOVO)
+  const [showNewWorldModal, setShowNewWorldModal] = useState(false);
+  const [newWorldName, setNewWorldName] = useState("");
+  const [newWorldDescription, setNewWorldDescription] = useState("");
+  const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
+  const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
   // Contador para forçar recarregamento
   const [reloadCounter, setReloadCounter] = useState(0);
@@ -189,7 +201,6 @@ export default function TimelinePage() {
 
         setEvents(json.events || []);
         
-        // Ao carregar novos eventos, expande todos os grupos por padrão para facilitar
         setExpandedGroups(new Set()); 
       } catch (err: any) {
         console.error(err);
@@ -201,7 +212,7 @@ export default function TimelinePage() {
     fetchEvents();
   }, [selectedWorldId, selectedCamada, isAntiVersoSelected, reloadCounter]);
 
-  // 3. Lógica de Agrupamento (O Coração da Timeline Visual)
+  // 3. Lógica de Agrupamento
   const groupedData = useMemo(() => {
     if (viewMode === "flat") return null;
 
@@ -224,7 +235,6 @@ export default function TimelinePage() {
       yearMap.get(year)!.push(ev);
     });
 
-    // Ordena Décadas
     const sortedDecades = Array.from(decadesMap.keys()).sort((a, b) => a - b);
 
     sortedDecades.forEach(dec => {
@@ -236,7 +246,7 @@ export default function TimelinePage() {
         type: "year",
         events: yearMap.get(yr),
         count: yearMap.get(yr)!.length,
-        isOpen: expandedGroups.has(yr.toString()) // controla se o ano está aberto
+        isOpen: expandedGroups.has(yr.toString())
       }));
 
       const totalEventsInDecade = yearGroups.reduce((acc, curr) => acc + curr.count, 0);
@@ -246,11 +256,10 @@ export default function TimelinePage() {
         type: "decade",
         children: yearGroups,
         count: totalEventsInDecade,
-        isOpen: expandedGroups.has(`dec-${dec}`) // controla se a década está aberta
+        isOpen: expandedGroups.has(`dec-${dec}`)
       });
     });
 
-    // Adiciona grupo "Sem data" no final ou inicio? Vamos por no final.
     if (noDateEvents.length > 0) {
       groups.push({
         label: "Sem data definida",
@@ -262,7 +271,7 @@ export default function TimelinePage() {
     }
 
     return groups;
-  }, [events, viewMode, expandedGroups]); // Depende de expandedGroups para renderizar corretamente o estado visual
+  }, [events, viewMode, expandedGroups]);
 
   // Handlers
   function toggleGroup(id: string) {
@@ -274,11 +283,9 @@ export default function TimelinePage() {
 
   function expandAll() {
     const allIds = new Set<string>();
-    // Adiciona IDs de décadas
     groupedData?.forEach(g => {
       if (g.type === 'decade') allIds.add(`dec-${g.label.split(' ')[1]}`);
       if (g.type === 'unknown') allIds.add('unknown');
-      // Adiciona IDs de anos
       g.children?.forEach(c => allIds.add(c.label));
     });
     setExpandedGroups(allIds);
@@ -288,7 +295,7 @@ export default function TimelinePage() {
     setExpandedGroups(new Set());
   }
 
-  // CRUD Handlers (Reaproveitados e Limpos)
+  // CRUD Handlers
   async function handleDeleteEvent(event: TimelineEvent) {
     if (!confirm(`Apagar evento "${event.titulo}"?`)) return;
     try {
@@ -312,7 +319,6 @@ export default function TimelinePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       
-      // Update local
       setEvents(prev => prev.map(e => e.ficha_id === editData.ficha_id ? { ...e, ...editData } as TimelineEvent : e));
       setSelectedEvent(prev => prev?.ficha_id === editData.ficha_id ? { ...prev, ...editData } as TimelineEvent : prev);
       setIsEditOpen(false);
@@ -334,6 +340,77 @@ export default function TimelinePage() {
       setIsCreateOpen(false);
       setCreateData({});
     } catch (e: any) { alert(e.message); } finally { setIsSavingCreate(false); }
+  }
+
+  // --- HANDLERS DE CRIAÇÃO DE MUNDO ---
+  function handleWorldChangeInCreate(e: React.ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    if (value === "create_new") {
+      setShowNewWorldModal(true);
+      return;
+    }
+    setCreateData({ ...createData, world_id: value });
+  }
+
+  function handleCancelWorldModal() {
+    setShowNewWorldModal(false);
+    setNewWorldName("");
+    setNewWorldDescription("");
+    setNewWorldHasEpisodes(true);
+  }
+
+  async function handleCreateWorldFromModal() {
+    if (!newWorldName.trim()) {
+      alert("Dê um nome ao novo Mundo.");
+      return;
+    }
+    setIsCreatingWorld(true);
+
+    try {
+      const baseId = newWorldName
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+      const existingIds = new Set(worlds.map((w) => w.id as string));
+      let newId = baseId || "mundo_novo";
+      let suffix = 2;
+      while (existingIds.has(newId)) {
+        newId = `${baseId || "mundo_novo"}_${suffix}`;
+        suffix++;
+      }
+
+      const payload: any = {
+        id: newId,
+        nome: newWorldName.trim(),
+        descricao: newWorldDescription.trim() || null,
+        has_episodes: newWorldHasEpisodes,
+        tipo: "mundo_ficcional",
+      };
+
+      const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
+
+      if (error) throw error;
+
+      const inserted = (data?.[0] || null) as World | null;
+      if (inserted) {
+        setWorlds((prev) => [...prev, inserted]);
+        // Seleciona o novo mundo no form de criação de evento
+        setCreateData(prev => ({ ...prev, world_id: inserted.id }));
+        setShowNewWorldModal(false);
+        setNewWorldName("");
+        setNewWorldDescription("");
+        setNewWorldHasEpisodes(true);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Erro ao criar mundo: " + err.message);
+    } finally {
+      setIsCreatingWorld(false);
+    }
   }
 
   return (
@@ -521,7 +598,6 @@ export default function TimelinePage() {
                 <p className="text-sm text-zinc-300 leading-relaxed">{selectedEvent.resumo || "Sem resumo."}</p>
               </div>
 
-              {/* AQUI ESTAVA O ERRO - AGORA COM CONTEÚDO TIPADO CORRETAMENTE */}
               {selectedEvent.conteudo && (
                 <div>
                   <div className="text-[10px] text-zinc-500 uppercase mb-1">Conteúdo Completo</div>
@@ -542,7 +618,7 @@ export default function TimelinePage() {
 
       {/* --- MODAIS --- */}
       
-      {/* EDITAR */}
+      {/* EDITAR EVENTO */}
       {isEditOpen && editData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
@@ -552,9 +628,12 @@ export default function TimelinePage() {
                  <div><label className="text-[10px] text-zinc-500 uppercase">Resumo</label><textarea className="w-full bg-black border border-zinc-700 rounded p-2 text-xs h-20" value={editData.resumo || ''} onChange={e => setEditData({...editData, resumo: e.target.value})} /></div>
                  <div className="grid grid-cols-2 gap-2">
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_inicio || ''} onChange={e => setEditData({...editData, data_inicio: e.target.value})} /></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.granularidade_data || 'vago'} onChange={e => setEditData({...editData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_fim || ''} onChange={e => setEditData({...editData, data_fim: e.target.value})} /></div>
                  </div>
-                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} /></div>
+                 <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.granularidade_data || 'vago'} onChange={e => setEditData({...editData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} /></div>
+                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button onClick={() => setIsEditOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
@@ -564,21 +643,30 @@ export default function TimelinePage() {
         </div>
       )}
 
-      {/* CRIAR */}
+      {/* CRIAR EVENTO */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
               <h3 className="text-lg font-bold text-white mb-4">Novo Evento</h3>
               <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
-                 <div><label className="text-[10px] text-zinc-500 uppercase">Mundo</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.world_id || ''} onChange={e => setCreateData({...createData, world_id: e.target.value})}>{worlds.map(w => <option key={w.id} value={w.id}>{w.nome}</option>)}</select></div>
+                 <div>
+                   <label className="text-[10px] text-zinc-500 uppercase">Mundo</label>
+                   <select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.world_id || ''} onChange={handleWorldChangeInCreate}>
+                     {worlds.map(w => <option key={w.id} value={w.id}>{w.nome}</option>)}
+                     <option value="create_new">+ Novo Mundo...</option>
+                   </select>
+                 </div>
                  <div><label className="text-[10px] text-zinc-500 uppercase">Título</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.titulo || ''} onChange={e => setCreateData({...createData, titulo: e.target.value})} /></div>
                  <div><label className="text-[10px] text-zinc-500 uppercase">Resumo</label><textarea className="w-full bg-black border border-zinc-700 rounded p-2 text-xs h-20" value={createData.resumo || ''} onChange={e => setCreateData({...createData, resumo: e.target.value})} /></div>
                  
                  <div className="grid grid-cols-2 gap-2">
                     <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_inicio || ''} onChange={e => setCreateData({...createData, data_inicio: e.target.value})} /></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.camada_temporal || 'linha_principal'} onChange={e => setCreateData({...createData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_fim || ''} onChange={e => setCreateData({...createData, data_fim: e.target.value})} /></div>
                  </div>
-                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
+                 <div className="grid grid-cols-2 gap-2">
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.camada_temporal || 'linha_principal'} onChange={e => setCreateData({...createData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
+                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
@@ -587,11 +675,24 @@ export default function TimelinePage() {
            </div>
         </div>
       )}
+
+      {/* MODAL NOVO MUNDO (CHAMADO VIA DROPDOWN) */}
+      {showNewWorldModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+            <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
+            <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
+            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Componente Auxiliar para Renderizar o Card (para evitar repetição)
+// Componente Auxiliar para Renderizar o Card
 function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: { event: TimelineEvent, selectedEvent: TimelineEvent | null, onSelect: (e: TimelineEvent) => void, onDelete: (e: TimelineEvent) => void, onEdit: (e: TimelineEvent) => void }) {
   const isSelected = selectedEvent?.ficha_id === event.ficha_id;
   return (
