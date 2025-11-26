@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
@@ -18,14 +17,21 @@ function makeSlug(title: string | null | undefined): string {
   return `${base}-${stamp}`;
 }
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const worldId = searchParams.get("worldId");
   const camada = searchParams.get("camada_temporal");
 
-  const client = supabaseAdmin!;
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { success: false, error: "Supabase não configurado." },
+      { status: 500 }
+    );
+  }
 
-  let query = client
+  let query = supabaseAdmin
     .from("fichas")
     .select(
       "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at"
@@ -74,10 +80,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { success: false, error: "Supabase não configurado." },
+      { status: 500 }
+    );
+  }
+
   const body = await req.json();
   const { ficha_id, ...fields } = body || {};
-
-  const client = supabaseAdmin!;
 
   // Se vier ficha_id, é update (edição)
   if (ficha_id) {
@@ -98,7 +109,7 @@ export async function POST(req: NextRequest) {
     updateData.data_fim =
       fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
-    const { error } = await client
+    const { error } = await supabaseAdmin
       .from("fichas")
       .update(updateData)
       .eq("id", ficha_id);
@@ -149,7 +160,7 @@ export async function POST(req: NextRequest) {
   insertData.data_fim =
     fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
-  const { data, error } = await client
+  const { data, error } = await supabaseAdmin
     .from("fichas")
     .insert(insertData)
     .select("id")
@@ -172,6 +183,13 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { success: false, error: "Supabase não configurado." },
+      { status: 500 }
+    );
+  }
+  
   const { searchParams } = new URL(req.url);
   const fichaId = searchParams.get("ficha_id");
 
@@ -182,9 +200,7 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  const client = supabaseAdmin!;
-
-  const { error } = await client.from("fichas").delete().eq("id", fichaId);
+  const { error } = await supabaseAdmin.from("fichas").delete().eq("id", fichaId);
 
   if (error) {
     console.error("Erro ao deletar evento:", error);
