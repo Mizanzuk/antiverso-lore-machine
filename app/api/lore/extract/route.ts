@@ -33,8 +33,7 @@ type ExtractedFicha = {
   tags: string[];
   ano_diegese: number | null;
   aparece_em: string;
-  // Campos temporais: só fazem sentido para fichas de tipo "evento".
-  // Para outros tipos, o modelo deve deixar como null ou omitir.
+  // Campos temporais
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
@@ -43,6 +42,7 @@ type ExtractedFicha = {
   meta?: FichaMeta;
 };
 
+// Tipos permitidos para o Prompt (refletindo o frontend)
 const allowedTypes = [
   "personagem",
   "local",
@@ -67,10 +67,7 @@ export async function POST(req: NextRequest) {
   try {
     if (!openai) {
       return NextResponse.json(
-        {
-          error:
-            "OPENAI_API_KEY não configurada. Defina a chave no painel de variáveis de ambiente da Vercel.",
-        },
+        { error: "OPENAI_API_KEY não configurada." },
         { status: 500 },
       );
     }
@@ -85,108 +82,77 @@ export async function POST(req: NextRequest) {
 
     if (!text || typeof text !== "string" || !text.trim()) {
       return NextResponse.json(
-        { error: "Campo 'text' é obrigatório no corpo da requisição." },
+        { error: "Campo 'text' é obrigatório." },
         { status: 400 },
       );
     }
 
-    // 1) Salvar texto bruto como Roteiro
+    // 1) Salvar Roteiro
     let roteiroId: string | null = null;
-
     if (supabaseAdmin) {
-      const episodio =
-        typeof unitNumber === "string"
-          ? normalizeEpisode(unitNumber)
-          : normalizeEpisode(String(unitNumber ?? ""));
-
-      const titulo =
-        typeof documentName === "string" && documentName.trim()
-          ? documentName.trim()
-          : "Roteiro sem título";
-
+      const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
+      const titulo = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
       try {
         const { data, error } = await supabaseAdmin
           .from("roteiros")
-          .insert({
-            world_id: worldId ?? null,
-            titulo,
-            conteudo: text,
-            episodio,
-          })
+          .insert({ world_id: worldId ?? null, titulo, conteudo: text, episodio })
           .select("id")
           .single();
-
-        if (error) {
-          console.error("Erro ao salvar roteiro em 'roteiros':", error);
-        } else if (data?.id) {
-          roteiroId = data.id;
-        }
+        if (data?.id) roteiroId = data.id;
       } catch (err) {
-        console.error("Erro inesperado ao inserir em 'roteiros':", err);
+        console.error("Erro ao salvar roteiro:", err);
       }
     }
 
-    // 2) Chamar modelo para extrair fichas estruturadas
+    // 2) Extração com IA
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
 
-    // PROMPT DE SISTEMA MELHORADO (AGRESSIVO NA EXTRAÇÃO)
     const systemPrompt = `
-Você é o Motor de Lore do AntiVerso. Sua função é ler narrativas e atomizar TUDO em fichas de banco de dados.
-
-OBJETIVO:
-Identifique e extraia SEPARADAMENTE todas as entidades mencionadas no texto.
-NÃO agrupe informações. Se o texto menciona 3 personagens, crie 3 fichas. Se menciona 2 locais, crie 2 fichas.
+Você é o Motor de Lore do AntiVerso.
+Sua tarefa é ler o texto e criar FICHAS DE LORE para cada elemento relevante.
 
 TIPOS PERMITIDOS:
 ${typeInstructions}
 
-REGRAS OBRIGATÓRIAS:
-1. **Personagens:** Crie uma ficha para CADA pessoa citada que tenha nome ou relevância (ex: João, Pedro, Maria).
-2. **Locais:** Crie fichas para lugares físicos (ex: Padaria, Escola, Praça).
-3. **Eventos (CRUCIAL):** Se houver datas específicas (ex: "abril de 2011", "23/08/2012") ou cenas de memória, CRIE UMA FICHA DE EVENTO PARA CADA UM.
-   - Preencha "descricao_data" com o texto original.
-   - Preencha "data_inicio" com o formato ISO (YYYY-MM-DD) se possível.
-   - Defina a "granularidade_data" (dia, mes, ano).
-4. **Conceitos:** Para ideias abstratas ou sobrenaturais.
+REGRAS CRUCIAIS PARA EVENTOS (Timeline):
+- Se o texto mencionar uma data específica (ex: "23 de agosto de 2012") ou um momento narrativo claro ("O reencontro de 2025"), CRIE UMA FICHA DO TIPO "evento".
+- Para "evento", preencha OBRIGATORIAMENTE:
+  - "descricao_data": o texto original da data (ex: "início de fevereiro de 2025").
+  - "data_inicio": data ISO YYYY-MM-DD estimada (ex: "2025-02-01").
+  - "granularidade_data": "dia", "mes", "ano", "vago".
+  - "camada_temporal": "linha_principal" (padrão), "flashback", "flashforward", "sonho_visao".
 
-FORMATO DE SAÍDA (JSON ESTRITO):
+FORMATO DE SAÍDA (JSON):
 {
   "fichas": [
     {
       "tipo": "personagem",
       "titulo": "Nome",
-      "resumo": "Quem é.",
-      "conteudo": "O que fez no texto.",
-      "tags": ["tag1"],
-      "ano_diegese": null,
+      "resumo": "Resumo.",
+      "conteudo": "Detalhes.",
+      "tags": ["tag"],
       "aparece_em": "Contexto",
-      "meta": { "relacoes": [{"tipo": "amigo_de", "alvo_titulo": "Outro"}] }
+      "meta": { "relacoes": [{"tipo": "amigo", "alvo_titulo": "Outro"}] }
     },
     {
       "tipo": "evento",
-      "titulo": "Título do Evento",
-      "resumo": "O que aconteceu.",
-      "conteudo": "Detalhes.",
-      "descricao_data": "texto da data",
+      "titulo": "O que aconteceu",
+      "resumo": "Resumo do evento",
+      "conteudo": "Detalhes do evento",
+      "descricao_data": "Texto da data",
       "data_inicio": "YYYY-MM-DD",
-      "granularidade_data": "dia/mes/ano",
-      "camada_temporal": "flashback"
+      "granularidade_data": "dia",
+      "camada_temporal": "linha_principal"
     }
   ]
 }
 `.trim();
 
-    const userPrompt = `
-Texto para análise:
-"""${text}"""
+    const userPrompt = `Texto:\n"""${text}"""\n\nExtraia tudo.`;
 
-Extraia todas as fichas possíveis agora.
-`.trim();
-
-    // CHAMADA OPENAI COM GPT-4o-mini
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.1, // Baixa temperatura para maior fidelidade
+      temperature: 0.1,
       max_tokens: 4000,
       messages: [
         { role: "system", content: systemPrompt },
@@ -195,143 +161,63 @@ Extraia todas as fichas possíveis agora.
       response_format: { type: "json_object" },
     });
 
-    const rawContent =
-      completion.choices[0]?.message?.content ?? '{"fichas": []}';
-
-    let parsed: any;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch (err) {
-      console.error(
-        "Falha ao fazer JSON.parse da resposta de /api/lore/extract:",
-        err,
-        rawContent,
-      );
-      parsed = { fichas: [] };
-    }
+    const rawContent = completion.choices[0]?.message?.content ?? '{"fichas": []}';
+    let parsed: any = { fichas: [] };
+    try { parsed = JSON.parse(rawContent); } catch (e) { console.error(e); }
 
     const rawFichas = Array.isArray(parsed.fichas) ? parsed.fichas : [];
 
-    const cleanFichas: ExtractedFicha[] = rawFichas
-      .filter((f: any) => f && f.tipo && f.titulo)
-      .map((f: any) => {
-        const tipo = String(f.tipo || "").toLowerCase().trim();
-        const normalizedTipo = allowedTypes.includes(tipo) ? tipo : "conceito";
+    const cleanFichas: ExtractedFicha[] = rawFichas.map((f: any) => {
+      const tipo = String(f.tipo || "conceito").toLowerCase().trim();
+      const isEvento = tipo === "evento";
+      
+      // Metadados
+      const meta: FichaMeta = {
+        relacoes: Array.isArray(f.meta?.relacoes) ? f.meta.relacoes : [],
+        notas_do_autor: f.meta?.notas_do_autor,
+        status: f.meta?.status
+      };
 
-        const rawMeta = f.meta && typeof f.meta === "object" ? f.meta : {};
+      return {
+        tipo,
+        titulo: String(f.titulo ?? "").trim(),
+        resumo: String(f.resumo ?? "").trim(),
+        conteudo: String(f.conteudo ?? "").trim(),
+        tags: Array.isArray(f.tags) ? f.tags : [],
+        ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
+        aparece_em: String(f.aparece_em ?? "").trim(),
+        
+        // Campos Temporais
+        descricao_data: isEvento ? (f.descricao_data || null) : null,
+        data_inicio: isEvento ? (f.data_inicio || null) : null,
+        data_fim: isEvento ? (f.data_fim || null) : null,
+        granularidade_data: isEvento ? (f.granularidade_data || null) : null,
+        camada_temporal: isEvento ? (f.camada_temporal || null) : null,
+        
+        meta
+      };
+    });
 
-        // Preserva metadados, incluindo relações e campos extras
-        const meta: FichaMeta = {
-          periodo_diegese: typeof rawMeta.periodo_diegese === "string" ? rawMeta.periodo_diegese : null,
-          ordem_cronologica: typeof rawMeta.ordem_cronologica === "number" ? rawMeta.ordem_cronologica : null,
-          referencias_temporais: Array.isArray(rawMeta.referencias_temporais)
-            ? rawMeta.referencias_temporais.map((r: any) => String(r))
-            : [],
-          aparece_em_detalhado: Array.isArray(rawMeta.aparece_em_detalhado)
-            ? rawMeta.aparece_em_detalhado
-            : undefined,
-          relacoes: Array.isArray(rawMeta.relacoes)
-            ? rawMeta.relacoes.map((rel: any) => ({
-                tipo: rel?.tipo ? String(rel.tipo) : "relacionado_a",
-                alvo_titulo: rel?.alvo_titulo ? String(rel.alvo_titulo) : undefined,
-                alvo_id: rel?.alvo_id ? String(rel.alvo_id) : undefined,
-              }))
-            : [],
-          fontes: Array.isArray(rawMeta.fontes) ? rawMeta.fontes : undefined,
-          notas_do_autor: typeof rawMeta.notas_do_autor === "string" ? rawMeta.notas_do_autor : undefined,
-          nivel_sigilo: typeof rawMeta.nivel_sigilo === "string" ? rawMeta.nivel_sigilo : undefined,
-          status: typeof rawMeta.status === "string" ? rawMeta.status : undefined,
-        };
-
-        const isEvento = normalizedTipo === "evento";
-
-        const descricao_data =
-          isEvento && typeof f.descricao_data === "string"
-            ? String(f.descricao_data).trim()
-            : null;
-
-        const data_inicio =
-          isEvento && typeof f.data_inicio === "string"
-            ? String(f.data_inicio).trim()
-            : null;
-
-        const data_fim =
-          isEvento && typeof f.data_fim === "string"
-            ? String(f.data_fim).trim()
-            : null;
-
-        const granularidade_data =
-          isEvento && typeof f.granularidade_data === "string"
-            ? String(f.granularidade_data).trim()
-            : null;
-
-        const camada_temporal =
-          isEvento && typeof f.camada_temporal === "string"
-            ? String(f.camada_temporal).trim()
-            : null;
-
-        return {
-          tipo: normalizedTipo,
-          titulo: String(f.titulo ?? "").trim(),
-          resumo: String(f.resumo ?? "").trim(),
-          conteudo: String(f.conteudo ?? "").trim(),
-          tags: Array.isArray(f.tags)
-            ? f.tags.map((t: any) => String(t))
-            : [],
-          ano_diegese:
-            typeof f.ano_diegese === "number" ? f.ano_diegese : null,
-          aparece_em: String(f.aparece_em ?? "").trim(),
-          descricao_data,
-          data_inicio,
-          data_fim,
-          granularidade_data,
-          camada_temporal,
-          meta: meta,
-        };
-      });
-
-    // 3) Criar ficha especial do tipo "roteiro" com o texto completo
-    const episodio =
-      typeof unitNumber === "string"
-        ? normalizeEpisode(unitNumber)
-        : normalizeEpisode(String(unitNumber ?? ""));
-
-    const tituloRoteiro =
-      typeof documentName === "string" && documentName.trim()
-        ? documentName.trim()
-        : "Roteiro sem título";
-
-    const roteiroFicha: ExtractedFicha = {
+    // Adiciona Roteiro
+    const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
+    const tituloRoteiro = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
+    
+    cleanFichas.unshift({
       tipo: "roteiro",
       titulo: tituloRoteiro,
-      resumo: episodio
-        ? `Roteiro completo do episódio ${episodio}.`
-        : "Roteiro completo do texto base.",
+      resumo: episodio ? `Roteiro do ep. ${episodio}` : "Roteiro completo.",
       conteudo: text,
-      tags: ["roteiro", "texto_base"],
+      tags: ["roteiro"],
       ano_diegese: null,
-      aparece_em: episodio ? `Episódio ${episodio}` : "",
-    };
+      aparece_em: episodio ? `Ep. ${episodio}` : "",
+    });
 
-    // Coloca o roteiro no começo da lista de fichas
-    cleanFichas.unshift(roteiroFicha);
-
-    // 4) RESTAURADO: Filtros de compatibilidade para quem consome a API esperando listas separadas
-    const personagens = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "personagem",
-    );
-    const locais = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "local",
-    );
-    const empresas = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "empresa",
-    );
-    const agencias = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "agencia",
-    );
-    const midias = cleanFichas.filter(
-      (f) => f.tipo.toLowerCase() === "midia",
-    );
+    // Filtros de compatibilidade
+    const personagens = cleanFichas.filter(f => f.tipo === "personagem");
+    const locais = cleanFichas.filter(f => f.tipo === "local");
+    const empresas = cleanFichas.filter(f => f.tipo === "empresa");
+    const agencias = cleanFichas.filter(f => f.tipo === "agencia");
+    const midias = cleanFichas.filter(f => f.tipo === "midia");
 
     return NextResponse.json({
       fichas: cleanFichas,
@@ -340,13 +226,11 @@ Extraia todas as fichas possíveis agora.
       locais,
       empresas,
       agencias,
-      midias,
+      midias
     });
+
   } catch (err) {
-    console.error("Erro inesperado em /api/lore/extract:", err);
-    return NextResponse.json(
-      { error: "Erro inesperado ao processar a extração de lore." },
-      { status: 500 },
-    );
+    console.error(err);
+    return NextResponse.json({ error: "Erro na extração." }, { status: 500 });
   }
 }
