@@ -134,7 +134,8 @@ export async function POST(req: NextRequest) {
   }
 
   const titulo: string = fields.titulo ?? "";
-  const slug = makeSlug(titulo);
+  // CORREÇÃO: Passando 'titulo' para makeSlug
+  const slug = makeSlug(titulo); 
   const conteudo: string =
     (fields.conteudo as string | undefined) ??
     (fields.resumo as string | undefined) ??
