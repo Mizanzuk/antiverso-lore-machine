@@ -33,7 +33,6 @@ type ExtractedFicha = {
   tags: string[];
   ano_diegese: number | null;
   aparece_em: string;
-  // Campos temporais
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
@@ -42,7 +41,6 @@ type ExtractedFicha = {
   meta?: FichaMeta;
 };
 
-// Tipos permitidos para o Prompt (refletindo o frontend)
 const allowedTypes = [
   "personagem",
   "local",
@@ -104,7 +102,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Extração com IA
+    // 2) Extração com IA - PROMPT REFINADO PARA RELAÇÕES
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
 
     const systemPrompt = `
@@ -114,13 +112,16 @@ Sua tarefa é ler o texto e criar FICHAS DE LORE para cada elemento relevante.
 TIPOS PERMITIDOS:
 ${typeInstructions}
 
-REGRAS CRUCIAIS PARA EVENTOS (Timeline):
-- Se o texto mencionar uma data específica (ex: "23 de agosto de 2012") ou um momento narrativo claro ("O reencontro de 2025"), CRIE UMA FICHA DO TIPO "evento".
-- Para "evento", preencha OBRIGATORIAMENTE:
-  - "descricao_data": o texto original da data (ex: "início de fevereiro de 2025").
-  - "data_inicio": data ISO YYYY-MM-DD estimada (ex: "2025-02-01").
-  - "granularidade_data": "dia", "mes", "ano", "vago".
-  - "camada_temporal": "linha_principal" (padrão), "flashback", "flashforward", "sonho_visao".
+REGRAS DE EXTRAÇÃO:
+1. **Personagens:** Crie uma ficha para cada indivíduo.
+2. **Eventos:** Se houver datas ou cenas específicas, crie fichas de EVENTO.
+3. **Locais:** Crie fichas para os lugares onde os eventos ocorrem.
+
+REGRAS DE CONEXÃO (Obrigatório):
+- O campo "meta.relacoes" DEVE ser preenchido.
+- Se um **Evento** envolve o personagem "João", adicione em "meta.relacoes": { "tipo": "envolve", "alvo_titulo": "João" }.
+- Se um **Personagem** estava em um **Local**, adicione: { "tipo": "esteve_em", "alvo_titulo": "Nome do Local" }.
+- Tente cruzar o máximo de referências entre as fichas que você está criando agora.
 
 FORMATO DE SAÍDA (JSON):
 {
@@ -132,7 +133,12 @@ FORMATO DE SAÍDA (JSON):
       "conteudo": "Detalhes.",
       "tags": ["tag"],
       "aparece_em": "Contexto",
-      "meta": { "relacoes": [{"tipo": "amigo", "alvo_titulo": "Outro"}] }
+      "meta": { 
+        "relacoes": [
+           {"tipo": "amigo_de", "alvo_titulo": "Outro Personagem"},
+           {"tipo": "participou_de", "alvo_titulo": "Título do Evento"}
+        ] 
+      }
     },
     {
       "tipo": "evento",
@@ -142,13 +148,19 @@ FORMATO DE SAÍDA (JSON):
       "descricao_data": "Texto da data",
       "data_inicio": "YYYY-MM-DD",
       "granularidade_data": "dia",
-      "camada_temporal": "linha_principal"
+      "camada_temporal": "linha_principal",
+      "meta": {
+        "relacoes": [
+           {"tipo": "protagonizado_por", "alvo_titulo": "Nome do Personagem"},
+           {"tipo": "ocorreu_em", "alvo_titulo": "Nome do Local"}
+        ]
+      }
     }
   ]
 }
 `.trim();
 
-    const userPrompt = `Texto:\n"""${text}"""\n\nExtraia tudo.`;
+    const userPrompt = `Texto:\n"""${text}"""\n\nExtraia tudo com o máximo de relações cruzadas possível.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
