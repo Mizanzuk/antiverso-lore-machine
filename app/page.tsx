@@ -35,6 +35,11 @@ type World = {
   ordem?: number | null;
 };
 
+type Universe = {
+  id: string;
+  nome: string;
+};
+
 type LoreEntity = {
   id: string;
   slug: string;
@@ -135,6 +140,10 @@ export default function Page() {
   const [userId, setUserId] = useState<string | null>(null);
   const [remoteLoaded, setRemoteLoaded] = useState(false);
 
+  // --- NOVOS ESTADOS DE UNIVERSO ---
+  const [universes, setUniverses] = useState<Universe[]>([]);
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
+
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -154,8 +163,20 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("chat"); // Mantido fixo em chat nesta versão limpa
+  const [viewMode, setViewMode] = useState<ViewMode>("chat");
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
+  
+  // Catálogo states
+  const [worlds, setWorlds] = useState<World[]>([]);
+  const [entities, setEntities] = useState<LoreEntity[]>([]);
+  const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
+  const [selectedType, setSelectedType] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 20;
+
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
 
@@ -164,11 +185,29 @@ export default function Page() {
       try {
         const { data: { session }, error } = await supabaseBrowser.auth.getSession();
         if (error) { console.error(error); setView("loggedOut"); setUserId(null); return; }
-        if (session) { setView("loggedIn"); setUserId(session.user.id); } else { setView("loggedOut"); setUserId(null); }
+        if (session) { 
+          setView("loggedIn"); 
+          setUserId(session.user.id);
+          // Carrega universos ao logar
+          loadUniverses();
+        } else { 
+          setView("loggedOut"); 
+          setUserId(null); 
+        }
       } catch (err) { console.error(err); setView("loggedOut"); setUserId(null); }
     };
     checkSession();
   }, []);
+
+  // Carrega Universos do banco
+  async function loadUniverses() {
+    const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
+    if (data && data.length > 0) {
+      setUniverses(data);
+      // Seleciona o primeiro por padrão se não houver seleção
+      setSelectedUniverseId(data[0].id);
+    }
+  }
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) setActiveSessionId(sessions[0].id);
@@ -207,6 +246,34 @@ export default function Page() {
     };
     saveRemote();
   }, [sessions, view, userId]);
+
+  // Carregamento do Catálogo (Mantido)
+  useEffect(() => {
+    async function loadCatalog() {
+      try {
+        setLoadingCatalog(true);
+        setCatalogError(null);
+        const res = await fetch("/api/catalog");
+        if (!res.ok) throw new Error("Erro ao carregar catálogo");
+        const data = (await res.json()) as CatalogResponse;
+        setWorlds(data.worlds ?? []);
+        setEntities(data.entities ?? []);
+      } catch (err) {
+        console.error(err);
+        setCatalogError("Não foi possível carregar o catálogo do AntiVerso agora.");
+      } finally {
+        setLoadingCatalog(false);
+      }
+    }
+    loadCatalog();
+  }, []);
+
+  useEffect(() => {
+    if (selectedWorldId !== "all" || selectedType !== "all" || searchTerm.trim().length > 0) {
+      setViewMode("catalog");
+      setCurrentPage(1);
+    }
+  }, [selectedWorldId, selectedType, searchTerm]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
@@ -305,9 +372,42 @@ export default function Page() {
       const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
       const payloadMessages = [{ role: "system" as const, content: systemPrompt }, ...contextMessages].map((m) => ({ role: m.role, content: m.content }));
 
-      const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: payloadMessages }) });
+      const res = await fetch("/api/chat", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ 
+          messages: payloadMessages,
+          // --- FIX CRUCIAL: Se selectedUniverseId for vazio, envia null ---
+          universeId: selectedUniverseId || null 
+        }) 
+      });
+      
       if (!res.ok) throw new Error("Erro ao chamar /api/chat");
 
+      // Se vier como stream (novo padrão)
+      if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let fullText = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          if (!chunk) continue;
+          fullText += chunk;
+          
+          setSessions((prev) => prev.map((s) => {
+            if (s.id !== activeSession.id) return s;
+            return { ...s, messages: s.messages.map(m => m.id === placeholderId ? { ...m, content: fullText } : m) };
+          }));
+          scrollToBottom();
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Fallback JSON
       const data = await res.json();
       const fullReply: string = typeof data?.reply === "string" ? data.reply : "Algo deu errado ao gerar a resposta.";
       let index = 0; const step = 10; const delay = 20;
@@ -336,7 +436,7 @@ export default function Page() {
     try {
       const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
       if (error) { console.error(error); setAuthError(error.message); setView("loggedOut"); setUserId(null); return; }
-      if (data?.session) { setView("loggedIn"); setUserId(data.session.user.id); } else { setView("loggedOut"); setUserId(null); }
+      if (data?.session) { setView("loggedIn"); setUserId(data.session.user.id); loadUniverses(); } else { setView("loggedOut"); setUserId(null); }
     } catch (err: any) { console.error(err); setAuthError(err.message ?? "Erro ao fazer login"); setView("loggedOut"); setUserId(null); } finally { setAuthSubmitting(false); }
   }
 
@@ -351,6 +451,7 @@ export default function Page() {
     const newSession: ChatSession = { id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage()] };
     setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
     setActiveSessionId(id); setInput("");
+    setViewMode("chat");
   }
   function handleModeChange(newMode: ChatMode) { if (!activeSession) return; setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, mode: newMode } : s)); }
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!loading) void onSubmit(); } }
@@ -366,6 +467,67 @@ export default function Page() {
       return remaining;
     });
   }
+
+  // Catálogo Helper Logic
+  const catalogTypes: { id: string; label: string }[] = [
+    { id: "all", label: "Todos os tipos" },
+    { id: "personagem", label: "Personagens" },
+    { id: "local", label: "Locais" },
+    { id: "organizacao", label: "Empresas / Agências" },
+    { id: "midia", label: "Mídias" },
+    { id: "arquivo_aris", label: "Arquivos ARIS" },
+    { id: "episodio", label: "Episódios" },
+    { id: "evento", label: "Eventos" },
+    { id: "conceito", label: "Conceitos" },
+    { id: "objeto", label: "Objetos" },
+  ];
+
+  const filteredEntitiesAll = entities.filter((e) => {
+    if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
+    if (selectedType !== "all" && e.tipo !== selectedType) return false;
+    if (searchTerm.trim().length > 0) {
+      const q = normalize(searchTerm);
+      const inTitle = normalize(e.titulo).includes(q);
+      const inResumo = normalize(e.resumo).includes(q);
+      const inSlug = normalize(e.slug).includes(q);
+      const inTags = (e.tags ?? []).map((t) => t.toLowerCase()).some((t) => t.includes(q));
+      const inCodes = (e.codes ?? []).map((c) => c.toLowerCase()).some((c) => c.includes(q));
+      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntitiesAll.length / itemsPerPage));
+  const safePage = currentPage > totalPages ? totalPages : Math.max(1, currentPage);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const pageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
+
+  function getWorldName(worldId?: string | null): string | null {
+    if (!worldId) return null;
+    const w = worlds.find((w) => w.id === worldId);
+    return w ? w.nome : worldId;
+  }
+
+  function handleCatalogClick(entity: LoreEntity) {
+    const titulo = entity.titulo;
+    const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
+    setInput(prompt);
+    setViewMode("chat");
+  }
+
+  const CatalogPagination = () => {
+    if (totalPages <= 1) return null;
+    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-1 text-xs text-gray-300 my-2">
+        {pages.map((p) => (
+          <button key={p} onClick={() => setCurrentPage(p)} className={clsx("px-2 py-1 rounded-md border", p === safePage ? "bg-white/20 border-white text-white" : "bg-transparent border-white/20 hover:bg-white/10")}>{p}</button>
+        ))}
+      </div>
+    );
+  };
+
+  const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Or";
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
 
@@ -390,6 +552,18 @@ export default function Page() {
     <div className="h-screen w-screen flex bg-[#050509] text-gray-100">
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-72 border-r border-white/10 bg-black/40">
+        {/* SELETOR DE UNIVERSO (NOVO) */}
+        <div className="px-4 pt-4 pb-2">
+          <label className="text-[10px] uppercase text-zinc-500 font-bold block mb-1">Universo do Chat</label>
+          <select 
+            className="w-full bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
+            value={selectedUniverseId}
+            onChange={e => setSelectedUniverseId(e.target.value)}
+          >
+            {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+        </div>
+
         <div className="px-4 py-4 border-b border-white/10">
           <button onClick={newChat} className="w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 transition">+ Nova conversa</button>
         </div>
@@ -444,12 +618,12 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500"><div className="flex items-center justify-between gap-2"><p>Área protegida.</p><button onClick={handleLogout} className="px-2 py-1 rounded-full border border-white/20 text-[10px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors">Sair</button></div></div>
+        <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500"><div className="flex items-center justify-between gap-2"><p>Logado como usuário.</p><button onClick={handleLogout} className="px-2 py-1 rounded-full border border-white/20 text-[10px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors">Sair</button></div></div>
       </aside>
 
       {/* Main */}
       <main className="flex-1 flex flex-col">
-        {/* Top bar - Botões removidos como solicitado */}
+        {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
           <div className="flex items-center gap-2">
             <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-red-600 via-purple-500 to-blue-500" />
@@ -457,30 +631,83 @@ export default function Page() {
           </div>
           <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-2"><span className="text-gray-400">Modo:</span><button onClick={() => handleModeChange("consulta")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "consulta" ? "bg-emerald-500/20 border-emerald-400 text-emerald-200" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Consulta</button><button onClick={() => handleModeChange("criativo")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "criativo" ? "bg-purple-600/30 border-purple-400 text-purple-100" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Criativo</button></div>
+            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
+              <button onClick={() => setViewMode("chat")} className={clsx("px-2 py-1 rounded-full text-[11px]", viewMode === "chat" ? "bg-white text-black" : "text-gray-300 hover:bg-white/10")}>Chat</button>
+              <button onClick={() => setViewMode("catalog")} className={clsx("px-2 py-1 rounded-full text-[11px]", viewMode === "catalog" ? "bg-white text-black" : "text-gray-300 hover:bg-white/10")}>Catálogo</button>
+            </div>
           </div>
         </header>
 
         {/* Conteúdo principal */}
         <section className="flex-1 overflow-y-auto px-4 py-4" ref={viewportRef}>
           <div className="max-w-4xl mx-auto">
-            <div className="space-y-4 max-w-2xl mx-auto">
-              {messages.map((msg) => (
-                <div key={msg.id} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-                  <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : "bg-white/5 text-gray-100 border border-white/10")}>
-                    {msg.role === "user" ? (<div className="whitespace-pre-wrap">{msg.content}</div>) : (renderAssistantMarkdown(msg.content))}
+            {viewMode === "chat" && (
+              <div className="space-y-4 max-w-2xl mx-auto">
+                {messages.map((msg) => (
+                  <div key={msg.id} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                    <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : "bg-white/5 text-gray-100 border border-white/10")}>
+                      {msg.role === "user" ? (<div className="whitespace-pre-wrap">{msg.content}</div>) : (renderAssistantMarkdown(msg.content))}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>Or está escrevendo…</span></div></div>}
-              {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com Or escrevendo abaixo.</p>}
-            </div>
+                ))}
+                {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>Or está escrevendo…</span></div></div>}
+                {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com Or escrevendo abaixo.</p>}
+              </div>
+            )}
+
+            {viewMode === "catalog" && (
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-gray-100">Catálogo do AntiVerso</h2>
+                <p className="text-xs text-gray-400 mb-1">
+                  {filteredEntitiesAll.length} entrada{filteredEntitiesAll.length === 1 ? "" : "s"} encontrada
+                  {selectedWorldId !== "all" && <> · Mundo: <span className="text-gray-200">{getWorldName(selectedWorldId) ?? selectedWorldId}</span></>}
+                  {selectedType !== "all" && <> · Tipo: <span className="text-gray-200">{catalogTypes.find((t) => t.id === selectedType)?.label}</span></>}
+                  {searchTerm.trim().length > 0 && <> · Busca: <span className="text-gray-200">“{searchTerm.trim()}”</span></>}
+                </p>
+
+                <CatalogPagination />
+
+                {catalogError && <p className="text-xs text-red-400 mt-2">{catalogError}</p>}
+                {loadingCatalog && <p className="text-xs text-gray-400 mt-2">Carregando catálogo...</p>}
+
+                {!loadingCatalog && pageEntities.length === 0 && <p className="text-sm text-gray-500 mt-4">Nenhuma entrada para esses filtros.</p>}
+
+                {!loadingCatalog && pageEntities.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {pageEntities.map((entity) => (
+                      <button key={entity.id} onClick={() => handleCatalogClick(entity)} className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-50 truncate">{entity.titulo}</h3>
+                          {entity.tipo && <span className="text-[10px] uppercase tracking-wide px-2 py-[2px] rounded-full border border-white/20 text-gray-200">{entity.tipo}</span>}
+                        </div>
+                        {entity.resumo && <p className="text-xs text-gray-300 line-clamp-3 mb-2">{entity.resumo}</p>}
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400">
+                          {getWorldName(entity.world_id) && <span className="px-2 py-[1px] rounded-full bg-white/5">{getWorldName(entity.world_id)}</span>}
+                          {(entity.codes ?? []).map((code) => <span key={code} className="px-2 py-[1px] rounded-full bg-black/40 border border-white/20 text-[10px]">{code}</span>)}
+                          {(entity.tags ?? []).map((tag) => <span key={tag} className="px-2 py-[1px] rounded-full bg-black/30 border border-white/10">#{tag}</span>)}
+                          {entity.ano_diegese && <span className="ml-auto text-[10px] text-gray-400">Ano diegético: {entity.ano_diegese}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <CatalogPagination />
+              </div>
+            )}
           </div>
         </section>
 
         {/* Input de chat */}
         <footer className="border-t border-white/10 px-4 py-3 bg-black/40">
           <form onSubmit={(e) => { void onSubmit(e); }} className="max-w-2xl mx-auto flex items-end gap-2">
-            <textarea className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-40 min-h-[60px]" placeholder="Escreva aqui para Or. Ex: 'Quero criar uma nova história para Arquivos Vermelhos sobre um caso em rodovia'..." value={input} onChange={(e) => setInput(e.target.value)} rows={2} onKeyDown={handleKeyDown} />
+            <textarea
+              className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-32 min-h-[44px]"
+              placeholder={`Escreva aqui para Or em ${currentUniverseName}...`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              rows={1}
+              onKeyDown={handleKeyDown}
+            />
             <button type="submit" disabled={loading || !input.trim()} className="inline-flex items-center justify-center rounded-lg border border-white/30 bg-white text-black px-3 py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed">{loading ? "Pensando..." : "Enviar"}</button>
           </form>
           <p className="mt-2 text-[11px] text-center text-gray-500">Enter envia. Use Shift+Enter para quebrar linha.</p>
