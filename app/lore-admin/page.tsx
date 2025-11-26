@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// --- CONSTANTES ---
+// --- CONSTANTES DE UI ---
 const LORE_TYPES = [
   { value: "personagem", label: "Personagem" },
   { value: "local", label: "Local" },
@@ -30,7 +30,7 @@ const CAMADAS_TEMPORAIS = [
   { value: "outro", label: "Outro" },
 ];
 
-// --- TIPOS ---
+// --- TIPOS DE DADOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 type WorldFormMode = "idle" | "create" | "edit";
@@ -85,20 +85,20 @@ export default function LoreAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dados
+  // Dados Principais
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
   const [codes, setCodes] = useState<any[]>([]);
-  const [relations, setRelations] = useState<Relation[]>([]);
+  const [relations, setRelations] = useState<Relation[]>([]); // Relações (Wiki)
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   // Filtros
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
-  // Forms
+  // Formulários
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
@@ -125,7 +125,7 @@ export default function LoreAdminPage() {
     id: string; code: string; label: string; description: string; episode: string;
   }>({ id: "", code: "", label: "", description: "", episode: "" });
 
-  // Modais Visuais
+  // Modais de Visualização
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
 
@@ -137,7 +137,7 @@ export default function LoreAdminPage() {
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
-  // --- AUTH ---
+  // --- AUTHENTICATION ---
   useEffect(() => {
     const checkSession = async () => {
       setView("loading");
@@ -171,6 +171,7 @@ export default function LoreAdminPage() {
       if (worldsError) { console.error(worldsError); setError("Erro ao carregar mundos."); setIsLoadingData(false); return; }
       
       const list = data || [];
+      // Ordenação: AntiVerso primeiro
       list.sort((a: any, b: any) => {
         const nameA = (a.nome || "").toLowerCase().trim();
         const nameB = (b.nome || "").toLowerCase().trim();
@@ -240,6 +241,7 @@ export default function LoreAdminPage() {
       .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
 
     if (candidates.length === 0) return text;
+    // Ordena por tamanho para evitar substituições parciais
     candidates.sort((a, b) => b.titulo.length - a.titulo.length);
 
     const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
@@ -249,10 +251,16 @@ export default function LoreAdminPage() {
     text.replace(pattern, (match, _group, offset) => {
       if (typeof offset !== "number") return match;
       if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
+      
       const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
       if (target) {
         elements.push(
-          <button key={`${target.id}-${offset}`} type="button" className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors" onClick={() => handleSelectFicha(target.id)}>
+          <button
+            key={`${target.id}-${offset}`}
+            type="button"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors"
+            onClick={() => handleSelectFicha(target.id)}
+          >
             {match}
           </button>
         );
@@ -367,7 +375,7 @@ export default function LoreAdminPage() {
     );
   };
 
-  // --- UI ---
+  // --- UI HELPER & RENDERS ---
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
   const dynamicTipos = Array.from(new Set<string>([...LORE_TYPES.map(t=>t.value), ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
@@ -378,7 +386,8 @@ export default function LoreAdminPage() {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      if (!inTitulo && !inResumo) return false;
+      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
+      if (!inTitulo && !inResumo && !inTags) return false;
     }
     return true;
   });
@@ -440,7 +449,28 @@ export default function LoreAdminPage() {
                       <div className="space-y-2">{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source; if (!other) return null; return (<button key={rel.id} onClick={() => handleSelectFicha(other.id)} className="w-full text-left p-2 rounded border border-neutral-800 hover:border-emerald-500/50 bg-neutral-900/20 hover:bg-neutral-900/50 transition-all group"><div><div className="text-[9px] text-neutral-500 uppercase tracking-wide group-hover:text-emerald-400 mb-0.5">{rel.tipo_relacao?.replace(/_/g, " ") || "Relacionado a"}</div><div className="text-xs font-medium text-neutral-300 group-hover:text-white">{other.titulo}</div></div><span className="text-[10px] text-neutral-600 group-hover:text-emerald-500">→</span></button>); })}</div>
                     )}
                   </div>
-                  <div><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-3">Metadados</h3><div className="space-y-2 text-[11px]">{codes.map(c => (<div key={c.id} className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Código</span><span className="font-mono text-emerald-500">{c.code}</span></div>))}{selectedFicha.ano_diegese && <div className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Ano</span><span className="text-neutral-300">{selectedFicha.ano_diegese}</span></div>}{selectedFicha.tags && <div className="pt-2 flex flex-wrap gap-1">{selectedFicha.tags.split(',').map((t:string, i:number) => <span key={i} className="px-1.5 py-0.5 rounded bg-neutral-800 text-[9px] text-neutral-400">#{t.trim()}</span>)}</div>}</div></div>
+                  <div>
+                    <h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-3 flex items-center justify-between">
+                      Metadados
+                      <button onClick={startCreateCode} className="text-[9px] px-2 py-0.5 border border-neutral-800 rounded hover:bg-neutral-900 text-neutral-400">+ Código</button>
+                    </h3>
+                    <div className="space-y-2 text-[11px]">
+                      {codes.map(c => (
+                        <div key={c.id} className="flex justify-between items-center py-1 border-b border-neutral-900 group">
+                          <div className="flex flex-col">
+                            <span className="font-mono text-emerald-500">{c.code}</span>
+                            {c.label && <span className="text-[9px] text-neutral-600">{c.label}</span>}
+                          </div>
+                          <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                            <button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button>
+                            <button onClick={()=>handleDeleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button>
+                          </div>
+                        </div>
+                      ))}
+                      {selectedFicha.ano_diegese && <div className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Ano</span><span className="text-neutral-300">{selectedFicha.ano_diegese}</span></div>}
+                      {selectedFicha.tags && <div className="pt-2 flex flex-wrap gap-1">{selectedFicha.tags.split(',').map((t:string, i:number) => <span key={i} className="px-1.5 py-0.5 rounded bg-neutral-800 text-[9px] text-neutral-400">#{t.trim()}</span>)}</div>}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -448,7 +478,7 @@ export default function LoreAdminPage() {
         </section>
       </main>
 
-      {/* MODAL DE EDIÇÃO DE FICHA ATUALIZADO */}
+      {/* MODAL DE EDIÇÃO DE FICHA COMPLETO */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -479,37 +509,38 @@ export default function LoreAdminPage() {
 
               <div><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.titulo} onChange={e=>setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
               
-              {/* SLUG */}
-              <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-4">
+                 <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
+                 <div><label className="text-[10px] uppercase text-zinc-500">Ano Diegese</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.ano_diegese} onChange={e=>setFichaForm({...fichaForm, ano_diegese: e.target.value})} /></div>
+              </div>
               
-              {/* RESUMO E CONTEÚDO */}
               <div><label className="text-[10px] uppercase text-zinc-500">Resumo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo} onChange={e=>setFichaForm({...fichaForm, resumo: e.target.value})} /></div>
-              <div><label className="text-[10px] uppercase text-zinc-500">Conteúdo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono" value={fichaForm.conteudo} onChange={e=>setFichaForm({...fichaForm, conteudo: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Conteúdo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono leading-relaxed" value={fichaForm.conteudo} onChange={e=>setFichaForm({...fichaForm, conteudo: e.target.value})} /></div>
               
               {/* CAMPOS DE TIMELINE (APARECEM APENAS SE FOR EVENTO) */}
               {fichaForm.tipo === 'evento' && (
-                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2">
+                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
                    
                    <div>
-                     <label className="text-xs text-zinc-400">Descrição da Data</label>
+                     <label className="text-[10px] uppercase text-zinc-500">Descrição da Data</label>
                      <input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} placeholder='ex: "Na tarde de 23 de agosto..."' />
                    </div>
 
                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className="text-xs text-zinc-400">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.data_inicio || ''} onChange={e=>setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
-                      <div><label className="text-xs text-zinc-400">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.data_fim || ''} onChange={e=>setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
+                      <div><label className="text-[10px] uppercase text-zinc-500">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_inicio || ''} onChange={e=>setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
+                      <div><label className="text-[10px] uppercase text-zinc-500">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_fim || ''} onChange={e=>setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
                    </div>
 
                    <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-xs text-zinc-400">Granularidade</label>
+                        <label className="text-[10px] uppercase text-zinc-500">Granularidade</label>
                         <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.granularidade_data || 'vago'} onChange={e=>setFichaForm({...fichaForm, granularidade_data: e.target.value})}>
                            {GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label className="text-xs text-zinc-400">Camada</label>
+                        <label className="text-[10px] uppercase text-zinc-500">Camada</label>
                         <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.camada_temporal || 'linha_principal'} onChange={e=>setFichaForm({...fichaForm, camada_temporal: e.target.value})}>
                            {CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                         </select>
@@ -518,13 +549,48 @@ export default function LoreAdminPage() {
                 </div>
               )}
 
-              {/* TAGS E CÓDIGO */}
               <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tags} onChange={e=>setFichaForm({...fichaForm, tags: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
 
             </div>
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
           </form>
+        </div>
+      )}
+
+      {/* MODAL DE CÓDIGO */}
+      {codeFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl">
+            <div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div>
+            <div className="space-y-3">
+               <div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div>
+               <div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div>
+               <div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL DE VISUALIZAÇÃO RÁPIDA (DOUBLE CLICK) */}
+      {fichaViewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+           <div className="w-full max-w-3xl bg-zinc-950 border border-zinc-800 p-8 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl relative">
+             <button onClick={() => setFichaViewModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white text-xs">FECHAR</button>
+             <div className="mb-6 pb-4 border-b border-zinc-800">
+               <div className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2">{fichaViewModal.tipo}</div>
+               <h1 className="text-3xl font-bold text-white">{fichaViewModal.titulo}</h1>
+             </div>
+             <div className="space-y-4 text-sm text-zinc-300 leading-relaxed">
+               <div className="p-4 bg-zinc-900/30 rounded border border-zinc-800/50 italic text-zinc-400">{renderWikiText(fichaViewModal.resumo)}</div>
+               <div className="whitespace-pre-wrap">{renderWikiText(fichaViewModal.conteudo)}</div>
+             </div>
+             <div className="mt-8 flex justify-end gap-2">
+               <button onClick={() => { startEditFicha(fichaViewModal); setFichaViewModal(null); }} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Editar</button>
+             </div>
+           </div>
         </div>
       )}
 
