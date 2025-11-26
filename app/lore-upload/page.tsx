@@ -4,6 +4,35 @@ import { useEffect, useState, ChangeEvent } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
+// --- CONSTANTES DE OPÇÕES (DROPDOWNS) ---
+
+const LORE_TYPES = [
+  { value: "personagem", label: "Personagem" },
+  { value: "local", label: "Local" },
+  { value: "evento", label: "Evento" }, // Importante para a lógica condicional
+  { value: "empresa", label: "Empresa" },
+  { value: "agencia", label: "Agência" },
+  { value: "midia", label: "Mídia" },
+  { value: "conceito", label: "Conceito" },
+  { value: "epistemologia", label: "Epistemologia" },
+  { value: "regra_de_mundo", label: "Regra de Mundo" },
+  { value: "objeto", label: "Objetos" },
+  { value: "roteiro", label: "Roteiro" },
+  { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
+const CAMADAS_TEMPORAIS = [
+  { value: "linha_principal", label: "Linha Principal" },
+  { value: "flashback", label: "Flashback" },
+  { value: "flashforward", label: "Flashforward" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
+  { value: "historico_antigo", label: "Histórico / Antigo" },
+  { value: "outro", label: "Outro" },
+];
+
+// --- TIPOS ---
+
 type World = {
   id: string;
   nome: string | null;
@@ -23,14 +52,14 @@ type SuggestedFicha = {
   tags: string;
   aparece_em: string;
   codigo?: string;
-  // Campos temporais opcionais (principalmente para eventos)
+  // Campos temporais (usados se tipo == 'evento')
   ano_diegese?: number | null;
   descricao_data?: string;
   data_inicio?: string;
   data_fim?: string;
   granularidade_data?: string;
   camada_temporal?: string;
-  // Metadados para salvar relações
+  // Metadados completos
   meta?: any;
 };
 
@@ -41,7 +70,6 @@ type ApiFicha = {
   conteudo?: string;
   tags?: string[];
   aparece_em?: string;
-  // Campos temporais vindos da API de extração
   ano_diegese?: number | null;
   descricao_data?: string | null;
   data_inicio?: string | null;
@@ -55,7 +83,7 @@ type ExtractResponse = {
   fichas: ApiFicha[];
 };
 
-// Mapa de Prefixos para geração de códigos
+// --- MAPA DE PREFIXOS POR TIPO ---
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
   local: "LO",
@@ -85,7 +113,7 @@ function getTypePrefix(tipo: string): string {
 function createEmptyFicha(id: string): SuggestedFicha {
   return {
     id,
-    tipo: "",
+    tipo: "conceito",
     titulo: "",
     resumo: "",
     conteudo: "",
@@ -96,8 +124,8 @@ function createEmptyFicha(id: string): SuggestedFicha {
     descricao_data: "",
     data_inicio: "",
     data_fim: "",
-    granularidade_data: "",
-    camada_temporal: "",
+    granularidade_data: "indefinido",
+    camada_temporal: "linha_principal",
     meta: {},
   };
 }
@@ -129,6 +157,7 @@ function getWorldPrefix(world: World | null): string {
   if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV";
   if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC";
   if (cleaned.startsWith("EVANGELHO DE OR")) return "EO";
+  if (cleaned.startsWith("CULTO DE OR")) return "CO";
   if (cleaned.startsWith("ANTIVERSO")) return "ANT";
   if (cleaned.startsWith("ARIS")) return "ARIS";
 
@@ -188,7 +217,7 @@ export default function LoreUploadPage() {
 
       if (list.length > 0) {
         setWorlds(list);
-        // Seleção padrão: AntiVerso ou o primeiro
+        // Seleção padrão
         const antiverso = list.find((w) => (w.nome || "").trim().toLowerCase() === "antiverso");
         setSelectedWorldId(antiverso ? antiverso.id : list[0].id);
       } else {
@@ -202,28 +231,23 @@ export default function LoreUploadPage() {
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
-
     if (value === "create_new") {
       setShowNewWorldModal(true);
       return;
     }
-
     setSelectedWorldId(value);
   }
 
-  
   async function handleCreateWorldFromModal() {
     if (!newWorldName.trim()) {
       setError("Dê um nome ao novo Mundo.");
       return;
     }
-
     setIsCreatingWorld(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      // Mesmo algoritmo do lore-admin para gerar IDs estáveis
       const baseId = newWorldName
         .trim()
         .normalize("NFD")
@@ -248,10 +272,7 @@ export default function LoreUploadPage() {
         tipo: "mundo_ficcional",
       };
 
-      const { data, error } = await supabaseBrowser
-        .from("worlds")
-        .insert([payload])
-        .select("*");
+      const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
 
       if (error) {
         console.error(error);
@@ -260,7 +281,6 @@ export default function LoreUploadPage() {
       }
 
       const inserted = (data?.[0] || null) as World | null;
-
       if (inserted) {
         setWorlds((prev) => [...prev, inserted]);
         setSelectedWorldId(inserted.id);
@@ -309,8 +329,7 @@ export default function LoreUploadPage() {
 
     try {
       const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
-      const worldName =
-        selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
+      const worldName = selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
 
       const response = await fetch("/api/lore/extract", {
         method: "POST",
@@ -327,9 +346,7 @@ export default function LoreUploadPage() {
       if (!response.ok) {
         console.error("Falha ao extrair fichas:", response.statusText);
         const errorData = await response.json().catch(() => null);
-        const msg =
-          errorData?.error ||
-          `Erro ao extrair fichas (status ${response.status}).`;
+        const msg = errorData?.error || `Erro ao extrair fichas (status ${response.status}).`;
         setError(msg);
         return;
       }
@@ -340,76 +357,42 @@ export default function LoreUploadPage() {
       const selected = worlds.find((w) => w.id === selectedWorldId) || null;
       const prefix = getWorldPrefix(selected);
       const normalizedEpisode = normalizeEpisode(unitNumber || "");
-      
-      // Contadores individuais por tipo para gerar PS01, PS02, LO01...
       const typeCounters: Record<string, number> = {};
 
       const mapped: SuggestedFicha[] = rawFichas.map((rawFicha) => {
-        const base = createEmptyFicha(
-          `${Date.now()}-${Math.random().toString(36).slice(2)}`
-        );
-
+        const base = createEmptyFicha(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
         const titulo = rawFicha.titulo?.trim() || base.titulo;
         const tipo = rawFicha.tipo?.trim() || base.tipo;
         const resumo = rawFicha.resumo?.trim() || base.resumo;
         const conteudo = rawFicha.conteudo?.trim() || base.conteudo;
         const tagsArray = rawFicha.tags || [];
         const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
-
-        // Campos temporais vindos da API (quando aplicável)
-        const anoDiegese =
-          typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
+        const anoDiegese = typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
         const descricaoData = rawFicha.descricao_data?.trim() || "";
         const dataInicio = rawFicha.data_inicio?.trim() || "";
         const dataFim = rawFicha.data_fim?.trim() || "";
         const granularidadeData = normalizeGranularidade(rawFicha.granularidade_data, descricaoData);
         const camadaTemporal = rawFicha.camada_temporal?.trim() || "";
-        
-        // Preservar o objeto META completo vindo da API
         const meta = rawFicha.meta || {};
-
         const tagsString = tagsArray.join(", ");
 
-        const worldNameForAparece =
-          selected?.nome || selected?.id || "Mundo Desconhecido";
-
+        const worldNameForAparece = selected?.nome || selected?.id || "Mundo Desconhecido";
         const appearsParts: string[] = [];
-
-        if (worldNameForAparece) {
-          appearsParts.push(`Mundo: ${worldNameForAparece}`);
-        }
-
-        if (normalizedEpisode) {
-          appearsParts.push(`Episódio/Capítulo: ${normalizedEpisode}`);
-        }
-
-        if (documentName.trim()) {
-          appearsParts.push(`Documento: ${documentName.trim()}`);
-        }
-
-        if (!normalizedEpisode && !documentName.trim() && apareceEmRaw) {
-          appearsParts.push(apareceEmRaw);
-        }
-
+        if (worldNameForAparece) appearsParts.push(`Mundo: ${worldNameForAparece}`);
+        if (normalizedEpisode) appearsParts.push(`Episódio/Capítulo: ${normalizedEpisode}`);
+        if (documentName.trim()) appearsParts.push(`Documento: ${documentName.trim()}`);
+        if (!normalizedEpisode && !documentName.trim() && apareceEmRaw) appearsParts.push(apareceEmRaw);
         const appearsEmValue = appearsParts.join("\n\n");
 
-        // LÓGICA DE CÓDIGO POR TIPO
         let codigoGerado = "";
-        
         if (prefix && normalizedEpisode) {
-          // Identifica o prefixo do tipo (PS, LO, EV...)
           const typePrefix = getTypePrefix(tipo);
-          
-          // Se for roteiro, a lógica é diferente (sem contador)
           if (typePrefix === "RT") {
              codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`;
           } else {
-             // Incrementa o contador específico para esse tipo
              if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1;
              const count = typeCounters[typePrefix]++;
              const counterStr = String(count).padStart(2, "0");
-             
-             // Gera: AV1-PS01, AV1-LO01, etc.
              codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`;
           }
         }
@@ -434,9 +417,7 @@ export default function LoreUploadPage() {
       });
 
       setSuggestedFichas(mapped);
-      setSuccessMessage(
-        `Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`
-      );
+      setSuccessMessage(`Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`);
     } catch (err) {
       console.error("Erro inesperado ao extrair fichas:", err);
       setError("Erro inesperado ao extrair fichas.");
@@ -445,7 +426,6 @@ export default function LoreUploadPage() {
     }
   }
 
-  
   async function handleSaveFichas() {
     setError(null);
     setSuccessMessage(null);
@@ -478,10 +458,7 @@ export default function LoreUploadPage() {
         titulo: f.titulo,
         resumo: f.resumo,
         conteudo: f.conteudo,
-        tags: f.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean),
         aparece_em: f.aparece_em || undefined,
         ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
         descricao_data: f.descricao_data || null,
@@ -489,8 +466,7 @@ export default function LoreUploadPage() {
         data_fim: f.data_fim || null,
         granularidade_data: f.granularidade_data || null,
         camada_temporal: f.camada_temporal || null,
-        // Passa o código gerado no frontend para o backend respeitar
-        codigo: f.codigo, 
+        codigo: f.codigo,
         meta: f.meta || {}, 
       }));
 
@@ -508,21 +484,16 @@ export default function LoreUploadPage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
-        const msg =
-          (errorData && errorData.error) ||
-          `Erro ao salvar fichas (status ${response.status}).`;
+        const msg = (errorData && errorData.error) || `Erro ao salvar fichas (status ${response.status}).`;
         setError(msg);
         return;
       }
 
       const dataResp = await response.json();
-      console.log("Fichas salvas:", dataResp);
-
       setSuggestedFichas([]);
       setText("");
       setDocumentName("");
       setUnitNumber("");
-
       setSuccessMessage("Fichas salvas com sucesso! As relações também foram registradas.");
     } catch (err) {
       console.error("Erro inesperado ao salvar fichas:", err);
@@ -540,7 +511,6 @@ export default function LoreUploadPage() {
 
   function applyEditingFicha() {
     if (!editingFicha) return;
-
     setSuggestedFichas((prev) =>
       prev.map((f) => (f.id === editingFicha.id ? { ...editingFicha } : f))
     );
@@ -563,111 +533,48 @@ export default function LoreUploadPage() {
 
   return (
     <div className="h-screen bg-black text-zinc-100 flex flex-col">
-      {/* TOPO FIXO */}
       <header className="h-10 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
         <div className="flex items-center gap-4 text-xs">
-          <a href="/" className="text-gray-300 hover:text-white">
-            ← Home
-          </a>
-          <a
-            href="/lore-admin"
-            className="text-gray-400 hover:text-white text-[11px]"
-          >
-            Catálogo
-          </a>
-          <a
-            href="/lore-admin/timeline"
-            className="text-gray-400 hover:text-white text-[11px]"
-          >
-            Timeline
-          </a>
+          <a href="/" className="text-gray-300 hover:text-white">← Home</a>
+          <a href="/lore-admin" className="text-gray-400 hover:text-white text-[11px]">Catálogo</a>
+          <a href="/lore-admin/timeline" className="text-gray-400 hover:text-white text-[11px]">Timeline</a>
         </div>
       </header>
 
-      {/* ÁREA SCROLLÁVEL */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold">Upload de Texto</h1>
             <p className="text-sm text-zinc-400">
-              Envie o texto de um episódio, capítulo ou documento. A Lore
-              Machine extrai automaticamente fichas e detecta relações.
+              Envie o texto de um episódio ou documento. A Lore Machine extrai fichas e detecta relações automaticamente.
             </p>
           </header>
 
-          {error && (
-            <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-              {error}
-            </div>
-          )}
-          {successMessage && !error && (
-            <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
-              {successMessage}
-            </div>
-          )}
+          {error && <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div>}
+          {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
-          {/* Seleção de mundo e episódio */}
           <section className="grid grid-cols-1 md:grid-cols-[2fr,1fr] gap-3 items-center">
             <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">
-                Mundo de destino
-              </label>
-              <select
-                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                value={selectedWorldId}
-                onChange={handleWorldChange}
-              >
-                {worlds.map((world) => (
-                  <option key={world.id} value={world.id}>
-                    {world.nome ?? world.id}
-                  </option>
-                ))}
+              <label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label>
+              <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>
+                {worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}
                 <option value="create_new">+ Novo mundo...</option>
               </select>
             </div>
-
             <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">
-                Episódio / Capítulo #
-              </label>
-              <input
-                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                value={unitNumber}
-                onChange={(e) => setUnitNumber(e.target.value)}
-                placeholder={
-                  worldHasEpisodes
-                    ? "Ex.: 6"
-                    : "Este mundo não utiliza episódios"
-                }
-                disabled={!worldHasEpisodes}
-              />
+              <label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label>
+              <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} />
             </div>
           </section>
 
-          {/* Nome do documento (opcional) */}
           <section className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-zinc-400">
-              Nome do documento (opcional)
-            </label>
-            <input
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-              value={documentName}
-              onChange={(e) => setDocumentName(e.target.value)}
-              placeholder="Ex.: Episódio 6 — A Geladeira"
-            />
+            <label className="text-xs uppercase tracking-wide text-zinc-400">Nome do documento (opcional)</label>
+            <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={documentName} onChange={(e) => setDocumentName(e.target.value)} placeholder="Ex.: Episódio 6 — A Geladeira" />
           </section>
 
-          {/* Texto */}
           <section className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-zinc-400">
-              Texto do episódio / capítulo
-            </label>
-            <textarea
-              className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Cole aqui o texto a ser analisado..."
-            />
+            <label className="text-xs uppercase tracking-wide text-zinc-400">Texto do episódio / capítulo</label>
+            <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="Cole aqui o texto a ser analisado..." />
           </section>
 
           {/* BARRA DE PROGRESSO */}
@@ -677,298 +584,136 @@ export default function LoreUploadPage() {
             </div>
           )}
 
-          {/* Botão de extrair */}
           <div className="flex justify-center">
-            <button
-              onClick={handleExtractFichas}
-              disabled={isExtracting}
-              className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium"
-            >
-              {isExtracting ? "Extraindo fichas..." : "Extrair fichas"}
-            </button>
+            <button onClick={handleExtractFichas} disabled={isExtracting} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Extraindo fichas..." : "Extrair fichas"}</button>
           </div>
 
-          {/* Fichas sugeridas */}
           <section className="space-y-3 pb-8">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">
-                Fichas sugeridas ({suggestedFichas.length})
-              </h2>
-              {suggestedFichas.length > 0 && (
-                <button
-                  onClick={handleClearAll}
-                  className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline"
-                >
-                  Limpar todas
-                </button>
-              )}
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Fichas sugeridas ({suggestedFichas.length})</h2>
+              {suggestedFichas.length > 0 && <button onClick={handleClearAll} className="text-xs text-zinc-400 hover:text-zinc-100 underline-offset-2 hover:underline">Limpar todas</button>}
             </div>
 
-            {suggestedFichas.length === 0 && (
-              <p className="text-xs text-zinc-500">
-                Nenhuma ficha sugerida ainda. Extraia fichas a partir de um
-                texto para começar.
-              </p>
-            )}
+            {suggestedFichas.length === 0 && <p className="text-xs text-zinc-500">Nenhuma ficha sugerida ainda.</p>}
 
             <div className="space-y-2">
               {suggestedFichas.map((ficha) => (
-                <div
-                  key={ficha.id}
-                  className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1"
-                >
+                <div key={ficha.id} className="rounded-md border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-sm flex flex-col gap-1">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <div className="font-medium">
-                        {ficha.titulo || "(sem título)"}
-                      </div>
-                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">
-                        {ficha.tipo || "conceito"}
-                      </div>
+                      <div className="font-medium">{ficha.titulo || "(sem título)"}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">{ficha.tipo || "conceito"}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {ficha.codigo && (
-                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 font-mono">
-                          {ficha.codigo}
-                        </span>
-                      )}
-                      <button
-                        onClick={() => handleEditFicha(ficha.id)}
-                        className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => handleRemoveFicha(ficha.id)}
-                        className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40"
-                      >
-                        Remover
-                      </button>
+                      {ficha.codigo && <span className="text-[11px] px-2 py-0.5 rounded-full border border-zinc-700 text-zinc-300 font-mono">{ficha.codigo}</span>}
+                      <button onClick={() => handleEditFicha(ficha.id)} className="text-xs px-2 py-1 rounded-md border border-zinc-700 hover:bg-zinc-800">Editar</button>
+                      <button onClick={() => handleRemoveFicha(ficha.id)} className="text-xs px-2 py-1 rounded-md border border-red-700 text-red-200 hover:bg-red-900/40">Remover</button>
                     </div>
                   </div>
-                  {ficha.resumo && (
-                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
-                      {ficha.resumo}
-                    </p>
-                  )}
+                  {ficha.resumo && <p className="text-xs text-zinc-400 mt-1 line-clamp-2">{ficha.resumo}</p>}
                 </div>
               ))}
             </div>
 
             {suggestedFichas.length > 0 && (
               <div className="pt-3 flex justify-center">
-                <button
-                  onClick={handleSaveFichas}
-                  disabled={isSaving}
-                  className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium"
-                >
-                  {isSaving ? "Salvando fichas..." : "Salvar fichas"}
-                </button>
+                <button onClick={handleSaveFichas} disabled={isSaving} className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium">{isSaving ? "Salvando fichas..." : "Salvar fichas"}</button>
               </div>
             )}
           </section>
         </div>
       </div>
 
-      {/* Modal de criação de novo mundo */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] text-zinc-400">Novo Mundo</div>
-              <button
-                type="button"
-                onClick={handleCancelWorldModal}
-                className="text-[11px] text-zinc-500 hover:text-zinc-200"
-              >
-                fechar
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">Nome</label>
-              <input
-                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs"
-                value={newWorldName}
-                onChange={(e) => setNewWorldName(e.target.value)}
-                placeholder="Ex: Arquivos Vermelhos"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">Descrição</label>
-              <textarea
-                className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]"
-                value={newWorldDescription}
-                onChange={(e) => setNewWorldDescription(e.target.value)}
-                placeholder="Resumo do Mundo…"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setNewWorldHasEpisodes((prev) => !prev)
-                }
-                className={`h-4 px-2 rounded border text-[11px] ${
-                  newWorldHasEpisodes
-                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
-                    : "border-zinc-700 text-zinc-400 bg-black/40"
-                }`}
-              >
-                Este mundo possui episódios
-              </button>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleCancelWorldModal}
-                className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateWorldFromModal}
-                disabled={isCreatingWorld}
-                className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium"
-              >
-                {isCreatingWorld ? "Criando..." : "Salvar"}
-              </button>
-            </div>
+            <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
+            <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
+            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
           </div>
         </div>
       )}
 
-      {/* Modal de edição de ficha */}
       {editingFicha && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Editar ficha</h2>
-              <button
-                className="text-xs text-zinc-400 hover:text-zinc-100"
-                onClick={() => setEditingFicha(null)}
-              >
-                Fechar
-              </button>
-            </div>
-
+            <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Editar ficha</h2><button className="text-xs text-zinc-400 hover:text-zinc-100" onClick={() => setEditingFicha(null)}>Fechar</button></div>
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              
+              {/* CAMPO DE TIPO ATUALIZADO COM DROPDOWN */}
               <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Título
-                </label>
-                <input
+                <label className="text-xs uppercase tracking-wide text-zinc-400">Tipo</label>
+                <select 
                   className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                  value={editingFicha.titulo}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, titulo: e.target.value } : prev
-                    )
-                  }
-                />
+                  value={LORE_TYPES.some(t => t.value === editingFicha.tipo) ? editingFicha.tipo : "novo"}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "novo") {
+                      const custom = prompt("Digite o nome da nova categoria:");
+                      if (custom) setEditingFicha((prev) => prev ? { ...prev, tipo: custom.toLowerCase().trim() } : prev);
+                    } else {
+                      setEditingFicha((prev) => prev ? { ...prev, tipo: val } : prev);
+                    }
+                  }}
+                >
+                  {LORE_TYPES.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                  {!LORE_TYPES.some(t => t.value === editingFicha.tipo) && (
+                    <option value={editingFicha.tipo}>{editingFicha.tipo} (Atual)</option>
+                  )}
+                  <option value="novo">+ Nova Categoria...</option>
+                </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Tipo
-                </label>
-                <input
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                  value={editingFicha.tipo}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, tipo: e.target.value } : prev
-                    )
-                  }
-                  placeholder="Ex.: personagem, local, conceito, evento..."
-                />
-              </div>
+              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Título</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.titulo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, titulo: e.target.value } : prev)} /></div>
+              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
+              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
+              
+              {/* CAMPOS ESPECÍFICOS DE EVENTO */}
+              {editingFicha.tipo === 'evento' && (
+                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2">
+                   <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
+                   
+                   <div className="space-y-1">
+                     <label className="text-xs text-zinc-400">Descrição da Data (Texto original)</label>
+                     <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.descricao_data || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, descricao_data: e.target.value} : prev)} placeholder='ex: "Na tarde de 23 de agosto..."' />
+                   </div>
 
-              <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Resumo
-                </label>
-                <textarea
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]"
-                  value={editingFicha.resumo}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, resumo: e.target.value } : prev
-                    )
-                  }
-                />
-              </div>
+                   <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs text-zinc-400">Data Início</label>
+                        <input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_inicio || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_inicio: e.target.value} : prev)} />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-zinc-400">Data Fim</label>
+                        <input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_fim || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_fim: e.target.value} : prev)} />
+                      </div>
+                   </div>
 
-              <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Conteúdo
-                </label>
-                <textarea
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]"
-                  value={editingFicha.conteudo}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, conteudo: e.target.value } : prev
-                    )
-                  }
-                />
-              </div>
+                   <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs text-zinc-400">Granularidade</label>
+                        <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.granularidade_data || 'vago'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, granularidade_data: e.target.value} : prev)}>
+                           {GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-zinc-400">Camada</label>
+                        <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.camada_temporal || 'linha_principal'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, camada_temporal: e.target.value} : prev)}>
+                           {CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </div>
+                   </div>
+                </div>
+              )}
 
-              <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Tags (separadas por vírgula)
-                </label>
-                <input
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                  value={editingFicha.tags}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, tags: e.target.value } : prev
-                    )
-                  }
-                  placeholder="Ex.: religião, protagonista, fé"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs uppercase tracking-wide text-zinc-400">
-                  Código da ficha (gerado automaticamente, mas editável)
-                </label>
-                <input
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono"
-                  value={editingFicha.codigo}
-                  onChange={(e) =>
-                    setEditingFicha((prev) =>
-                      prev ? { ...prev, codigo: e.target.value } : prev
-                    )
-                  }
-                  placeholder={
-                    worldPrefix && episode
-                      ? `${worldPrefix}${episode}-PS1`
-                      : "Ex.: TS6-PS1"
-                  }
-                />
-              </div>
+              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Tags</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.tags} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, tags: e.target.value } : prev)} /></div>
+              <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Código</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm font-mono" value={editingFicha.codigo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, codigo: e.target.value } : prev)} /></div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                className="px-3 py-1.5 rounded-md border border-zinc-700 text-xs hover:bg-zinc-800"
-                onClick={() => setEditingFicha(null)}
-              >
-                Cancelar
-              </button>
-              <button
-                className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium"
-                onClick={applyEditingFicha}
-              >
-                Salvar alterações
-              </button>
-            </div>
+            <div className="flex justify-end gap-2 pt-2"><button className="px-3 py-1.5 rounded-md border border-zinc-700 text-xs hover:bg-zinc-800" onClick={() => setEditingFicha(null)}>Cancelar</button><button className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-medium" onClick={applyEditingFicha}>Salvar alterações</button></div>
           </div>
         </div>
       )}
