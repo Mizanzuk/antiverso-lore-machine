@@ -248,7 +248,22 @@ function LoreAdminContent() {
   };
 
   // --- FORMS & ACTIONS ---
-  // Universo
+  
+  // UNIVERSO (AQUI ESTAVA O ERRO, FUNÇÃO RESTAURADA)
+  function startCreateUniverse() { 
+    setUniverseForm({ id: "", nome: "", descricao: "" }); 
+    setUniverseFormMode("create"); 
+  }
+
+  function startEditUniverse(u: Universe) { 
+    setUniverseForm({
+      id: u.id,
+      nome: u.nome,
+      descricao: u.descricao || "" 
+    }); 
+    setUniverseFormMode("edit"); 
+  }
+
   async function saveUniverse() {
     if (universeFormMode === "create") {
       const { data } = await supabaseBrowser.from("universes").insert({ nome: universeForm.nome, descricao: universeForm.descricao }).select().single();
@@ -263,6 +278,7 @@ function LoreAdminContent() {
     }
     setUniverseFormMode("idle");
   }
+
   function requestDeleteUniverse(u: Universe) {
     const a = Math.floor(Math.random() * 10), b = Math.floor(Math.random() * 10);
     if (confirm(`ATENÇÃO: Apagar o universo "${u.nome}" deletará TODOS os mundos e fichas dentro dele.\nTem certeza?`)) {
@@ -280,8 +296,6 @@ function LoreAdminContent() {
     e.preventDefault();
     const payload = { ...worldForm, universe_id: selectedUniverseId };
     
-    // --- CORREÇÃO DO ERRO DE BUILD AQUI ---
-    // Garantimos que payload.nome existe antes de usar .toLowerCase().
     const safeName = payload.nome || "novo_mundo";
 
     if (worldFormMode === 'create') {
@@ -360,10 +374,13 @@ function LoreAdminContent() {
   const filteredMentions = useMemo(() => {
     if (!mentionQuery) return [];
     const lower = mentionQuery.toLowerCase();
-    return fichas.filter(f => f.titulo.toLowerCase().includes(lower)).slice(0, 6);
+    return fichas.filter(f => 
+      f.titulo.toLowerCase().includes(lower) || 
+      (f.tipo && f.tipo.toLowerCase().includes(lower))
+    ).slice(0, 6);
   }, [mentionQuery, fichas]);
 
-  // CRUD CÓDIGOS e RELAÇÕES (Simplificado no corpo para caber, mas com lógica funcional)
+  // CRUD CÓDIGOS e RELAÇÕES
   function startCreateCode() { setCodeFormMode("create"); setCodeForm({ id:"", code:"", label:"", description:"", episode:"" }); }
   function startEditCode(c:any) { setCodeFormMode("edit"); setCodeForm(c); }
   async function saveCode(e:any) {
@@ -425,18 +442,22 @@ function LoreAdminContent() {
       </header>
 
       <main className="flex flex-1 overflow-hidden">
-        {/* 1. COLUNA UNIVERSO & MUNDOS */}
+        {/* COLUNA 1: UNIVERSO & MUNDOS */}
         {!isFocusMode && (
           <section className="w-64 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-950/50">
             <div className="mb-6 pb-4 border-b border-zinc-800">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Universo</span>
                 <div className="flex gap-1">
-                  <button onClick={() => currentUniverse && (setUniverseForm({id: currentUniverse.id, nome: currentUniverse.nome, descricao: currentUniverse.descricao || ""}), setUniverseFormMode("edit"))} className="text-zinc-500 hover:text-white text-xs">✎</button>
+                  <button onClick={() => currentUniverse && startEditUniverse(currentUniverse)} className="text-zinc-500 hover:text-white text-xs">✎</button>
                   <button onClick={() => currentUniverse && requestDeleteUniverse(currentUniverse)} className="text-zinc-500 hover:text-red-500 text-xs">×</button>
                 </div>
               </div>
-              <select className="w-full bg-black border border-zinc-700 text-white text-sm rounded p-2 font-bold mb-2" value={selectedUniverseId || ""} onChange={(e) => e.target.value === "__new__" ? startCreateUniverse() : handleSelectUniverse(e.target.value)}>
+              <select 
+                className="w-full bg-black border border-zinc-700 text-white text-sm rounded p-2 font-bold mb-2" 
+                value={selectedUniverseId || ""} 
+                onChange={(e) => e.target.value === "__new__" ? startCreateUniverse() : handleSelectUniverse(e.target.value)}
+              >
                 {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
                 <option value="__new__">+ Novo Universo...</option>
               </select>
@@ -578,16 +599,16 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAIS */}
+      {/* MODAL UNIVERSO */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
             <h3 className="text-white font-bold mb-4">{universeFormMode === 'create' ? 'Novo Universo' : 'Editar Universo'}</h3>
-            <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} />
-            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} />
+            <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} />
+            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24 text-xs" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} />
             <div className="flex justify-end gap-2">
               <button onClick={() => setUniverseFormMode('idle')} className="text-zinc-400 text-xs">Cancelar</button>
-              <button onClick={saveUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs">Salvar</button>
+              <button onClick={saveUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button>
             </div>
           </div>
         </div>
@@ -607,21 +628,21 @@ function LoreAdminContent() {
                   <option value="novo">+ Nova Categoria...</option>
                 </select>
               </div>
-              <div><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.titulo} onChange={e=>setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.titulo || ""} onChange={e=>setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
               <div className="grid grid-cols-2 gap-4">
-                 <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
-                 <div><label className="text-[10px] uppercase text-zinc-500">Ano Diegese</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.ano_diegese} onChange={e=>setFichaForm({...fichaForm, ano_diegese: e.target.value})} /></div>
+                 <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug || ""} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
+                 <div><label className="text-[10px] uppercase text-zinc-500">Ano Diegese</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.ano_diegese || ""} onChange={e=>setFichaForm({...fichaForm, ano_diegese: e.target.value})} /></div>
               </div>
               <div className="relative">
                 <label className="text-[10px] uppercase text-zinc-500">Resumo</label>
-                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo} onChange={(e) => handleTextareaChange(e, "resumo")} />
+                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo || ""} onChange={(e) => handleTextareaChange(e, "resumo")} />
                 {activeTextarea === "resumo" && filteredMentions.length > 0 && (
                   <div className="absolute left-0 top-full mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded shadow-xl z-50">{filteredMentions.map(sug => (<button key={sug.id} type="button" onClick={() => insertMention(sug)} className="block w-full text-left px-3 py-2 text-xs hover:bg-zinc-800 text-zinc-300">{sug.titulo} <span className="text-zinc-500 text-[9px]">({sug.tipo})</span></button>))}</div>
                 )}
               </div>
               <div className="relative">
                 <label className="text-[10px] uppercase text-zinc-500">Conteúdo</label>
-                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono leading-relaxed" value={fichaForm.conteudo} onChange={(e) => handleTextareaChange(e, "conteudo")} />
+                <textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono leading-relaxed" value={fichaForm.conteudo || ""} onChange={(e) => handleTextareaChange(e, "conteudo")} />
                 {activeTextarea === "conteudo" && filteredMentions.length > 0 && (
                   <div className="absolute left-0 top-full mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded shadow-xl z-50">{filteredMentions.map(sug => (<button key={sug.id} type="button" onClick={() => insertMention(sug)} className="block w-full text-left px-3 py-2 text-xs hover:bg-zinc-800 text-zinc-300">{sug.titulo} <span className="text-zinc-500 text-[9px]">({sug.tipo})</span></button>))}</div>
                 )}
@@ -640,9 +661,9 @@ function LoreAdminContent() {
                    </div>
                 </div>
               )}
-              <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tags} onChange={e=>setFichaForm({...fichaForm, tags: e.target.value})} /></div>
-              <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
-              <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tags || ""} onChange={e=>setFichaForm({...fichaForm, tags: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em || ""} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo || ""} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
             </div>
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
           </form>
@@ -654,8 +675,6 @@ function LoreAdminContent() {
       
       {/* MODAL CÓDIGO */}
       {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={saveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={()=>setCodeFormMode('idle')} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={()=>setCodeFormMode('idle')} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
-      
-      {/* MODAL RECONCILE */}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
   );
@@ -664,7 +683,7 @@ function LoreAdminContent() {
 export default function LoreAdminPage() {
   return (
     <Suspense fallback={<div className="h-screen flex items-center justify-center bg-black text-neutral-500">Carregando...</div>}>
-      <LoreAdminPage />
+      <LoreAdminContent />
     </Suspense>
   );
 }
