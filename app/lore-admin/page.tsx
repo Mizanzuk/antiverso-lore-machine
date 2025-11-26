@@ -38,6 +38,17 @@ type FichaFull = {
   [key: string]: any;
 };
 
+// --- TIPOS PARA RELAÇÕES (WIKI) ---
+type Relation = {
+  id: string;
+  tipo_relacao: string;
+  descricao: string;
+  source_ficha_id: string;
+  target_ficha_id: string;
+  source?: { id: string; titulo: string; tipo: string };
+  target?: { id: string; titulo: string; tipo: string };
+};
+
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -93,6 +104,8 @@ export default function LoreAdminPage() {
   const [fichas, setFichas] = useState<any[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
   const [codes, setCodes] = useState<any[]>([]);
+  // NOVO: Estado para guardar as relações da ficha selecionada
+  const [relations, setRelations] = useState<Relation[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
@@ -207,13 +220,13 @@ export default function LoreAdminPage() {
 
   async function fetchFichas(world: any | null) {
     setError(null);
-    if (!world) { setFichas([]); setSelectedFichaId(null); setCodes([]); return; }
+    if (!world) { setFichas([]); setSelectedFichaId(null); setCodes([]); setRelations([]); return; }
     const isRoot = (world?.nome || "").trim().toLowerCase() === "antiverso";
     let query = supabaseBrowser.from("fichas").select("*").order("titulo", { ascending: true });
     if (!isRoot) { query = query.eq("world_id", world.id); }
     const { data, error: fichasError } = await query;
     if (fichasError) { console.error(fichasError); setError("Erro ao carregar fichas."); return; }
-    setFichas(data || []); setSelectedFichaId(null); setCodes([]);
+    setFichas(data || []); setSelectedFichaId(null); setCodes([]); setRelations([]);
   }
 
   async function fetchCodes(fichaId: string) {
@@ -221,6 +234,25 @@ export default function LoreAdminPage() {
     const { data, error: codesError } = await supabaseBrowser.from("codes").select("*").eq("ficha_id", fichaId).order("code", { ascending: true });
     if (codesError) { console.error(codesError); setError("Erro ao carregar códigos."); return; }
     setCodes(data || []);
+  }
+
+  // NOVO: Função para buscar relações
+  async function fetchRelations(fichaId: string) {
+    setRelations([]);
+    const { data, error: relError } = await supabaseBrowser
+      .from("lore_relations")
+      .select(`
+        *,
+        source:source_ficha_id(id, titulo, tipo),
+        target:target_ficha_id(id, titulo, tipo)
+      `)
+      .or(`source_ficha_id.eq.${fichaId},target_ficha_id.eq.${fichaId}`);
+
+    if (relError) {
+      console.error("Erro ao carregar relações:", relError);
+      return;
+    }
+    setRelations((data as any[]) || []);
   }
 
   // --- FUNÇÕES DE RECONCILIAÇÃO ---
@@ -293,7 +325,7 @@ export default function LoreAdminPage() {
     }
   }
 
-  // --- FUNÇÃO RESTAURADA: renderWikiText ---
+  // --- FUNÇÃO renderWikiText ATUALIZADA ---
   const renderWikiText = (text: string | null | undefined) => {
     if (!text) return null;
 
@@ -338,9 +370,12 @@ export default function LoreAdminPage() {
           <button
             key={`${target.id}-${offset}`}
             type="button"
-            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer"
+            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-200 cursor-pointer text-emerald-100 font-medium transition-colors"
             onClick={() => {
               setSelectedFichaId(target.id);
+              // ATUALIZADO: Busca códigos E relações ao clicar no link
+              fetchCodes(target.id);
+              fetchRelations(target.id);
               setFichaFormMode("idle");
             }}
           >
@@ -1078,6 +1113,8 @@ export default function LoreAdminPage() {
                 onClick={() => {
                   setSelectedFichaId(ficha.id as string);
                   fetchCodes(ficha.id as string);
+                  // ATUALIZAÇÃO: Também busca relações ao clicar
+                  fetchRelations(ficha.id as string);
                 }}
                 onDoubleClick={() => setFichaViewModal(ficha)}
               >
@@ -1199,6 +1236,7 @@ export default function LoreAdminPage() {
                 <div className="space-y-1">
                   <div className="text-[11px] text-neutral-500">Resumo</div>
                   <div className="text-[12px] text-neutral-200 whitespace-pre-line">
+                    {/* ATUALIZADO: RenderWikiText usado aqui para links */}
                     {renderWikiText(selectedFicha.resumo)}
                   </div>
                 </div>
@@ -1208,6 +1246,7 @@ export default function LoreAdminPage() {
                 <div className="space-y-1">
                   <div className="text-[11px] text-neutral-500">Conteúdo</div>
                   <div className="text-[12px] text-neutral-300 whitespace-pre-line">
+                    {/* ATUALIZADO: RenderWikiText usado aqui para links */}
                     {renderWikiText(selectedFicha.conteudo)}
                   </div>
                 </div>
@@ -1232,6 +1271,52 @@ export default function LoreAdminPage() {
                   </div>
                 </div>
               )}
+
+              {/* --- INÍCIO DO BLOCO DE CONEXÕES (WIKI) --- */}
+              <div className="space-y-1 mb-4 pt-2 border-t border-neutral-800">
+                <div className="flex items-center justify-between">
+                   <div className="text-[11px] text-emerald-500 font-bold uppercase tracking-wider mb-2">
+                     Conexões Detectadas
+                   </div>
+                </div>
+
+                {relations.length === 0 && (
+                  <div className="text-[11px] text-neutral-600 italic">Nenhuma conexão registrada.</div>
+                )}
+
+                <div className="space-y-1">
+                  {relations.map((rel) => {
+                    // Descobre quem é o "outro" lado da relação
+                    const isSource = rel.source_ficha_id === selectedFichaId;
+                    const other = isSource ? rel.target : rel.source;
+
+                    if (!other) return null;
+
+                    return (
+                      <button
+                        key={rel.id}
+                        onClick={() => {
+                          setSelectedFichaId(other.id);
+                          fetchCodes(other.id);
+                          fetchRelations(other.id);
+                        }}
+                        className="w-full text-left group flex items-center justify-between rounded border border-neutral-800 bg-neutral-900/40 px-2 py-1.5 hover:border-emerald-500/50 hover:bg-neutral-900 transition-all"
+                      >
+                        <div>
+                          <div className="text-[9px] text-neutral-500 uppercase tracking-wide group-hover:text-emerald-400 mb-0.5">
+                            {rel.tipo_relacao?.replace(/_/g, " ") || "Relacionado a"}
+                          </div>
+                          <div className="text-[11px] font-medium text-neutral-300 group-hover:text-white">
+                            {other.titulo}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-neutral-600 group-hover:text-emerald-500">→</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {/* --- FIM DO BLOCO DE CONEXÕES --- */}
 
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
