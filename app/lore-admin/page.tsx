@@ -21,12 +21,6 @@ const LORE_TYPES = [
   { value: "registro_anomalo", label: "Registro Anômalo" },
 ];
 
-const RELATION_TYPES = [
-  "relacionado_a", "amigo_de", "inimigo_de", "localizado_em", "mora_em",
-  "nasceu_em", "participou_de", "protagonizado_por", "menciona", "pai_de",
-  "filho_de", "criador_de", "parte_de"
-];
-
 // --- TIPOS ---
 type Universe = { id: string; nome: string; descricao?: string | null; };
 type World = { id: string; nome: string; descricao?: string | null; tipo: string; ordem: number; has_episodes: boolean; universe_id?: string | null; is_root?: boolean; };
@@ -58,7 +52,7 @@ function LoreAdminContent() {
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
   const [worlds, setWorlds] = useState<World[]>([]);
-  const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null); // null = VENDO TODOS DO UNIVERSO
+  const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<FichaFull[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
   const [codes, setCodes] = useState<any[]>([]);
@@ -69,16 +63,15 @@ function LoreAdminContent() {
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
   const [isFocusMode, setIsFocusMode] = useState(false);
 
-  // Forms States (Simplificado para brevidade, lógica mantida)
+  // Forms States
   const [universeFormMode, setUniverseFormMode] = useState<"idle"|"create"|"edit">("idle");
   const [universeForm, setUniverseForm] = useState({ id:"", nome:"", descricao:"" });
-  const [captcha, setCaptcha] = useState("");
   const [captchaChallenge, setCaptchaChallenge] = useState({ q: "", a: "" });
 
   const [worldFormMode, setWorldFormMode] = useState<"idle"|"create"|"edit">("idle");
-  const [worldForm, setWorldForm] = useState<any>({}); // Simplificado
+  const [worldForm, setWorldForm] = useState<any>({});
   const [fichaFormMode, setFichaFormMode] = useState<"idle"|"create"|"edit">("idle");
-  const [fichaForm, setFichaForm] = useState<any>({}); // Simplificado
+  const [fichaForm, setFichaForm] = useState<any>({});
 
   // --- AUTH & INIT ---
   useEffect(() => {
@@ -101,9 +94,8 @@ function LoreAdminContent() {
     const { data } = await supabaseBrowser.from("universes").select("*").order("nome");
     if (data) {
       setUniverses(data);
-      // Seleciona o primeiro ou o da URL
       const initial = data.length > 0 ? data[0].id : null;
-      if (initial) handleSelectUniverse(initial);
+      if (initial && !selectedUniverseId) handleSelectUniverse(initial);
     }
     setIsLoadingData(false);
   }
@@ -122,15 +114,12 @@ function LoreAdminContent() {
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
     
     if (worldId) {
-      // Filtrar por mundo específico
       query = query.eq("world_id", worldId);
     } else {
-      // Filtrar por TODOS os mundos do universo
-      // Primeiro pegamos os IDs dos mundos desse universo
       const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
       const wIds = wData?.map(w => w.id) || [];
       if (wIds.length > 0) query = query.in("world_id", wIds);
-      else query = query.eq("id", "00000000-0000-0000-0000-000000000000"); // Nenhum
+      else query = query.eq("id", "00000000-0000-0000-0000-000000000000");
     }
 
     const { data } = await query;
@@ -148,7 +137,7 @@ function LoreAdminContent() {
   // --- HANDLERS DE SELEÇÃO ---
   function handleSelectUniverse(id: string) {
     setSelectedUniverseId(id);
-    setSelectedWorldId(null); // Reseta mundo para ver "Tudo"
+    setSelectedWorldId(null);
     setSelectedFichaId(null);
     loadWorlds(id);
   }
@@ -164,16 +153,25 @@ function LoreAdminContent() {
     loadDetails(id);
   }
 
-  // --- ACTIONS (Create/Edit/Delete) ---
+  // --- ACTIONS ---
   
   // UNIVERSO
   function startCreateUniverse() { setUniverseForm({id:"", nome:"", descricao:""}); setUniverseFormMode("create"); }
-  function startEditUniverse(u: Universe) { setUniverseForm(u); setUniverseFormMode("edit"); }
+  
+  // *** CORREÇÃO AQUI: Garantir que descricao nunca seja null ***
+  function startEditUniverse(u: Universe) { 
+    setUniverseForm({
+      id: u.id,
+      nome: u.nome,
+      descricao: u.descricao || "" 
+    }); 
+    setUniverseFormMode("edit"); 
+  }
+
   async function saveUniverse() {
     if (universeFormMode === "create") {
       const { data } = await supabaseBrowser.from("universes").insert({ nome: universeForm.nome, descricao: universeForm.descricao }).select().single();
       if (data) {
-        // Criar mundo raiz automaticamente
         const rootId = universeForm.nome.toLowerCase().replace(/\s+/g, "_") + "_root";
         await supabaseBrowser.from("worlds").insert({ id: rootId, nome: universeForm.nome, universe_id: data.id, is_root: true, tipo: "meta_universo", ordem: 0 });
         loadUniverses();
@@ -184,11 +182,10 @@ function LoreAdminContent() {
     }
     setUniverseFormMode("idle");
   }
+
   function requestDeleteUniverse(u: Universe) {
     const a = Math.floor(Math.random() * 10);
     const b = Math.floor(Math.random() * 10);
-    setCaptchaChallenge({ q: `${a} + ${b}`, a: String(a + b) });
-    setCaptcha("");
     if (confirm(`ATENÇÃO: Deletar o universo "${u.nome}" apagará TODOS os mundos e fichas dentro dele. \n\nTem certeza absoluta?`)) {
        const ans = prompt(`Para confirmar, resolva: ${a} + ${b}`);
        if (ans === String(a + b)) {
@@ -199,11 +196,10 @@ function LoreAdminContent() {
     }
   }
 
-  // FICHA (Resumido para caber)
+  // FICHA
   async function saveFicha(e: any) {
     e.preventDefault();
     const payload = { ...fichaForm, updated_at: new Date().toISOString() };
-    // Se não tem mundo selecionado (está vendo tudo), obriga a selecionar um mundo raiz ou o primeiro
     if (!payload.world_id && selectedUniverseId) {
        const root = worlds.find(w => w.is_root) || worlds[0];
        if(root) payload.world_id = root.id;
@@ -222,10 +218,9 @@ function LoreAdminContent() {
     setSelectedFichaId(null);
   }
 
-  // --- RENDER HELPERS ---
+  // RENDER HELPERS
   const renderWikiText = (text: string | null) => {
     if (!text) return null;
-    // Lógica simplificada de links wiki
     return <div className="whitespace-pre-wrap">{text}</div>; 
   };
 
@@ -244,7 +239,6 @@ function LoreAdminContent() {
 
   return (
     <div className="h-screen bg-black text-neutral-100 flex flex-col overflow-hidden">
-      {/* 1.1 MENU DE TOPO RESTAURADO */}
       <header className="h-10 border-b border-zinc-900 flex items-center justify-between px-4 bg-zinc-950">
         <div className="flex items-center gap-6 text-xs font-medium">
           <a href="/" className="text-zinc-400 hover:text-white">Home</a>
@@ -259,7 +253,6 @@ function LoreAdminContent() {
         {!isFocusMode && (
           <aside className="w-64 bg-zinc-950 border-r border-zinc-900 flex flex-col min-h-0">
             
-            {/* 1.3 SEÇÃO UNIVERSO */}
             <div className="p-4 border-b border-zinc-900 bg-zinc-900/20">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Universo</span>
@@ -282,7 +275,6 @@ function LoreAdminContent() {
               </div>
             </div>
 
-            {/* 1.5 BOTÃO "VER TUDO DO UNIVERSO" */}
             <div className="p-2">
                <button 
                  onClick={() => handleSelectWorld(null)}
@@ -295,14 +287,13 @@ function LoreAdminContent() {
                </button>
             </div>
 
-            {/* LISTA DE MUNDOS */}
             <div className="flex-1 overflow-y-auto px-2 pb-4">
               <div className="flex items-center justify-between px-1 mb-2 mt-2">
                 <span className="text-[9px] uppercase tracking-widest text-zinc-600">Mundos</span>
                 <button onClick={() => { setWorldFormMode("create"); setWorldForm({universe_id: selectedUniverseId}); }} className="text-[10px] text-zinc-500 hover:text-white">+ Novo</button>
               </div>
               <div className="space-y-1">
-                {worlds.map(w => (
+                {worlds.filter(w => !w.is_root).map(w => (
                   <div key={w.id} className={`group flex items-center justify-between px-3 py-2 rounded cursor-pointer border ${selectedWorldId === w.id ? "bg-zinc-800 border-emerald-500/50 text-white" : "border-transparent text-zinc-400 hover:bg-zinc-900"}`} onClick={() => handleSelectWorld(w.id)}>
                     <span className="text-xs truncate w-32">{w.nome}</span>
                     <div className="hidden group-hover:flex gap-1">
@@ -327,7 +318,6 @@ function LoreAdminContent() {
                 <button onClick={() => { setFichaFormMode("create"); setFichaForm({tipo:'conceito'}); }} className="text-[10px] px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-800 text-zinc-300 transition">+ Nova</button>
               </div>
               
-              {/* 1.4.4 BARRA DE BUSCA */}
               <input 
                 className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-1.5 text-xs text-white focus:border-emerald-500 outline-none mb-3"
                 placeholder="Buscar ficha..."
@@ -335,7 +325,6 @@ function LoreAdminContent() {
                 onChange={e => setFichasSearchTerm(e.target.value)}
               />
 
-              {/* 1.4.3 FILTROS DE CATEGORIA */}
               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto scrollbar-thin">
                 <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500"}`}>TODOS</button>
                 {LORE_TYPES.map(t => (
@@ -374,7 +363,7 @@ function LoreAdminContent() {
           </aside>
         )}
 
-        {/* COLUNA 3: DETALHES (WIKI STYLE) */}
+        {/* COLUNA 3: DETALHES */}
         <main className="flex-1 bg-black overflow-y-auto p-8 flex justify-center">
           {currentFicha ? (
             <div className={`w-full transition-all ${isFocusMode ? "max-w-4xl" : "max-w-3xl"}`}>
@@ -393,30 +382,13 @@ function LoreAdminContent() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-[3fr,1fr] gap-8">
-                {/* CONTEÚDO PRINCIPAL */}
                 <div className="space-y-6">
                   {currentFicha.imagem_url && <img src={currentFicha.imagem_url} className="w-full rounded border border-zinc-800" />}
-                  
-                  {currentFicha.resumo && (
-                    <div className="text-lg leading-relaxed text-zinc-400 italic font-serif border-l-2 border-emerald-900 pl-4">
-                      {currentFicha.resumo}
-                    </div>
-                  )}
-                  
-                  <div className="prose prose-invert prose-sm max-w-none text-zinc-300 leading-7 whitespace-pre-wrap">
-                    {/* 1.4.6 VOLTAR AO MODO ANTIGO DE VISUALIZAÇÃO */}
-                    {currentFicha.conteudo}
-                  </div>
-
-                  {currentFicha.aparece_em && (
-                    <div className="mt-8 pt-4 border-t border-zinc-900">
-                      <h4 className="text-xs font-bold uppercase text-zinc-500 mb-2">Aparições</h4>
-                      <p className="text-sm text-zinc-400">{currentFicha.aparece_em}</p>
-                    </div>
-                  )}
+                  {currentFicha.resumo && <div className="text-lg leading-relaxed text-zinc-400 italic font-serif border-l-2 border-emerald-900 pl-4">{currentFicha.resumo}</div>}
+                  <div className="prose prose-invert prose-sm max-w-none text-zinc-300 leading-7 whitespace-pre-wrap">{currentFicha.conteudo}</div>
+                  {currentFicha.aparece_em && <div className="mt-8 pt-4 border-t border-zinc-900"><h4 className="text-xs font-bold uppercase text-zinc-500 mb-2">Aparições</h4><p className="text-sm text-zinc-400">{currentFicha.aparece_em}</p></div>}
                 </div>
 
-                {/* SIDEBAR DE METADADOS */}
                 <div className="space-y-6">
                   {relations.length > 0 && (
                     <div className="bg-zinc-900/30 p-4 rounded border border-zinc-800">
@@ -433,7 +405,6 @@ function LoreAdminContent() {
                       </ul>
                     </div>
                   )}
-
                   {codes.length > 0 && (
                     <div className="bg-zinc-900/30 p-4 rounded border border-zinc-800">
                       <h4 className="text-[10px] font-bold uppercase text-zinc-500 mb-3">Códigos</h4>
@@ -442,7 +413,6 @@ function LoreAdminContent() {
                       </div>
                     </div>
                   )}
-
                   <div className="bg-zinc-900/30 p-4 rounded border border-zinc-800 space-y-3">
                     <h4 className="text-[10px] font-bold uppercase text-zinc-500">Dados Temporais</h4>
                     {currentFicha.ano_diegese && <div className="flex justify-between text-xs text-zinc-400"><span>Ano</span><span className="text-white">{currentFicha.ano_diegese}</span></div>}
@@ -460,13 +430,13 @@ function LoreAdminContent() {
         </main>
       </div>
 
-      {/* MODAIS (Forms) - Simplificados aqui para economizar espaço, mas a lógica está nos handlers acima */}
+      {/* MODAIS */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
             <h3 className="text-white font-bold mb-4">{universeFormMode === 'create' ? 'Novo Universo' : 'Editar Universo'}</h3>
             <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} />
-            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} />
+            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24" placeholder="Descrição" value={universeForm.descricao} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} />
             <div className="flex justify-end gap-2">
               <button onClick={() => setUniverseFormMode('idle')} className="text-zinc-400 text-xs">Cancelar</button>
               <button onClick={saveUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs">Salvar</button>
@@ -474,9 +444,22 @@ function LoreAdminContent() {
           </div>
         </div>
       )}
-
-      {/* INSERIR AQUI OS MODAIS DE FICHA E MUNDO (Mantendo a lógica que você já tinha antes) */}
-      {/* Eles usarão os states `fichaFormMode` e `worldFormMode` configurados nos handlers */}
+      
+      {/* Modal de Ficha (Apenas a estrutura, reusando lógica existente) */}
+      {fichaFormMode !== 'idle' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+           <form onSubmit={saveFicha} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <h2 className="text-white font-bold mb-4">Editar Ficha</h2>
+              <input className="w-full bg-black border border-zinc-800 p-2 mb-2 rounded" placeholder="Título" value={fichaForm.titulo || ""} onChange={e=>setFichaForm({...fichaForm, titulo: e.target.value})} />
+              <textarea className="w-full bg-black border border-zinc-800 p-2 mb-2 rounded h-20" placeholder="Resumo" value={fichaForm.resumo || ""} onChange={e=>setFichaForm({...fichaForm, resumo: e.target.value})} />
+              <textarea className="w-full bg-black border border-zinc-800 p-2 mb-4 rounded h-40" placeholder="Conteúdo" value={fichaForm.conteudo || ""} onChange={e=>setFichaForm({...fichaForm, conteudo: e.target.value})} />
+              <div className="flex justify-end gap-2">
+                 <button type="button" onClick={()=>setFichaFormMode('idle')} className="text-zinc-400 px-3 py-1">Cancelar</button>
+                 <button type="submit" className="bg-emerald-600 text-white px-3 py-1 rounded">Salvar</button>
+              </div>
+           </form>
+        </div>
+      )}
     </div>
   );
 }
