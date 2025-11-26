@@ -364,9 +364,19 @@ export default function Page() {
     setLoading(true);
 
     try {
-      const systemPromptConsulta = "Você é Or, guardião do AntiVerso. Você está em MODO CONSULTA. Use apenas o lore existente fornecido pelo banco de dados (JSON + bíblia). Não invente fatos novos. Se não tiver certeza, diga que aquela informação ainda não está definida.";
-      const systemPromptCriativo = "Você é Or, guardião do AntiVerso. Você está em MODO CRIATIVO. Você pode propor ideias novas de ficção, desde que respeitem a coerência do lore já estabelecido. Quando estiver extrapolando ou especulando, deixe isso claro para o usuário.";
+      // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL ---
+      // Buscamos o nome do universo selecionado
+      const currentUniName = universes.find(u => u.id === selectedUniverseId)?.nome || "neste universo";
+
+      // Injetamos o nome no prompt para garantir isolamento
+      const systemPromptConsulta = 
+        `Você é Or, guardião de ${currentUniName}. Você está em MODO CONSULTA. Use apenas o lore existente fornecido pelo banco de dados local. Não invente fatos novos e nem traga informações do AntiVerso original se não estiverem no contexto. Se não tiver certeza, diga que aquela informação ainda não está definida neste universo.`;
+      
+      const systemPromptCriativo = 
+        `Você é Or, guardião de ${currentUniName}. Você está em MODO CRIATIVO. Você pode propor ideias novas de ficção para ${currentUniName}, desde que respeitem a coerência do lore já estabelecido aqui.`;
+
       const systemPrompt = mode === "consulta" ? systemPromptConsulta : systemPromptCriativo;
+      
       const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
       const payloadMessages = [{ role: "system" as const, content: systemPrompt }, ...contextMessages].map((m) => ({ role: m.role, content: m.content }));
 
@@ -375,7 +385,7 @@ export default function Page() {
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
           messages: payloadMessages,
-          universeId: selectedUniverseId || null // Correção principal: evita string vazia
+          universeId: selectedUniverseId || null 
         }) 
       });
       
