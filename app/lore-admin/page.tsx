@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useRef } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// --- CONSTANTES ---
+// --- CONSTANTES DE UI ---
 const LORE_TYPES = [
   { value: "personagem", label: "Personagem" },
   { value: "local", label: "Local" },
@@ -18,6 +18,16 @@ const LORE_TYPES = [
   { value: "objeto", label: "Objetos" },
   { value: "roteiro", label: "Roteiro" },
   { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
+const CAMADAS_TEMPORAIS = [
+  { value: "linha_principal", label: "Linha Principal" },
+  { value: "flashback", label: "Flashback" },
+  { value: "flashforward", label: "Flashforward" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
+  { value: "historico_antigo", label: "Histórico / Antigo" },
+  { value: "outro", label: "Outro" },
 ];
 
 const RELATION_TYPES = [
@@ -36,17 +46,7 @@ const RELATION_TYPES = [
   "parte_de"
 ];
 
-const CAMADAS_TEMPORAIS = [
-  { value: "linha_principal", label: "Linha Principal" },
-  { value: "flashback", label: "Flashback" },
-  { value: "flashforward", label: "Flashforward" },
-  { value: "sonho_visao", label: "Sonho / Visão" },
-  { value: "mundo_alternativo", label: "Mundo Alternativo" },
-  { value: "historico_antigo", label: "Histórico / Antigo" },
-  { value: "outro", label: "Outro" },
-];
-
-// --- TIPOS ---
+// --- TIPOS DE DADOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 type WorldFormMode = "idle" | "create" | "edit";
@@ -101,7 +101,7 @@ export default function LoreAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Dados
+  // Dados Principais
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
@@ -114,7 +114,7 @@ export default function LoreAdminPage() {
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
-  // Forms Principais
+  // Forms
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
@@ -135,7 +135,6 @@ export default function LoreAdminPage() {
     data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "linha_principal"
   });
 
-  // Form de Código
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<{
@@ -154,7 +153,7 @@ export default function LoreAdminPage() {
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
-  // ESTADOS NOVOS: Gerenciamento de Relações e Menções
+  // Gerenciamento de Relações e Menções
   const [isManagingRelations, setIsManagingRelations] = useState(false);
   const [newRelationTarget, setNewRelationTarget] = useState("");
   const [newRelationType, setNewRelationType] = useState("relacionado_a");
@@ -163,8 +162,7 @@ export default function LoreAdminPage() {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [activeTextarea, setActiveTextarea] = useState<"conteudo" | "resumo" | null>(null);
 
-
-  // --- AUTH ---
+  // --- AUTHENTICATION ---
   useEffect(() => {
     const checkSession = async () => {
       setView("loading");
@@ -256,31 +254,23 @@ export default function LoreAdminPage() {
     setSelectedFichaId(fichaId);
     fetchCodes(fichaId);
     fetchRelations(fichaId);
-    setIsManagingRelations(false); // Reseta modo de edição de relação ao trocar ficha
+    setIsManagingRelations(false);
   }
 
   // --- GERENCIAMENTO DE RELAÇÕES ---
-
   async function handleAddRelation() {
     if (!selectedFichaId || !newRelationTarget) return;
     setIsSavingRelation(true);
-    
     const { error } = await supabaseBrowser.from("lore_relations").insert({
       source_ficha_id: selectedFichaId,
       target_ficha_id: newRelationTarget,
       tipo_relacao: newRelationType,
       descricao: "Adicionado manualmente"
     });
-
-    if (error) {
-      alert("Erro ao adicionar relação: " + error.message);
-    } else {
-      await fetchRelations(selectedFichaId);
-      setNewRelationTarget("");
-    }
+    if (error) alert("Erro ao adicionar relação: " + error.message);
+    else { await fetchRelations(selectedFichaId); setNewRelationTarget(""); }
     setIsSavingRelation(false);
   }
-
   async function handleDeleteRelation(relationId: string) {
     if (!confirm("Apagar esta conexão?")) return;
     const { error } = await supabaseBrowser.from("lore_relations").delete().eq("id", relationId);
@@ -289,52 +279,30 @@ export default function LoreAdminPage() {
   }
 
   // --- MENTIONS HELPERS ---
-
-  // Detecta se o usuário está digitando @...
   function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>, field: "conteudo" | "resumo") {
     const val = e.target.value;
     setFichaForm({ ...fichaForm, [field]: val });
-
     const cursor = e.target.selectionStart;
     const textBefore = val.substring(0, cursor);
     const lastAt = textBefore.lastIndexOf("@");
-
     if (lastAt !== -1) {
-      // Verifica se há espaço entre o @ e o cursor (o que invalidaria a menção)
-      // ou se o @ faz parte de um email (ex: "a@" -> ok, "a @b" -> ok)
-      // Simplificação: Se o texto entre @ e cursor não tem espaço, é uma query
       const query = textBefore.substring(lastAt + 1);
-      if (!/\s/.test(query)) {
-        setMentionQuery(query);
-        setActiveTextarea(field);
-        return;
-      }
+      if (!/\s/.test(query)) { setMentionQuery(query); setActiveTextarea(field); return; }
     }
-    setMentionQuery(null);
-    setActiveTextarea(null);
+    setMentionQuery(null); setActiveTextarea(null);
   }
-
   function insertMention(ficha: any) {
     if (!activeTextarea) return;
     const currentText = fichaForm[activeTextarea] || "";
-    
-    // Acha o último @ antes do cursor (aproximado, pois não temos ref do cursor aqui, mas assumimos fim do input no fluxo simples)
-    // Para uma implementação robusta de cursor, precisaríamos de refs.
-    // Vamos usar uma substituição simples do final da string se ela bater com a query
-    
     const regex = new RegExp(`@${mentionQuery}$`);
     if (regex.test(currentText)) {
-       const newText = currentText.replace(regex, ficha.titulo); // Apenas insere o nome. O renderWikiText fará o link.
+       const newText = currentText.replace(regex, ficha.titulo);
        setFichaForm({ ...fichaForm, [activeTextarea]: newText });
     } else {
-       // Fallback: apenas concatena se algo deu errado no tracking
        setFichaForm({ ...fichaForm, [activeTextarea]: currentText + ficha.titulo });
     }
-    
-    setMentionQuery(null);
-    setActiveTextarea(null);
+    setMentionQuery(null); setActiveTextarea(null);
   }
-
 
   // --- WIKI RENDERER ---
   const renderWikiText = (text: string | null | undefined) => {
@@ -431,7 +399,8 @@ export default function LoreAdminPage() {
     setIsSavingFicha(false); cancelFichaForm();
     const w = worlds.find(x => x.id === selectedWorldId); await fetchFichas(w);
   }
-  async function handleDeleteFicha(id: string) {
+  async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
+    if(e) e.stopPropagation();
     if(!confirm("Tem certeza que deseja apagar esta ficha?")) return;
     await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
     await supabaseBrowser.from("fichas").delete().eq("id", id);
@@ -496,7 +465,8 @@ export default function LoreAdminPage() {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      if (!inTitulo && !inResumo) return false;
+      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
+      if (!inTitulo && !inResumo && !inTags) return false;
     }
     return true;
   });
@@ -553,9 +523,19 @@ export default function LoreAdminPage() {
                 </div>
                 
                 {/* Botões EDIT e DEL */}
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5">
-                   <button onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded">Edit</button>
-                   <button onClick={(e) => handleDeleteWorld(w.id, e)} className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded">Del</button>
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5 z-10">
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} 
+                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded"
+                   >
+                     Edit
+                   </button>
+                   <button 
+                     onClick={(e) => handleDeleteWorld(w.id, e)} 
+                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded"
+                   >
+                     Del
+                   </button>
                 </div>
               </div>
             ))}
@@ -569,22 +549,55 @@ export default function LoreAdminPage() {
           
           {/* Filtros de Categorias */}
           <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto scrollbar-thin">
-            <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`} title="Todas as categorias">TODOS</button>
+            <button 
+              onClick={() => setFichaFilterTipos([])} 
+              className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
+              title="Todas as categorias"
+            >
+              TODOS
+            </button>
             {allTypes.map(t => {
               const label = getTypeLabel(t);
-              return (<button key={t} onClick={() => toggleFilterTipo(t)} className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`} title={label}>{t.slice(0,3).toUpperCase()}</button>);
+              return (
+                <button 
+                  key={t} 
+                  onClick={() => toggleFilterTipo(t)} 
+                  className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
+                  title={label}
+                >
+                  {t.slice(0,3).toUpperCase()}
+                </button>
+              );
             })}
           </div>
 
           <div className="flex-1 overflow-auto space-y-1 pr-1">
             {filteredFichas.map((f) => (
-              <div key={f.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} onClick={() => handleSelectFicha(f.id)}>
-                <div className="flex justify-between items-start pr-8"><span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span><span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span></div>
+              <div 
+                key={f.id} 
+                className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} 
+                onClick={() => handleSelectFicha(f.id)}
+              >
+                <div className="flex justify-between items-start pr-8">
+                  <span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span>
+                  <span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span>
+                </div>
                 {f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed pr-8">{f.resumo}</span>}
-                {/* Botões EDIT e DEL na Ficha */}
+
+                {/* Botões EDIT e DEL aparecem no hover */}
                 <div className="absolute right-2 top-2 hidden group-hover:flex flex-col gap-1 bg-black/90 rounded p-0.5 z-10">
-                   <button onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-center">Edit</button>
-                   <button onClick={(e) => { e.stopPropagation(); handleDeleteFicha(f.id); }} className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-center">Del</button>
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} 
+                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-center"
+                   >
+                     Edit
+                   </button>
+                   <button 
+                     onClick={(e) => handleDeleteFicha(f.id, e)} 
+                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-center"
+                   >
+                     Del
+                   </button>
                 </div>
               </div>
             ))}
