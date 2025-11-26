@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Gera um slug seguro a partir de um título.
  */
@@ -16,8 +18,6 @@ function makeSlug(title: string | null | undefined): string {
   const stamp = Date.now().toString(36);
   return `${base}-${stamp}`;
 }
-
-export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -134,8 +134,9 @@ export async function POST(req: NextRequest) {
   }
 
   const titulo: string = fields.titulo ?? "";
-  // CORREÇÃO: Passando 'titulo' para makeSlug
-  const slug = makeSlug(titulo); 
+  // Aqui estava o erro: makeSlug() vazio. Agora passamos 'titulo'.
+  const slug = makeSlug(titulo);
+  
   const conteudo: string =
     (fields.conteudo as string | undefined) ??
     (fields.resumo as string | undefined) ??
