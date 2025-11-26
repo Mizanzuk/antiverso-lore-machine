@@ -88,38 +88,57 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
 
   const systemPrompt = `
 Você é o Motor de Lore do AntiVerso.
-Sua tarefa é ler o trecho de texto (Parte ${chunkIndex + 1} de ${totalChunks}) e extrair FICHAS DE LORE estruturadas.
+Sua tarefa é ler o texto e extrair FICHAS DE LORE estruturadas.
 
 TIPOS PERMITIDOS:
 ${typeInstructions}
 
-DIRETRIZES DE EXTRAÇÃO:
-1. **Seja Específico:** Não crie fichas para conceitos genéricos (ex: "medo", "escuro") a menos que sejam entidades sobrenaturais definidas.
-2. **Personagens:** Identifique nomes próprios. Se for um figurante sem nome, ignore.
-3. **Eventos:** Se houver uma cena datada ou um acontecimento chave, crie uma ficha de EVENTO com o máximo de dados temporais (ano, data).
-4. **Relações Cruzadas:** O campo "meta.relacoes" é CRÍTICO. Conecte quem fez o quê, onde e com quem.
+DIRETRIZES DE EXTRAÇÃO (IMPORTANTE):
+
+1. **AGRESSIVIDADE TEMPORAL (CRÍTICO):**
+   - O objetivo principal é montar uma Linha do Tempo.
+   - Se o texto menciona uma data específica (ex: "abril de 2011", "em 2015", "naquela tarde de 1999"), você **DEVE** criar uma ficha de TIPO "evento" separada.
+   - Não agrupe acontecimentos de datas diferentes na mesma ficha. Separe-os.
+   - Extraia o "data_inicio" no formato YYYY-MM-DD sempre que possível.
+
+2. **PERSONAGENS:**
+   - Crie fichas para os nomes próprios.
+   - No campo "resumo", foque na personalidade ou papel geral.
+
+3. **LOCAIS (CENÁRIOS):**
+   - Extraia fichas de TIPO "local" para qualquer cenário onde uma cena acontece.
+   - **NÃO IGNORE** locais genéricos. Se o texto diz "Padaria da Esquina", crie uma ficha "Padaria da Esquina". Se diz "Ponto de Ônibus", crie uma ficha "Ponto de Ônibus".
+   - Eles são os "palcos" dos eventos e precisam existir no banco de dados.
+
+4. **RELAÇÕES (Conectando tudo):**
+   - No "meta.relacoes" dos Eventos, conecte:
+     - "envolve": os Personagens presentes.
+     - "ocorreu_em": o Local onde aconteceu.
 
 FORMATO JSON ESPERADO:
 {
   "fichas": [
     {
-      "tipo": "personagem", // use apenas os tipos permitidos
-      "titulo": "Nome Principal",
-      "resumo": "Uma frase resumindo quem é.",
-      "conteudo": "Descrição detalhada baseada no texto.",
-      "tags": ["tag1", "tag2"],
-      "aparece_em": "Citação breve de onde aparece no texto",
-      "ano_diegese": 1995, // número ou null
-      "descricao_data": "Verão de 95", // string ou null
-      "data_inicio": "1995-02-15", // YYYY-MM-DD ou null
-      "granularidade_data": "mes", // dia, mes, ano, vago
-      "camada_temporal": "linha_principal", // flashback, sonho_visao, linha_principal
+      "tipo": "evento",
+      "titulo": "Título descritivo do evento",
+      "resumo": "O que aconteceu.",
+      "conteudo": "Detalhes da cena.",
+      "descricao_data": "Abril de 2011",
+      "data_inicio": "2011-04-01",
+      "granularidade_data": "mes",
+      "camada_temporal": "linha_principal",
       "meta": { 
         "relacoes": [
-           {"tipo": "amigo_de", "alvo_titulo": "Outro Personagem"},
-           {"tipo": "localizado_em", "alvo_titulo": "Nome do Local"}
+           {"tipo": "envolve", "alvo_titulo": "Nome do Personagem"},
+           {"tipo": "ocorreu_em", "alvo_titulo": "Nome do Local"} // Importante!
         ] 
       }
+    },
+    {
+      "tipo": "local",
+      "titulo": "Padaria da Esquina",
+      "resumo": "Local onde Pedro costumava tomar café e se atrasar.",
+      "conteudo": "Descrição do ambiente se houver..."
     }
   ]
 }
@@ -130,7 +149,7 @@ FORMATO JSON ESPERADO:
   try {
     const completion = await openai!.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.1, // Baixa temperatura para ser mais factual
+      temperature: 0.2, 
       max_tokens: 4000,
       messages: [
         { role: "system", content: systemPrompt },
@@ -150,18 +169,21 @@ FORMATO JSON ESPERADO:
   }
 }
 
-// Mescla fichas duplicadas (mesmo título e tipo) encontradas em diferentes chunks
+// Mescla fichas duplicadas
 function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
   const map = new Map<string, ExtractedFicha>();
 
   for (const f of allFichas) {
-    // Chave única baseada em tipo + título normalizado
+    // Normaliza chave
     const key = `${f.tipo}-${f.titulo.toLowerCase().trim()}`;
 
     if (map.has(key)) {
       const existing = map.get(key)!;
-      // Mescla conteúdo (concatena informações novas)
-      existing.conteudo += `\n\n[Continuação extraída]: ${f.conteudo}`;
+      
+      // Mescla conteúdo sem repetir frases exatas
+      if (f.conteudo && !existing.conteudo.includes(f.conteudo.slice(0, 20))) {
+         existing.conteudo += `\n\n[Mais detalhes]: ${f.conteudo}`;
+      }
       
       // Mescla tags
       const mergedTags = new Set([...existing.tags, ...f.tags]);
@@ -176,9 +198,13 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
         };
       }
       
-      // Mantém a data mais específica se a existente for nula
-      if (!existing.ano_diegese && f.ano_diegese) existing.ano_diegese = f.ano_diegese;
-      if (!existing.data_inicio && f.data_inicio) existing.data_inicio = f.data_inicio;
+      // Prioriza dados temporais se a ficha existente não tiver
+      if (!existing.data_inicio && f.data_inicio) {
+         existing.data_inicio = f.data_inicio;
+         existing.ano_diegese = f.ano_diegese;
+         existing.descricao_data = f.descricao_data;
+         existing.granularidade_data = f.granularidade_data;
+      }
 
     } else {
       map.set(key, f);
@@ -215,13 +241,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. SALVAR ROTEIRO BRUTO NO SUPABASE
-    // Isso garante que temos o texto original preservado
     let roteiroId: string | null = null;
     if (supabaseAdmin) {
       const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
       const titulo = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
       
-      // Tenta inserir na tabela 'roteiros'. Se ela não existir ou der erro, apenas loga e segue.
       try {
         const { data, error } = await supabaseAdmin
           .from("roteiros")
@@ -230,7 +254,7 @@ export async function POST(req: NextRequest) {
           .single();
         if (!error && data) roteiroId = data.id;
       } catch (err) {
-        console.warn("Aviso: Não foi possível salvar na tabela 'roteiros' (pode não existir ainda).", err);
+        console.warn("Aviso: Não foi possível salvar na tabela 'roteiros'.", err);
       }
     }
 
@@ -238,18 +262,15 @@ export async function POST(req: NextRequest) {
     const chunks = splitTextIntoChunks(text);
     console.log(`Texto dividido em ${chunks.length} bloco(s) para análise.`);
 
-    // Processa todos os chunks em paralelo
     const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length));
     const results = await Promise.all(promises);
 
-    // Flatten: junta todos os arrays de resultados em um só
     const allRawFichas = results.flat();
 
-    // 3. DEDUPLICAÇÃO E LIMPEZA
+    // 3. DEDUPLICAÇÃO
     const uniqueFichas = deduplicateFichas(allRawFichas);
 
-    // 4. ADICIONAR FICHA DO PRÓPRIO ROTEIRO (Manual)
-    // Garante que sempre haja uma ficha representando o documento em si
+    // 4. ADICIONAR FICHA DO PRÓPRIO ROTEIRO
     const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
     const tituloDoc = documentName?.trim() || "Roteiro Processado";
     
@@ -257,24 +278,20 @@ export async function POST(req: NextRequest) {
       tipo: "roteiro",
       titulo: tituloDoc,
       resumo: `Ficha técnica automática do documento/episódio ${episodio}.`,
-      conteudo: text.slice(0, 2000) + (text.length > 2000 ? "..." : ""), // Preview do texto
+      conteudo: text.slice(0, 2000) + (text.length > 2000 ? "..." : ""),
       tags: ["roteiro", `ep-${episodio}`],
       ano_diegese: null,
       aparece_em: `Episódio ${episodio}`,
       meta: { status: "ativo" }
     };
 
-    // Coloca a ficha do roteiro no topo da lista
     uniqueFichas.unshift(fichaRoteiro);
 
-    // 5. PREPARAR RESPOSTA FILTRADA PARA O FRONTEND
-    // Filtros simples para ajudar o frontend a categorizar se necessário,
-    // embora o frontend atual mostre tudo junto.
+    // 5. RETORNO
     const cleanFichas = uniqueFichas.map(f => ({
       ...f,
       titulo: f.titulo.trim(),
       tipo: f.tipo.toLowerCase().trim(),
-      // Garante que meta.relacoes exista
       meta: {
         ...f.meta,
         relacoes: f.meta?.relacoes || []
