@@ -282,6 +282,7 @@ function LoreAdminContent() {
   // Mundo
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ nome: "", descricao: "", has_episodes: true }); }
   function startEditWorld(w: World) { setWorldFormMode("edit"); setWorldForm(w); }
+  function cancelWorldForm() { setWorldFormMode("idle"); setWorldForm({}); }
   
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
@@ -298,19 +299,12 @@ function LoreAdminContent() {
     if(selectedUniverseId) loadWorlds(selectedUniverseId);
   }
 
-  // FUNÇÃO CORRIGIDA: handleDeleteWorld
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("Tem certeza que deseja deletar este Mundo? Essa ação é irreversível.")) return;
-    
-    const { error } = await supabaseBrowser.from("worlds").delete().eq("id", id);
-    
-    if (error) {
-      alert("Erro ao deletar mundo.");
-    } else {
-      if (selectedWorldId === id) setSelectedWorldId(null);
-      if (selectedUniverseId) loadWorlds(selectedUniverseId);
-    }
+    await supabaseBrowser.from("worlds").delete().eq("id", id);
+    if (selectedWorldId === id) setSelectedWorldId(null);
+    if (selectedUniverseId) loadWorlds(selectedUniverseId);
   }
 
   // Ficha
@@ -321,6 +315,7 @@ function LoreAdminContent() {
     setFichaForm({ id:"", titulo:"", tipo:"conceito", world_id: targetWorld, conteudo:"", resumo:"", tags:"", granularidade_data:"indefinido", camada_temporal:"linha_principal" }); 
   }
   function startEditFicha(f: any) { setFichaFormMode("edit"); setFichaForm({...f}); }
+  function cancelFichaForm() { setFichaFormMode("idle"); setFichaForm({}); }
   
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
@@ -331,7 +326,6 @@ function LoreAdminContent() {
     if (selectedUniverseId) loadFichas(selectedUniverseId, selectedWorldId);
   }
 
-  // FUNÇÃO CORRIGIDA: handleDeleteFicha
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("Tem certeza que deseja apagar esta ficha?")) return;
@@ -387,6 +381,7 @@ function LoreAdminContent() {
   // CRUD CÓDIGOS e RELAÇÕES
   function startCreateCode() { setCodeFormMode("create"); setCodeForm({ id:"", code:"", label:"", description:"", episode:"" }); }
   function startEditCode(c:any) { setCodeFormMode("edit"); setCodeForm(c); }
+  function cancelCodeForm() { setCodeFormMode("idle"); setCodeForm({}); }
   async function handleSaveCode(e:React.FormEvent) {
     e.preventDefault();
     if(codeFormMode==='create') await supabaseBrowser.from("codes").insert({...codeForm, ficha_id: selectedFichaId});
@@ -603,9 +598,6 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAL MUNDO */}
-      {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveWorld} className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg p-6 shadow-2xl"><h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">{worldFormMode === 'create' ? 'Novo Mundo' : 'Editar Mundo'}</h2><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Nome</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={worldForm.nome || ""} onChange={e=>setWorldForm({...worldForm, nome: e.target.value})} /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={worldForm.descricao || ""} onChange={e=>setWorldForm({...worldForm, descricao: e.target.value})} /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={()=>setWorldFormMode('idle')} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
-      
       {/* MODAL UNIVERSO */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
@@ -677,10 +669,11 @@ function LoreAdminContent() {
         </div>
       )}
       
-      {/* MODAL CÓDIGO */}
-      {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={()=>setCodeFormMode('idle')} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={()=>setCodeFormMode('idle')} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
+      {/* MODAL MUNDO */}
+      {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveWorld} className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg p-6 shadow-2xl"><h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">{worldFormMode === 'create' ? 'Novo Mundo' : 'Editar Mundo'}</h2><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Nome</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={worldForm.nome || ""} onChange={e=>setWorldForm({...worldForm, nome: e.target.value})} /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={worldForm.descricao || ""} onChange={e=>setWorldForm({...worldForm, descricao: e.target.value})} /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelWorldForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       
-      {/* MODAL RECONCILE */}
+      {/* MODAL CÓDIGO */}
+      {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
   );
