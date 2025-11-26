@@ -7,34 +7,49 @@ export const dynamic = "force-dynamic";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
-// Função auxiliar para buscar regras globais do AntiVerso
-async function fetchGlobalRules(): Promise<string> {
-  if (!supabaseAdmin) return "";
+// Função auxiliar para buscar regras globais do Universo selecionado
+async function fetchGlobalRules(universeId?: string): Promise<string> {
+  if (!supabaseAdmin || !universeId) return "";
 
-  // 1. Descobrir o ID do mundo "AntiVerso" (ou usar hardcoded se você tiver certeza do ID)
-  // Aqui vamos buscar pelo slug ou nome, assumindo que o ID textual seja 'antiverso' ou buscamos pelo nome
-  // No seu seed atual, o id é 'antiverso'.
-  const worldId = "antiverso"; 
+  try {
+    // 1. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
+    // É nele que estão salvas as regras globais.
+    const { data: rootWorld, error: worldError } = await supabaseAdmin
+      .from("worlds")
+      .select("id")
+      .eq("universe_id", universeId)
+      .eq("is_root", true)
+      .single();
 
-  // 2. Buscar fichas de Regra de Mundo e Epistemologia desse universo
-  const { data } = await supabaseAdmin
-    .from("fichas")
-    .select("titulo, conteudo, tipo")
-    .eq("world_id", worldId)
-    .in("tipo", ["regra_de_mundo", "epistemologia", "conceito"]); // Tipos que definem leis universais
+    if (worldError || !rootWorld) {
+      // Se não achou mundo raiz, tenta buscar qualquer mundo desse universo para não quebrar
+      // ou simplesmente retorna vazio se não houver regras.
+      return "";
+    }
 
-  if (!data || data.length === 0) return "";
+    // 2. Buscar fichas de Regra de Mundo e Epistemologia desse Mundo Raiz
+    const { data: rules } = await supabaseAdmin
+      .from("fichas")
+      .select("titulo, conteudo, tipo")
+      .eq("world_id", rootWorld.id)
+      .in("tipo", ["regra_de_mundo", "epistemologia", "conceito"]);
 
-  // 3. Formatar como texto para o Prompt
-  const rulesText = data
-    .map(f => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
-    .join("\n");
+    if (!rules || rules.length === 0) return "";
 
-  return `
-### LEIS IMUTÁVEIS DO UNIVERSO (ANTIVERSO)
-Estas regras se aplicam a TODOS os mundos e histórias, sem exceção:
+    // 3. Formatar como texto para o Prompt
+    const rulesText = rules
+      .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
+      .join("\n");
+
+    return `
+### LEIS IMUTÁVEIS DO UNIVERSO ATUAL
+Estas regras se aplicam a TODOS os mundos e histórias deste universo, sem exceção:
 ${rulesText}
 `;
+  } catch (err) {
+    console.error("Erro ao buscar regras globais:", err);
+    return "";
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -51,6 +66,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => null);
     const messages = (body?.messages ?? []) as Message[];
+    const universeId = body?.universeId as string | undefined; // Recebe o ID do frontend
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
@@ -62,9 +78,9 @@ export async function POST(req: NextRequest) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
 
-    // 1. Busca Vetorial (RAG) baseada na pergunta do usuário
+    // 1. Busca Vetorial (RAG)
     const loreResults = await searchLore(userQuestion, { limit: 8 });
-    
+
     const loreContext =
       loreResults && loreResults.length > 0
         ? loreResults
@@ -75,35 +91,35 @@ export async function POST(req: NextRequest) {
             .join("\n\n")
         : "Nenhum trecho específico encontrado.";
 
-    // 2. Busca de Regras Globais (Injeção de Contexto)
-    const globalRules = await fetchGlobalRules();
+    // 2. Busca de Regras Globais do Universo Selecionado
+    const globalRules = await fetchGlobalRules(universeId);
 
     // 3. Montagem do System Prompt
     const contextMessage: Message = {
       role: "system",
       content: [
-        "Você é Or, guardião do AntiVerso.",
-        "Você está respondendo dentro da AntiVerso Lore Machine.",
+        "Você é Or, o guardião criativo deste Universo.",
+        "Você está respondendo dentro da Lore Machine.",
         "",
-        globalRules, // <--- AQUI ENTRAM AS REGRAS DO UNIVERSO
+        globalRules, // <--- Regras dinâmicas do universo atual
         "",
         "### CONTEXTO ESPECÍFICO ENCONTRADO (RAG)",
-        "Use estes dados para responder à pergunta atual:",
+        "Use estes dados para responder à pergunta atual (se relevante):",
         loreContext,
         "",
-        "Se algo não estiver nos trechos, deixe claro que é especulação ou criação nova (se estiver em modo Criativo).",
+        "Se a pergunta for sobre algo não listado aqui, use sua criatividade (se estiver em modo criativo) ou diga que não sabe (se estiver em modo consulta).",
       ].join("\n"),
     };
 
     // 4. Chamada ao Modelo (Streaming)
     const completion = await openai.chat.completions.create({
-      model: "gpt-4-turbo", // Recomendo o Turbo ou 4o para lidar melhor com instruções complexas
+      model: "gpt-4o-mini", // Usando modelo mais rápido e barato, troque para gpt-4-turbo se precisar de mais inteligência
       messages: [contextMessage, ...messages],
       temperature: 0.7,
-      stream: true, // Habilita streaming
+      stream: true,
     });
 
-    // Retorna o stream diretamente
+    // Retorna o stream
     const stream = new ReadableStream({
       async start(controller) {
         for await (const chunk of completion) {
@@ -119,7 +135,6 @@ export async function POST(req: NextRequest) {
     return new NextResponse(stream, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
-
   } catch (err: any) {
     console.error("Erro em /api/chat:", err);
     return NextResponse.json(
