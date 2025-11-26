@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, ChangeEvent } from "react";
+import { useEffect, useState, ChangeEvent, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
@@ -191,6 +191,7 @@ export default function LoreUploadPage() {
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isParsingFile, setIsParsingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -201,6 +202,8 @@ export default function LoreUploadPage() {
   const [newWorldDescription, setNewWorldDescription] = useState("");
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 1. CARREGAR UNIVERSOS (NOVO)
   useEffect(() => {
@@ -214,7 +217,7 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS (ADAPTADO PARA FILTRAR POR UNIVERSO)
+  // 2. CARREGAR MUNDOS
   useEffect(() => {
     if (!selectedUniverseId) return;
 
@@ -235,7 +238,6 @@ export default function LoreUploadPage() {
 
       if (list.length > 0) {
         setWorlds(list);
-        // Tenta manter o mundo selecionado se ainda existir na lista, senão pega o primeiro
         if (!list.find(w => w.id === selectedWorldId)) {
            setSelectedWorldId(list[0].id);
         }
@@ -246,7 +248,7 @@ export default function LoreUploadPage() {
     }
 
     fetchWorlds();
-  }, [selectedUniverseId]); // Recarrega quando muda o universo
+  }, [selectedUniverseId]);
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -257,7 +259,48 @@ export default function LoreUploadPage() {
     setSelectedWorldId(value);
   }
 
-  // MODIFICADO: Criar mundo agora vincula ao Universo selecionado
+  // UPLOAD DE ARQUIVO (PARSER)
+  async function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsParsingFile(true);
+    setError(null);
+    
+    // Auto-preencher nome do documento se vazio
+    if (!documentName) {
+      setDocumentName(file.name.replace(/\.[^/.]+$/, "")); // Remove extensão
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/parse", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Erro ao ler arquivo");
+      }
+
+      const data = await res.json();
+      if (data.text) {
+        setText(data.text);
+        setSuccessMessage("Arquivo lido com sucesso! O texto foi carregado abaixo.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Erro ao processar arquivo.");
+    } finally {
+      setIsParsingFile(false);
+      // Limpar input para permitir selecionar o mesmo arquivo se precisar
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   async function handleCreateWorldFromModal() {
     if (!newWorldName.trim()) {
       setError("Dê um nome ao novo Mundo.");
@@ -289,7 +332,7 @@ export default function LoreUploadPage() {
         descricao: newWorldDescription.trim() || null,
         has_episodes: newWorldHasEpisodes,
         tipo: "mundo_ficcional",
-        universe_id: selectedUniverseId // Vincula ao universo!
+        universe_id: selectedUniverseId
       };
 
       const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
@@ -341,7 +384,7 @@ export default function LoreUploadPage() {
       return;
     }
     if (!text.trim()) {
-      setError("Cole um texto para extrair fichas.");
+      setError("Cole um texto ou faça upload de um arquivo para extrair fichas.");
       return;
     }
 
@@ -562,16 +605,16 @@ export default function LoreUploadPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
           <header className="space-y-2">
-            <h1 className="text-2xl font-semibold">Upload de Texto</h1>
+            <h1 className="text-2xl font-semibold">Upload de Arquivo ou Texto</h1>
             <p className="text-sm text-zinc-400">
-              Envie o texto de um episódio ou documento. A Lore Machine extrai fichas e detecta relações automaticamente.
+              Envie um roteiro (PDF, DOCX, TXT) ou cole o texto. A Lore Machine extrairá fichas automaticamente.
             </p>
           </header>
 
           {error && <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div>}
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
-          {/* SEÇÃO DE SELEÇÃO ATUALIZADA COM UNIVERSO */}
+          {/* SEÇÃO DE SELEÇÃO */}
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
             <div className="space-y-1">
                <label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label>
@@ -601,9 +644,29 @@ export default function LoreUploadPage() {
             <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={documentName} onChange={(e) => setDocumentName(e.target.value)} placeholder="Ex.: Episódio 6 — A Geladeira" />
           </section>
 
+          {/* UPLOAD DE ARQUIVO */}
+          <section className="p-4 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 hover:bg-zinc-900/50 transition-colors">
+             <div className="flex flex-col items-center justify-center gap-2">
+                <label className="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded text-sm font-medium border border-zinc-600 transition-colors">
+                   <span>Escolher Arquivo (PDF, DOCX, TXT)</span>
+                   <input 
+                     ref={fileInputRef}
+                     type="file" 
+                     className="hidden" 
+                     accept=".pdf,.docx,.doc,.txt,.md" 
+                     onChange={handleFileSelect} 
+                     disabled={isParsingFile}
+                   />
+                </label>
+                <span className="text-xs text-zinc-500">
+                   {isParsingFile ? "Lendo arquivo..." : "Ou arraste um arquivo aqui"}
+                </span>
+             </div>
+          </section>
+
           <section className="space-y-1">
             <label className="text-xs uppercase tracking-wide text-zinc-400">Texto do episódio / capítulo</label>
-            <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="Cole aqui o texto a ser analisado..." />
+            <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="O texto do arquivo aparecerá aqui, ou você pode colar manualmente..." />
           </section>
 
           {/* BARRA DE PROGRESSO */}
@@ -614,7 +677,7 @@ export default function LoreUploadPage() {
           )}
 
           <div className="flex justify-center">
-            <button onClick={handleExtractFichas} disabled={isExtracting} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Extraindo fichas..." : "Extrair fichas"}</button>
+            <button onClick={handleExtractFichas} disabled={isExtracting || isParsingFile} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Extraindo fichas..." : "Extrair fichas"}</button>
           </div>
 
           <section className="space-y-3 pb-8">
@@ -703,7 +766,7 @@ export default function LoreUploadPage() {
               
               {/* CAMPOS ESPECÍFICOS DE EVENTO */}
               {editingFicha.tipo === 'evento' && (
-                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2">
+                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
                    
                    <div className="space-y-1">
