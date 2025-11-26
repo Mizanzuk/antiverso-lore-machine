@@ -52,6 +52,7 @@ type FichaFull = {
   data_inicio: string | null; data_fim: string | null; granularidade_data: string | null;
   camada_temporal: string | null; descricao_data: string | null;
   world_id: string; imagem_url?: string | null; codigo?: string | null; slug?: string | null;
+  episodio?: string | null; // ADICIONADO PARA FILTRO
   [key: string]: any;
 };
 
@@ -96,6 +97,7 @@ function LoreAdminContent() {
 
   // Filtros
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
+  const [selectedEpisodeFilter, setSelectedEpisodeFilter] = useState<string>(""); // NOVO FILTRO
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
   // Forms
@@ -173,19 +175,23 @@ function LoreAdminContent() {
     const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
     const list = (data as World[]) || [];
     setWorlds(list);
+
     const urlWorld = searchParams.get("world");
     const targetWorld = list.find(w => w.id === urlWorld);
+    
     if (targetWorld) {
       setSelectedWorldId(targetWorld.id);
     } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
       setSelectedWorldId(null);
     }
+    
     loadFichas(uniId, targetWorld ? targetWorld.id : selectedWorldId);
   }
 
   async function loadFichas(uniId: string, wId: string | null) {
     setError(null);
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
+    
     if (wId) {
       query = query.eq("world_id", wId);
     } else {
@@ -194,10 +200,13 @@ function LoreAdminContent() {
       if (ids.length > 0) query = query.in("world_id", ids);
       else query = query.eq("id", "0");
     }
+
     const { data, error } = await query;
     if (error) console.error(error);
+    
     const loadedFichas = (data as FichaFull[]) || [];
     setFichas(loadedFichas);
+
     const urlFicha = searchParams.get("ficha");
     if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
       setSelectedFichaId(urlFicha);
@@ -226,12 +235,14 @@ function LoreAdminContent() {
     setSelectedUniverseId(id);
     setSelectedWorldId(null);
     setSelectedFichaId(null);
+    setSelectedEpisodeFilter(""); // Reseta filtro
     updateUrl(id, null, null);
     loadWorlds(id);
   }
   function handleSelectWorld(id: string | null) {
     setSelectedWorldId(id);
     setSelectedFichaId(null);
+    setSelectedEpisodeFilter(""); // Reseta filtro
     updateUrl(selectedUniverseId, id, null);
     if (selectedUniverseId) loadFichas(selectedUniverseId, id);
   }
@@ -276,8 +287,6 @@ function LoreAdminContent() {
   };
 
   // --- FORMS & ACTIONS ---
-  
-  // UNIVERSO
   function startCreateUniverse() { setUniverseForm({ id: "", nome: "", descricao: "" }); setUniverseFormMode("create"); }
   function startEditUniverse(u: Universe) { setUniverseForm({ id: u.id, nome: u.nome, descricao: u.descricao || "" }); setUniverseFormMode("edit"); }
 
@@ -365,14 +374,55 @@ function LoreAdminContent() {
     const found = LORE_TYPES.find(t => t.value === typeValue);
     return found ? found.label : typeValue.charAt(0).toUpperCase() + typeValue.slice(1);
   }
+
+  // --- LÓGICA DE FILTROS DE LISTA ---
+  const availableEpisodes = useMemo(() => {
+     const eps = new Set<string>();
+     fichas.forEach(f => {
+       if (f.episodio) eps.add(f.episodio);
+       // Tenta extrair do código se não tiver no campo episódio
+       if (!f.episodio && f.codigo) {
+          const m = f.codigo.match(/[A-Z]+(\d+)-/);
+          if (m) eps.add(m[1]);
+       }
+     });
+     return Array.from(eps).sort((a,b) => parseInt(a)-parseInt(b));
+  }, [fichas]);
+
   const filteredFichas = fichas.filter(f => {
+    // Filtro de Tipo
     if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes(f.tipo)) return false;
-    if (fichasSearchTerm && !f.titulo.toLowerCase().includes(fichasSearchTerm.toLowerCase())) return false;
+
+    // Filtro de Episódio
+    if (selectedEpisodeFilter) {
+       if (f.episodio !== selectedEpisodeFilter) {
+          // Fallback: tenta verificar o código se o campo episodio estiver vazio
+          const codeEp = f.codigo?.match(/[A-Z]+(\d+)-/)?.[1];
+          if (codeEp !== selectedEpisodeFilter) return false;
+       }
+    }
+
+    // Busca Turbinada (Título, Código, Resumo, Tags)
+    if (fichasSearchTerm.trim().length > 0) {
+      const q = fichasSearchTerm.toLowerCase();
+      const inTitulo = (f.titulo || "").toLowerCase().includes(q);
+      const inResumo = (f.resumo || "").toLowerCase().includes(q);
+      const inCodigo = (f.codigo || "").toLowerCase().includes(q);
+      const inTags = (f.tags || "").toLowerCase().includes(q);
+      
+      if (!inTitulo && !inResumo && !inCodigo && !inTags) return false;
+    }
     return true;
   });
+
+  function toggleFilterTipo(tipo: string) {
+    const t = tipo.toLowerCase();
+    setFichaFilterTipos((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
+
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
-  const rootWorld = worlds.find(w => w.is_root);
+  const selectedWorldData = worlds.find(w => w.id === selectedWorldId);
 
   // --- MENTIONS ---
   function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>, field: "conteudo" | "resumo") {
@@ -407,28 +457,18 @@ function LoreAdminContent() {
   function startCreateCode() { setCodeFormMode("create"); setCodeForm({ id:"", code:"", label:"", description:"", episode:"" }); }
   function startEditCode(c:any) { setCodeFormMode("edit"); setCodeForm(c); }
   function cancelCodeForm() { setCodeFormMode("idle"); setCodeForm({}); }
-  
   async function handleSaveCode(e:React.FormEvent) {
     e.preventDefault();
     if(codeFormMode==='create') await supabaseBrowser.from("codes").insert({...codeForm, ficha_id: selectedFichaId});
     else await supabaseBrowser.from("codes").update(codeForm).eq("id", codeForm.id);
     setCodeFormMode("idle"); loadDetails(selectedFichaId!);
   }
-  
-  async function handleDeleteCode(id: string) { // Função correta
-    await supabaseBrowser.from("codes").delete().eq("id", id); 
-    loadDetails(selectedFichaId!); 
-  }
-  
+  async function handleDeleteCode(id: string) { await supabaseBrowser.from("codes").delete().eq("id", id); loadDetails(selectedFichaId!); }
   async function handleAddRelation() {
     await supabaseBrowser.from("lore_relations").insert({source_ficha_id:selectedFichaId, target_ficha_id:newRelationTarget, tipo_relacao:newRelationType});
     loadDetails(selectedFichaId!); setIsManagingRelations(false);
   }
-  
-  async function handleDeleteRelation(id: string) { // Função correta
-    await supabaseBrowser.from("lore_relations").delete().eq("id", id); 
-    loadDetails(selectedFichaId!); 
-  }
+  async function handleDeleteRelation(id: string) { await supabaseBrowser.from("lore_relations").delete().eq("id", id); loadDetails(selectedFichaId!); }
 
   // RECONCILIATION
   async function openReconcile() { setShowReconcile(true); setReconcileLoading(true); const r = await fetch("/api/lore/reconcile"); const j = await r.json(); setReconcilePairs(j.duplicates||[]); setReconcileLoading(false); }
@@ -521,8 +561,25 @@ function LoreAdminContent() {
         {!isFocusMode && (
           <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-900/20">
             <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorldId ? worlds.find(w=>w.id===selectedWorldId)?.nome : "Todas as Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
-            <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-3 text-white focus:border-emerald-500 outline-none" placeholder="Buscar..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
             
+            {/* BUSCA */}
+            <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-2 text-white focus:border-emerald-500 outline-none" placeholder="Buscar por título, código, resumo..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
+            
+            {/* FILTRO POR EPISÓDIO (Se houver) */}
+            {selectedWorldData?.has_episodes && availableEpisodes.length > 0 && (
+               <div className="mb-2">
+                 <select 
+                   className="w-full bg-black border border-zinc-800 rounded text-[10px] p-1 text-zinc-300"
+                   value={selectedEpisodeFilter}
+                   onChange={(e) => setSelectedEpisodeFilter(e.target.value)}
+                 >
+                    <option value="">Todos os Episódios</option>
+                    {availableEpisodes.map(ep => <option key={ep} value={ep}>Episódio {ep}</option>)}
+                 </select>
+               </div>
+            )}
+
+            {/* FILTROS POR TIPO */}
             {fichaFilterTipos.length > 0 && <div className="text-[9px] text-emerald-500 mb-1 font-bold">Filtrando por: {fichaFilterTipos.map(getTypeLabel).join(", ")}</div>}
             <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto scrollbar-thin">
               <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 text-[9px] rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}>TODOS</button>
