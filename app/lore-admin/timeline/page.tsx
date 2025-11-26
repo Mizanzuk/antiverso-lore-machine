@@ -5,12 +5,18 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { clsx } from "clsx";
 
 // --- TIPOS ---
+type Universe = {
+  id: string;
+  nome: string;
+};
+
 type World = {
   id: string;
   nome: string | null;
   descricao?: string | null;
   ordem?: number | null;
   has_episodes?: boolean | null;
+  universe_id?: string | null;
 };
 
 type TimelineEvent = {
@@ -18,7 +24,7 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
-  conteudo: string | null;
+  conteudo: string | null; // Mantido a correção anterior
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -81,7 +87,7 @@ function formatDescricaoData(event: TimelineEvent) {
   if (event.data_inicio) {
     try {
       const date = new Date(event.data_inicio);
-      // Ajuste de fuso horário simples para visualização (evita dia anterior)
+      // Ajuste de fuso horário simples para visualização
       const userTimezoneOffset = date.getTimezoneOffset() * 60000;
       const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
 
@@ -95,124 +101,181 @@ function formatDescricaoData(event: TimelineEvent) {
 }
 
 export default function TimelinePage() {
-  // Estados de Dados
+  // --- ESTADOS DE DADOS ---
+  const [universes, setUniverses] = useState<Universe[]>([]);
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
+  
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
+  
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null);
   
-  // Estados de UI/Filtros
+  // --- ESTADOS DE UI/FILTROS ---
   const [selectedCamada, setSelectedCamada] = useState<string>("");
-  const [isLoadingWorlds, setIsLoadingWorlds] = useState(false);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   
-  // Estado de expansão dos grupos
+  // Estado de expansão dos grupos (chave: label do grupo)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  // Estados de Edição
+  // --- ESTADOS DE EDIÇÃO/CRIAÇÃO ---
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<Partial<TimelineEvent>>({});
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // Estados de Criação de Evento
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createData, setCreateData] = useState<Partial<TimelineEvent>>({});
   const [isSavingCreate, setIsSavingCreate] = useState(false);
 
-  // Estados de Criação de Mundo (NOVO)
+  // Estados de Criação de Mundo (Reaproveitado se necessário, mantendo compatibilidade)
   const [showNewWorldModal, setShowNewWorldModal] = useState(false);
   const [newWorldName, setNewWorldName] = useState("");
   const [newWorldDescription, setNewWorldDescription] = useState("");
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
-  // Contador para forçar recarregamento
   const [reloadCounter, setReloadCounter] = useState(0);
 
-  // Memoized helpers
-  const antiVersoWorld = useMemo(
-    () => worlds.find((w) => w.nome && w.nome.toLowerCase().trim() === "antiverso") || null,
-    [worlds]
-  );
-
-  const currentWorld = useMemo(
-    () => worlds.find((w) => w.id === selectedWorldId) || null,
-    [worlds, selectedWorldId]
-  );
-
-  const isAntiVersoSelected = useMemo(
-    () => !!currentWorld && currentWorld === antiVersoWorld,
-    [currentWorld, antiVersoWorld]
-  );
-
-  // 1. Carrega mundos
+  // 1. CARREGAR UNIVERSOS
   useEffect(() => {
+    async function fetchUniverses() {
+      try {
+        const { data, error } = await supabaseBrowser
+          .from("universes")
+          .select("id, nome")
+          .order("nome", { ascending: true });
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setUniverses(data);
+          // Seleciona o primeiro universo por padrão se nenhum estiver selecionado
+          if (!selectedUniverseId) {
+             // Tenta achar o AntiVerso
+             const antiverso = data.find(u => u.nome.toLowerCase() === 'antiverso');
+             setSelectedUniverseId(antiverso ? antiverso.id : data[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao carregar universos:", err);
+      }
+    }
+    fetchUniverses();
+  }, []); // Executa apenas no mount
+
+  // 2. CARREGAR MUNDOS (Depende do Universo Selecionado)
+  useEffect(() => {
+    if (!selectedUniverseId) return;
+
     async function fetchWorlds() {
-      setIsLoadingWorlds(true);
+      setIsLoadingData(true);
       try {
         const { data, error } = await supabaseBrowser
           .from("worlds")
           .select("id, nome, descricao, ordem, has_episodes")
+          .eq("universe_id", selectedUniverseId)
           .order("ordem", { ascending: true });
 
         if (error) throw error;
 
         const list = (data || []) as World[];
-        // Ordenação: AntiVerso primeiro
+        // Ordenação para garantir que "Mundos Raiz" fiquem no topo se tiver
         list.sort((a, b) => {
-          const aIsAnti = a.nome?.toLowerCase().trim() === "antiverso";
-          const bIsAnti = b.nome?.toLowerCase().trim() === "antiverso";
-          if (aIsAnti && !bIsAnti) return -1;
-          if (!aIsAnti && bIsAnti) return 1;
-          return (a.ordem ?? 0) - (b.ordem ?? 0);
+           // Lógica simples de ordenação
+           return (a.ordem ?? 0) - (b.ordem ?? 0);
         });
 
         setWorlds(list);
-        if (list.length > 0) {
-          const anti = list.find(w => w.nome?.toLowerCase().trim() === "antiverso");
-          setSelectedWorldId(anti ? anti.id : list[0].id);
-        }
+        // Resetar o mundo selecionado para null (para ver "Todos do Universo") ou manter se ainda existir
+        setSelectedWorldId(null);
       } catch (err) {
         console.error(err);
         setError("Erro ao carregar mundos.");
       } finally {
-        setIsLoadingWorlds(false);
+        setIsLoadingData(false);
       }
     }
     fetchWorlds();
-  }, []);
+  }, [selectedUniverseId]);
 
-  // 2. Carrega eventos
+  // 3. CARREGAR EVENTOS (Depende do Universo e Mundo)
   useEffect(() => {
+    if (!selectedUniverseId) return;
+
     async function fetchEvents() {
-      if (!selectedWorldId && !isAntiVersoSelected) return;
-      setIsLoadingEvents(true);
+      setIsLoadingData(true);
       setError(null);
       try {
-        const params = new URLSearchParams();
-        if (!isAntiVersoSelected && selectedWorldId) params.set("worldId", selectedWorldId);
-        if (selectedCamada) params.set("camada_temporal", selectedCamada);
+        let query = supabaseBrowser
+          .from("fichas")
+          .select("id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at")
+          .eq("tipo", "evento")
+          .order("data_inicio", { ascending: true, nullsFirst: true })
+          .order("created_at", { ascending: true });
 
-        const res = await fetch(`/api/lore/timeline?${params.toString()}`);
-        const json = await res.json();
-        if (!res.ok || !json.success) throw new Error(json.error || "Erro ao carregar timeline");
+        if (selectedWorldId) {
+          // Se tem mundo específico selecionado
+          query = query.eq("world_id", selectedWorldId);
+        } else {
+          // Se não tem mundo selecionado, pega TODOS do universo
+          // Primeiro precisamos dos IDs dos mundos deste universo
+          const { data: wData } = await supabaseBrowser
+            .from("worlds")
+            .select("id")
+            .eq("universe_id", selectedUniverseId);
+            
+          const worldIds = wData?.map(w => w.id) || [];
+          
+          if (worldIds.length > 0) {
+            query = query.in("world_id", worldIds);
+          } else {
+            // Universo sem mundos? Retorna vazio
+            setEvents([]);
+            setIsLoadingData(false);
+            return;
+          }
+        }
 
-        setEvents(json.events || []);
-        
+        if (selectedCamada) {
+          query = query.eq("camada_temporal", selectedCamada);
+        }
+
+        const { data, error } = await query;
+
+        if (error) throw error;
+
+        const mappedEvents: TimelineEvent[] = (data || []).map((row: any) => ({
+          ficha_id: row.id,
+          world_id: row.world_id,
+          titulo: row.titulo,
+          resumo: row.resumo,
+          conteudo: row.conteudo,
+          tipo: row.tipo,
+          episodio: row.episodio,
+          camada_temporal: row.camada_temporal,
+          descricao_data: row.descricao_data,
+          data_inicio: row.data_inicio,
+          data_fim: row.data_fim,
+          granularidade_data: row.granularidade_data,
+          aparece_em: row.aparece_em,
+          created_at: row.created_at,
+        }));
+
+        setEvents(mappedEvents);
         setExpandedGroups(new Set()); 
       } catch (err: any) {
         console.error(err);
         setError(err.message);
       } finally {
-        setIsLoadingEvents(false);
+        setIsLoadingData(false);
       }
     }
     fetchEvents();
-  }, [selectedWorldId, selectedCamada, isAntiVersoSelected, reloadCounter]);
+  }, [selectedUniverseId, selectedWorldId, selectedCamada, reloadCounter]);
 
-  // 3. Lógica de Agrupamento
+  // 4. LÓGICA DE AGRUPAMENTO (Mantida Intacta)
   const groupedData = useMemo(() => {
     if (viewMode === "flat") return null;
 
@@ -273,7 +336,7 @@ export default function TimelinePage() {
     return groups;
   }, [events, viewMode, expandedGroups]);
 
-  // Handlers
+  // Handlers UI
   function toggleGroup(id: string) {
     const newSet = new Set(expandedGroups);
     if (newSet.has(id)) newSet.delete(id);
@@ -295,13 +358,16 @@ export default function TimelinePage() {
     setExpandedGroups(new Set());
   }
 
-  // CRUD Handlers
+  // --- CRUD HANDLERS ---
   async function handleDeleteEvent(event: TimelineEvent) {
     if (!confirm(`Apagar evento "${event.titulo}"?`)) return;
     try {
+      // Chama direto o Supabase ou via API. Como a API existe, usamos ela para consistência.
       const res = await fetch(`/api/lore/timeline?ficha_id=${event.ficha_id}`, { method: "DELETE" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      if (!res.ok) {
+         const json = await res.json();
+         throw new Error(json.error);
+      }
       setEvents(prev => prev.filter(e => e.ficha_id !== event.ficha_id));
       setSelectedEvent(null);
     } catch (e: any) { alert(e.message); }
@@ -342,7 +408,7 @@ export default function TimelinePage() {
     } catch (e: any) { alert(e.message); } finally { setIsSavingCreate(false); }
   }
 
-  // --- HANDLERS DE CRIAÇÃO DE MUNDO ---
+  // --- HANDLERS NOVO MUNDO ---
   function handleWorldChangeInCreate(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
     if (value === "create_new") {
@@ -375,13 +441,7 @@ export default function TimelinePage() {
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "");
 
-      const existingIds = new Set(worlds.map((w) => w.id as string));
-      let newId = baseId || "mundo_novo";
-      let suffix = 2;
-      while (existingIds.has(newId)) {
-        newId = `${baseId || "mundo_novo"}_${suffix}`;
-        suffix++;
-      }
+      const newId = `${baseId}_${Date.now().toString().slice(-4)}`;
 
       const payload: any = {
         id: newId,
@@ -389,6 +449,7 @@ export default function TimelinePage() {
         descricao: newWorldDescription.trim() || null,
         has_episodes: newWorldHasEpisodes,
         tipo: "mundo_ficcional",
+        universe_id: selectedUniverseId // Vincula ao universo atual
       };
 
       const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
@@ -398,7 +459,6 @@ export default function TimelinePage() {
       const inserted = (data?.[0] || null) as World | null;
       if (inserted) {
         setWorlds((prev) => [...prev, inserted]);
-        // Seleciona o novo mundo no form de criação de evento
         setCreateData(prev => ({ ...prev, world_id: inserted.id }));
         setShowNewWorldModal(false);
         setNewWorldName("");
@@ -412,6 +472,9 @@ export default function TimelinePage() {
       setIsCreatingWorld(false);
     }
   }
+
+  // Helper para o nome do universo atual
+  const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Carregando...";
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-50 flex-col">
@@ -428,22 +491,52 @@ export default function TimelinePage() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* SIDEBAR MUNDOS */}
+        {/* SIDEBAR: UNIVERSO & MUNDOS */}
         <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto bg-zinc-950/50">
-          <h1 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-4">Mundos</h1>
-          {isLoadingWorlds && <p className="text-xs text-zinc-600">Carregando...</p>}
+          
+          {/* SEÇÃO UNIVERSO */}
+          <div className="mb-6">
+             <label className="text-[9px] uppercase text-zinc-500 font-bold mb-1 block">Universo</label>
+             <select 
+                className="w-full bg-black border border-zinc-800 rounded text-xs p-2 text-white outline-none focus:border-emerald-500" 
+                value={selectedUniverseId || ""} 
+                onChange={e => setSelectedUniverseId(e.target.value)}
+             >
+               {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+             </select>
+          </div>
+
+          <h1 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2 flex justify-between items-center">
+            Mundos
+          </h1>
+          
           <div className="space-y-1">
+            {/* Botão "Todos do Universo" */}
+            <button
+                onClick={() => { setSelectedWorldId(null); setSelectedEvent(null); }}
+                className={clsx(
+                  "w-full text-left rounded px-3 py-2 text-xs transition-colors flex items-center gap-2 mb-2",
+                  !selectedWorldId ? "bg-zinc-800 text-white border-l-2 border-emerald-500 font-bold" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 border-l-2 border-transparent"
+                )}
+              >
+                <span>🪐</span>
+                <span>{currentUniverseName} (Completo)</span>
+            </button>
+
+            <div className="h-px bg-zinc-800 my-2"></div>
+
+            {/* Lista de Mundos */}
             {worlds.map((w) => (
               <button
                 key={w.id}
                 onClick={() => { setSelectedWorldId(w.id); setSelectedEvent(null); }}
                 className={clsx(
                   "w-full text-left rounded px-3 py-2 text-xs transition-colors flex items-center justify-between",
-                  selectedWorldId === w.id ? "bg-zinc-800 text-emerald-400 border-l-2 border-emerald-500" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                  selectedWorldId === w.id ? "bg-zinc-800 text-emerald-400 border-l-2 border-emerald-500" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 border-l-2 border-transparent"
                 )}
               >
                 <span className="truncate">{w.nome}</span>
-                {w.has_episodes && <span className="text-[9px] opacity-50">Série</span>}
+                {w.has_episodes && <span className="text-[9px] opacity-30">Episódios</span>}
               </button>
             ))}
           </div>
@@ -451,10 +544,12 @@ export default function TimelinePage() {
 
         {/* ÁREA PRINCIPAL (TIMELINE) */}
         <main className="flex-1 border-r border-zinc-800 p-0 flex flex-col bg-black relative">
-          {/* Barra de Ferramentas da Timeline */}
+          {/* Barra de Ferramentas */}
           <div className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900/30 backdrop-blur-sm z-10">
              <div className="flex items-center gap-3">
-                <h2 className="text-sm font-bold text-white">{currentWorld?.nome ?? "..."}</h2>
+                <h2 className="text-sm font-bold text-white">
+                    {selectedWorldId ? worlds.find(w => w.id === selectedWorldId)?.nome : `Timeline Universal: ${currentUniverseName}`}
+                </h2>
                 <div className="h-4 w-px bg-zinc-700 mx-2"></div>
                 <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-700">
                   <button onClick={() => setViewMode("grouped")} className={clsx("px-3 py-1 text-[10px] rounded uppercase font-medium transition-colors", viewMode === "grouped" ? "bg-zinc-700 text-white shadow-sm" : "text-zinc-400 hover:text-white")}>Agrupado</button>
@@ -473,7 +568,8 @@ export default function TimelinePage() {
                   {CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 <button onClick={() => {
-                  const defWorld = selectedWorldId || antiVersoWorld?.id || "";
+                  // Ao criar, pré-seleciona o mundo atual ou o primeiro da lista
+                  const defWorld = selectedWorldId || (worlds.length > 0 ? worlds[0].id : "");
                   setCreateData({ world_id: defWorld, titulo: "", resumo: "", episodio: "", camada_temporal: "", descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "" });
                   setIsCreateOpen(true);
                 }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded shadow-lg shadow-emerald-900/20">+ Evento</button>
@@ -481,12 +577,12 @@ export default function TimelinePage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-8 scrollbar-thin relative">
-             {/* LINHA VERTICAL CENTRAL (Estilo Árvore) */}
+             {/* Linha central decorativa */}
              <div className="absolute left-[48px] top-0 bottom-0 w-px bg-zinc-800 pointer-events-none z-0"></div>
 
-             {isLoadingEvents && <div className="text-center text-xs text-zinc-500 mt-10">Carregando linha do tempo...</div>}
+             {isLoadingData && <div className="text-center text-xs text-zinc-500 mt-10">Carregando linha do tempo...</div>}
              
-             {!isLoadingEvents && events.length === 0 && (
+             {!isLoadingData && events.length === 0 && (
                <div className="text-center text-zinc-500 mt-10 flex flex-col items-center">
                  <span className="text-2xl mb-2">⏳</span>
                  <p className="text-sm">Nenhum evento encontrado.</p>
@@ -494,7 +590,7 @@ export default function TimelinePage() {
                </div>
              )}
 
-             {/* RENDERIZAÇÃO AGRUPADA */}
+             {/* MODO AGRUPADO */}
              {viewMode === "grouped" && groupedData && (
                <div className="space-y-6 relative z-10">
                  {groupedData.map((group) => (
@@ -516,12 +612,10 @@ export default function TimelinePage() {
                       {group.isOpen && (
                          <div className="ml-16 border-l border-zinc-800 pl-6 space-y-4 pt-2 pb-4">
                             {group.type === 'unknown' ? (
-                              // Lista direta para eventos sem data
                               <div className="space-y-3">
                                 {group.events?.map(ev => <EventCard key={ev.ficha_id} event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />)}
                               </div>
                             ) : (
-                              // Lista de Anos
                               group.children?.map(yearGroup => (
                                 <div key={yearGroup.label}>
                                    <button 
@@ -531,7 +625,6 @@ export default function TimelinePage() {
                                       <span className={clsx("transition-transform", yearGroup.isOpen ? "rotate-90" : "")}>▶</span>
                                       {yearGroup.label} <span className="opacity-40 font-normal">({yearGroup.count})</span>
                                    </button>
-                                   
                                    {yearGroup.isOpen && (
                                      <div className="space-y-3 pl-2 border-l border-zinc-800/50 ml-1">
                                         {yearGroup.events?.map(ev => (
@@ -549,19 +642,17 @@ export default function TimelinePage() {
                </div>
              )}
 
-             {/* RENDERIZAÇÃO LISTA PLANA (FLAT) */}
+             {/* MODO PLANO (FLAT) */}
              {viewMode === "flat" && (
                <div className="space-y-4 pl-12 relative z-10">
                  {events.map(ev => (
                    <div key={ev.ficha_id} className="relative">
-                     {/* Bolinha na linha do tempo */}
                      <div className="absolute -left-[37px] top-4 w-2.5 h-2.5 rounded-full border-2 border-zinc-950 bg-zinc-600 z-20"></div>
                      <EventCard event={ev} selectedEvent={selectedEvent} onSelect={setSelectedEvent} onDelete={handleDeleteEvent} onEdit={(e) => { setEditData({...e}); setIsEditOpen(true); }} />
                    </div>
                  ))}
                </div>
              )}
-
           </div>
         </main>
 
@@ -618,7 +709,7 @@ export default function TimelinePage() {
 
       {/* --- MODAIS --- */}
       
-      {/* EDITAR EVENTO */}
+      {/* EDITAR */}
       {isEditOpen && editData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
@@ -643,7 +734,7 @@ export default function TimelinePage() {
         </div>
       )}
 
-      {/* CRIAR EVENTO */}
+      {/* CRIAR */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
            <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
@@ -692,7 +783,7 @@ export default function TimelinePage() {
   );
 }
 
-// Componente Auxiliar para Renderizar o Card
+// Componente Auxiliar para Renderizar o Card (Igual ao Original)
 function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: { event: TimelineEvent, selectedEvent: TimelineEvent | null, onSelect: (e: TimelineEvent) => void, onDelete: (e: TimelineEvent) => void, onEdit: (e: TimelineEvent) => void }) {
   const isSelected = selectedEvent?.ficha_id === event.ficha_id;
   return (
