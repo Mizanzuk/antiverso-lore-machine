@@ -11,15 +11,19 @@ type IncomingFicha = {
   tags?: string[];
   aparece_em?: string;
   codigo?: string;
-
-  // Campos temporais (principalmente para fichas do tipo "evento")
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
   generalidade_data?: string | null;
   camada_temporal?: string | null;
-
-  // ano_diegese?: number | null; // legado, mantido apenas para compatibilidade futura
+  meta?: {
+    relacoes?: {
+      tipo: string;
+      alvo_titulo?: string;
+      alvo_id?: string;
+    }[];
+    [key: string]: any;
+  };
 };
 
 type WorldRow = {
@@ -124,7 +128,6 @@ async function generateAutomaticCode(opts: {
   let appendSequence = true;
 
   if (normalizedTipo === "roteiro") {
-    // Código especial para roteiros: {PREFIXO}{EP}-Roteiro (sem sufixo numérico)
     basePrefix = `${worldPrefix}${episode}-Roteiro`;
     appendSequence = false;
   } else {
@@ -136,10 +139,6 @@ async function generateAutomaticCode(opts: {
     .from("codes")
     .select("code")
     .ilike("code", `${basePrefix}%`);
-
-  if (error) {
-    console.error("Erro ao buscar códigos existentes:", error);
-  }
 
   let nextNumber = 1;
 
@@ -158,26 +157,14 @@ async function generateAutomaticCode(opts: {
 
   const finalCode = appendSequence ? `${basePrefix}${nextNumber}` : basePrefix;
 
-  const { error: insertCodeError } = await supabaseAdmin!.from("codes").insert({
+  await supabaseAdmin!.from("codes").insert({
     ficha_id: fichaId,
     code: finalCode,
     label: "",
     description: "",
   });
 
-  if (insertCodeError) {
-    console.error("Erro ao inserir código automático em 'codes':", insertCodeError);
-    return null;
-  }
-
-  const { error: updateFichaError } = await supabaseAdmin!
-    .from("fichas")
-    .update({ codigo: finalCode })
-    .eq("id", fichaId);
-
-  if (updateFichaError) {
-    console.error("Erro ao atualizar 'codigo' na tabela 'fichas':", updateFichaError);
-  }
+  await supabaseAdmin!.from("fichas").update({ codigo: finalCode }).eq("id", fichaId);
 
   return finalCode;
 }
@@ -190,34 +177,46 @@ async function applyCodeForFicha(opts: {
   manualCode?: string | null;
 }): Promise<string | null> {
   const { fichaId, world, tipo, unitNumber, manualCode } = opts;
-
   const trimmed = (manualCode ?? "").trim();
 
   if (trimmed.length > 0) {
-    const { error: insertManualError } = await supabaseAdmin!.from("codes").insert({
+    await supabaseAdmin!.from("codes").insert({
       ficha_id: fichaId,
       code: trimmed,
       label: "",
       description: "",
     });
-
-    if (insertManualError) {
-      console.error("Erro ao inserir código manual em 'codes':", insertManualError);
-    }
-
-    const { error: updateFichaError } = await supabaseAdmin!
-      .from("fichas")
-      .update({ codigo: trimmed })
-      .eq("id", fichaId);
-
-    if (updateFichaError) {
-      console.error("Erro ao atualizar 'codigo' da ficha (manual):", updateFichaError);
-    }
-
+    await supabaseAdmin!.from("fichas").update({ codigo: trimmed }).eq("id", fichaId);
     return trimmed;
   }
 
   return generateAutomaticCode({ fichaId, world, tipo, unitNumber });
+}
+
+// Função NOVA para processar as relações vindas do META
+async function saveRelations(sourceFichaId: string, relacoes: any[]) {
+  if (!relacoes || relacoes.length === 0) return;
+
+  for (const rel of relacoes) {
+    const alvoTitulo = rel.alvo_titulo;
+    if (!alvoTitulo) continue;
+
+    // Tenta achar a ficha alvo pelo título (match aproximado)
+    const { data: targetFicha } = await supabaseAdmin!
+      .from("fichas")
+      .select("id")
+      .ilike("titulo", alvoTitulo)
+      .maybeSingle();
+
+    if (targetFicha) {
+      await supabaseAdmin!.from("lore_relations").insert({
+        source_ficha_id: sourceFichaId,
+        target_ficha_id: targetFicha.id,
+        tipo_relacao: rel.tipo || "relacionado_a",
+        descricao: `Gerado automaticamente via extração.`,
+      });
+    }
+  }
 }
 
 // --- Handler principal ---
@@ -232,74 +231,38 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-
     const worldId = String(body.worldId || "").trim();
     const unitNumber = String(body.unitNumber || "").trim();
     const fichas = (body.fichas || []) as IncomingFicha[];
 
     if (!worldId || !unitNumber || !Array.isArray(fichas) || fichas.length === 0) {
       return NextResponse.json(
-        { error: "Parâmetros inválidos. Verifique worldId, unitNumber e fichas." },
+        { error: "Parâmetros inválidos." },
         { status: 400 },
       );
     }
 
-    const { data: worldRow, error: worldError } = await supabaseAdmin!
+    const { data: worldRow } = await supabaseAdmin!
       .from("worlds")
-      .select("id, nome, descricao, tipo, has_episodes")
+      .select("*")
       .eq("id", worldId)
       .single();
 
-    if (worldError || !worldRow) {
-      console.error("Erro ao buscar mundo:", worldError);
-      return NextResponse.json(
-        { error: "Mundo não encontrado para o worldId informado." },
-        { status: 400 },
-      );
+    if (!worldRow) {
+      return NextResponse.json({ error: "Mundo não encontrado." }, { status: 400 });
     }
 
     const world = worldRow as WorldRow;
-    const saved: { fichaId: string; titulo: string; codigo?: string | null }[] = [];
+    const saved: any[] = [];
 
     for (const ficha of fichas) {
       const titulo = (ficha.titulo || "").trim();
       if (!titulo) continue;
 
-      const tipoNormalizado = (ficha.tipo || "conceito")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim();
-
+      const tipoNormalizado = (ficha.tipo || "conceito").toLowerCase().trim();
       const slug = slugify(titulo);
       const tagsStr = (ficha.tags || []).join(", ");
-
-      // Campos temporais: por doutrina, só fazem sentido para fichas do tipo "evento".
       const isEvento = tipoNormalizado === "evento";
-
-      const descricao_data =
-        isEvento && typeof ficha.descricao_data === "string"
-          ? ficha.descricao_data
-          : null;
-      const data_inicio =
-        isEvento && typeof ficha.data_inicio === "string"
-          ? ficha.data_inicio
-          : null;
-      const data_fim =
-        isEvento && typeof ficha.data_fim === "string"
-          ? ficha.data_fim
-          : null;
-
-      // No payload, o campo já vem como "granularidade_data"; só faz sentido para eventos.
-      const granularidade_data =
-        isEvento && typeof (ficha as any).granularidade_data === "string"
-          ? (ficha as any).granularidade_data
-          : null;
-
-      const camada_temporal =
-        isEvento && typeof ficha.camada_temporal === "string"
-          ? ficha.camada_temporal
-          : null;
 
       const { data: inserted, error: insertError } = await supabaseAdmin!
         .from("fichas")
@@ -311,34 +274,13 @@ export async function POST(req: NextRequest) {
           resumo: ficha.resumo ?? "",
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
-          // Campos temporais (apenas fichas de tipo "evento" terão valores; demais ficam null)
-          descricao_data,
-          data_inicio,
-          data_fim,
-          granularidade_data,
-          camada_temporal,
-          // "aparece_em" agora é preenchido automaticamente a partir de Mundo + Episódio
-          aparece_em: (() => {
-            const episode = normalizeEpisode(unitNumber);
-            const worldName = (world.nome || "").trim();
-            const hasEpisodes =
-              typeof world.has_episodes === "boolean"
-                ? world.has_episodes
-                : true;
-
-            if (!worldName && !episode) return null;
-
-            if (!hasEpisodes || !episode || episode === "0") {
-              return worldName ? `Mundo: ${worldName}` : null;
-            }
-
-            return worldName
-              ? `Mundo: ${worldName}\nEpisódio: ${episode}`
-              : `Episódio: ${episode}`;
-          })(),
+          descricao_data: isEvento ? ficha.descricao_data : null,
+          data_inicio: isEvento ? ficha.data_inicio : null,
+          data_fim: isEvento ? ficha.data_fim : null,
+          granularidade_data: isEvento ? (ficha as any).granularidade_data : null,
+          camada_temporal: isEvento ? ficha.camada_temporal : null,
+          aparece_em: ficha.aparece_em,
           episodio: normalizeEpisode(unitNumber),
-          // codigo será preenchido depois
-          codigo: null,
         })
         .select("id")
         .single();
@@ -350,6 +292,7 @@ export async function POST(req: NextRequest) {
 
       const fichaId = (inserted as any).id as string;
 
+      // Gera código
       const finalCode = await applyCodeForFicha({
         fichaId,
         world,
@@ -358,19 +301,17 @@ export async function POST(req: NextRequest) {
         manualCode: ficha.codigo,
       });
 
+      // SALVA AS RELAÇÕES (WIKI)
+      if (ficha.meta && ficha.meta.relacoes) {
+        await saveRelations(fichaId, ficha.meta.relacoes);
+      }
+
       saved.push({ fichaId, titulo, codigo: finalCode });
     }
 
-    return NextResponse.json({
-      ok: true,
-      savedCount: saved.length,
-      saved,
-    });
+    return NextResponse.json({ ok: true, savedCount: saved.length, saved });
   } catch (err) {
     console.error("Erro em /api/lore/save:", err);
-    return NextResponse.json(
-      { error: "Erro inesperado ao salvar fichas." },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Erro inesperado." }, { status: 500 });
   }
 }
