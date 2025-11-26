@@ -21,6 +21,16 @@ const LORE_TYPES = [
   { value: "registro_anomalo", label: "Registro Anômalo" },
 ];
 
+const CAMADAS_TEMPORAIS = [
+  { value: "linha_principal", label: "Linha Principal" },
+  { value: "flashback", label: "Flashback" },
+  { value: "flashforward", label: "Flashforward" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
+  { value: "historico_antigo", label: "Histórico / Antigo" },
+  { value: "outro", label: "Outro" },
+];
+
 const RELATION_TYPES = [
   "relacionado_a", "amigo_de", "inimigo_de", "localizado_em", "mora_em",
   "nasceu_em", "participou_de", "protagonizado_por", "menciona", "pai_de",
@@ -150,7 +160,6 @@ function LoreAdminContent() {
     if (data) {
       setUniverses(data);
       const urlUni = searchParams.get("universe");
-      // Prioriza URL, senão pega o primeiro
       if (urlUni && data.find(u => u.id === urlUni)) {
         handleSelectUniverse(urlUni);
       } else if (data.length > 0 && !selectedUniverseId) {
@@ -164,26 +173,19 @@ function LoreAdminContent() {
     const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
     const list = (data as World[]) || [];
     setWorlds(list);
-
-    // Lógica de Seleção de Mundo no Refresh
     const urlWorld = searchParams.get("world");
     const targetWorld = list.find(w => w.id === urlWorld);
-    
     if (targetWorld) {
       setSelectedWorldId(targetWorld.id);
     } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
-      // Se o mundo selecionado não pertence a esse universo, reseta
       setSelectedWorldId(null);
     }
-    
-    // Carrega fichas (do mundo selecionado ou de todos)
     loadFichas(uniId, targetWorld ? targetWorld.id : selectedWorldId);
   }
 
   async function loadFichas(uniId: string, wId: string | null) {
     setError(null);
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
-    
     if (wId) {
       query = query.eq("world_id", wId);
     } else {
@@ -192,15 +194,10 @@ function LoreAdminContent() {
       if (ids.length > 0) query = query.in("world_id", ids);
       else query = query.eq("id", "0");
     }
-
     const { data, error } = await query;
     if (error) console.error(error);
-    
     const loadedFichas = (data as FichaFull[]) || [];
     setFichas(loadedFichas);
-
-    // *** CORREÇÃO DO REFRESH AQUI ***
-    // Verifica se há ficha na URL e carrega os detalhes dela
     const urlFicha = searchParams.get("ficha");
     if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
       setSelectedFichaId(urlFicha);
@@ -317,7 +314,6 @@ function LoreAdminContent() {
     e.preventDefault();
     const payload = { ...worldForm, universe_id: selectedUniverseId };
     const safeName = payload.nome || "novo_mundo";
-
     if (worldFormMode === 'create') {
        const slugId = safeName.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
        await supabaseBrowser.from("worlds").insert([{ ...payload, id: slugId }]);
@@ -411,18 +407,28 @@ function LoreAdminContent() {
   function startCreateCode() { setCodeFormMode("create"); setCodeForm({ id:"", code:"", label:"", description:"", episode:"" }); }
   function startEditCode(c:any) { setCodeFormMode("edit"); setCodeForm(c); }
   function cancelCodeForm() { setCodeFormMode("idle"); setCodeForm({}); }
+  
   async function handleSaveCode(e:React.FormEvent) {
     e.preventDefault();
     if(codeFormMode==='create') await supabaseBrowser.from("codes").insert({...codeForm, ficha_id: selectedFichaId});
     else await supabaseBrowser.from("codes").update(codeForm).eq("id", codeForm.id);
     setCodeFormMode("idle"); loadDetails(selectedFichaId!);
   }
-  async function handleDeleteCode(id: string) { await supabaseBrowser.from("codes").delete().eq("id", id); loadDetails(selectedFichaId!); }
+  
+  async function handleDeleteCode(id: string) { // Função correta
+    await supabaseBrowser.from("codes").delete().eq("id", id); 
+    loadDetails(selectedFichaId!); 
+  }
+  
   async function handleAddRelation() {
     await supabaseBrowser.from("lore_relations").insert({source_ficha_id:selectedFichaId, target_ficha_id:newRelationTarget, tipo_relacao:newRelationType});
     loadDetails(selectedFichaId!); setIsManagingRelations(false);
   }
-  async function handleDeleteRelation(id: string) { await supabaseBrowser.from("lore_relations").delete().eq("id", id); loadDetails(selectedFichaId!); }
+  
+  async function handleDeleteRelation(id: string) { // Função correta
+    await supabaseBrowser.from("lore_relations").delete().eq("id", id); 
+    loadDetails(selectedFichaId!); 
+  }
 
   // RECONCILIATION
   async function openReconcile() { setShowReconcile(true); setReconcileLoading(true); const r = await fetch("/api/lore/reconcile"); const j = await r.json(); setReconcilePairs(j.duplicates||[]); setReconcileLoading(false); }
@@ -612,7 +618,7 @@ function LoreAdminContent() {
                       {codes.map(c => (
                         <div key={c.id} className="flex justify-between items-center py-1 border-b border-neutral-900 group">
                           <div className="flex flex-col"><span className="font-mono text-emerald-500">{c.code}</span>{c.label && <span className="text-[9px] text-neutral-600">{c.label}</span>}</div>
-                          <div className="opacity-0 group-hover:opacity-100 flex gap-1"><button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button><button onClick={()=>deleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button></div>
+                          <div className="opacity-0 group-hover:opacity-100 flex gap-1"><button onClick={()=>startEditCode(c)} className="text-[9px] text-neutral-500 hover:text-white">Edit</button><button onClick={()=>handleDeleteCode(c.id)} className="text-[9px] text-red-500 hover:text-red-400">Del</button></div>
                         </div>
                       ))}
                       {selectedFicha.ano_diegese && <div className="flex justify-between py-1 border-b border-neutral-900"><span className="text-neutral-500">Ano</span><span className="text-neutral-300">{selectedFicha.ano_diegese}</span></div>}
