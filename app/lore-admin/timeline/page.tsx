@@ -18,6 +18,7 @@ type TimelineEvent = {
   world_id: string | null;
   titulo: string | null;
   resumo: string | null;
+  conteudo: string | null; // <--- CORREÇÃO AQUI: Adicionado o campo conteudo
   tipo: string | null;
   episodio: string | null;
   camada_temporal: string | null;
@@ -189,7 +190,6 @@ export default function TimelinePage() {
         setEvents(json.events || []);
         
         // Ao carregar novos eventos, expande todos os grupos por padrão para facilitar
-        // (Ou podemos deixar colapsado se preferir, mas expandido é melhor para visão geral)
         setExpandedGroups(new Set()); 
       } catch (err: any) {
         console.error(err);
@@ -521,6 +521,7 @@ export default function TimelinePage() {
                 <p className="text-sm text-zinc-300 leading-relaxed">{selectedEvent.resumo || "Sem resumo."}</p>
               </div>
 
+              {/* AQUI ESTAVA O ERRO - AGORA COM CONTEÚDO TIPADO CORRETAMENTE */}
               {selectedEvent.conteudo && (
                 <div>
                   <div className="text-[10px] text-zinc-500 uppercase mb-1">Conteúdo Completo</div>
