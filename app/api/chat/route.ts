@@ -7,43 +7,59 @@ export const dynamic = "force-dynamic";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
-// Validador simples de UUID
-function isValidUUID(uuid: string) {
+// Validador rigoroso de UUID v4
+function isValidUUID(uuid: any): boolean {
+  if (typeof uuid !== 'string') return false;
   const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return regex.test(uuid);
 }
 
-// Função auxiliar para buscar regras globais do Universo selecionado
+// Função auxiliar BLINDADA para buscar regras globais
 async function fetchGlobalRules(universeId?: string): Promise<string> {
-  // 1. Validação de Segurança: Se não tem banco ou o ID não é um UUID válido, retorna vazio.
-  // Isso evita o erro "invalid input syntax for type uuid" no Postgres.
-  if (!supabaseAdmin || !universeId || !isValidUUID(universeId)) {
+  // Se não tem ID ou o ID é inválido (ex: string vazia, "undefined"), ignora silenciosamente.
+  if (!universeId || !isValidUUID(universeId)) {
+    return "";
+  }
+
+  if (!supabaseAdmin) {
+    console.warn("Supabase Admin não está configurado. Pulando regras globais.");
     return "";
   }
 
   try {
-    // 2. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
+    // 1. Descobrir qual é o "Mundo Raiz" (is_root) deste Universo
     const { data: rootWorld, error: worldError } = await supabaseAdmin
       .from("worlds")
       .select("id")
       .eq("universe_id", universeId)
       .eq("is_root", true)
-      .single();
+      .maybeSingle(); // Use maybeSingle para não estourar erro se não achar
 
-    if (worldError || !rootWorld) {
+    if (worldError) {
+      console.error("Erro ao buscar mundo raiz:", worldError.message);
       return "";
     }
 
-    // 3. Buscar fichas de Regra de Mundo e Epistemologia desse Mundo Raiz
-    const { data: rules } = await supabaseAdmin
+    if (!rootWorld) {
+      // Universo existe mas não tem mundo raiz definido. Segue o jogo.
+      return "";
+    }
+
+    // 2. Buscar fichas de Regra de Mundo e Epistemologia desse Mundo Raiz
+    const { data: rules, error: rulesError } = await supabaseAdmin
       .from("fichas")
       .select("titulo, conteudo, tipo")
       .eq("world_id", rootWorld.id)
       .in("tipo", ["regra_de_mundo", "epistemologia", "conceito"]);
 
+    if (rulesError) {
+      console.error("Erro ao buscar fichas de regras:", rulesError.message);
+      return "";
+    }
+
     if (!rules || rules.length === 0) return "";
 
-    // 4. Formatar como texto para o Prompt
+    // 3. Formatar como texto para o Prompt
     const rulesText = rules
       .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
       .join("\n");
@@ -54,8 +70,8 @@ Estas regras se aplicam a TODOS os mundos e histórias deste universo, sem exce�
 ${rulesText}
 `;
   } catch (err) {
-    console.error("Erro ao buscar regras globais:", err);
-    return ""; // Em caso de erro, segue sem regras para não travar o chat
+    console.error("Erro inesperado ao buscar regras globais (ignorado para não travar o chat):", err);
+    return ""; 
   }
 }
 
@@ -63,10 +79,7 @@ export async function POST(req: NextRequest) {
   try {
     if (!openai) {
       return NextResponse.json(
-        {
-          error:
-            "OPENAI_API_KEY não configurada. Defina a chave no painel de variáveis de ambiente da Vercel.",
-        },
+        { error: "OPENAI_API_KEY não configurada." },
         { status: 500 }
       );
     }
@@ -77,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json(
-        { error: "Nenhuma mensagem válida enviada para /api/chat." },
+        { error: "Nenhuma mensagem válida enviada." },
         { status: 400 }
       );
     }
@@ -85,23 +98,32 @@ export async function POST(req: NextRequest) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
 
-    // 1. Busca Vetorial (RAG)
-    const loreResults = await searchLore(userQuestion, { limit: 8 });
+    // --- 1. BUSCA VETORIAL (RAG) BLINDADA ---
+    let loreContext = "Nenhum trecho específico encontrado.";
+    try {
+      const loreResults = await searchLore(userQuestion, { limit: 8 });
+      if (loreResults && loreResults.length > 0) {
+        loreContext = loreResults
+          .map(
+            (chunk: any, idx: number) =>
+              `### Trecho Relacionado ${idx + 1} — ${chunk.title} [fonte: ${chunk.source}]\n${chunk.content}`
+          )
+          .join("\n\n");
+      }
+    } catch (ragError) {
+      console.error("Falha no RAG (ignorada):", ragError);
+      // Chat continua sem contexto extra se o RAG falhar
+    }
 
-    const loreContext =
-      loreResults && loreResults.length > 0
-        ? loreResults
-            .map(
-              (chunk: any, idx: number) =>
-                `### Trecho Relacionado ${idx + 1} — ${chunk.title} [fonte: ${chunk.source}]\n${chunk.content}`
-            )
-            .join("\n\n")
-        : "Nenhum trecho específico encontrado.";
+    // --- 2. REGRAS GLOBAIS BLINDADAS ---
+    let globalRules = "";
+    try {
+      globalRules = await fetchGlobalRules(universeId);
+    } catch (rulesError) {
+      console.error("Falha nas Regras Globais (ignorada):", rulesError);
+    }
 
-    // 2. Busca de Regras Globais do Universo Selecionado (BLINDADA)
-    const globalRules = await fetchGlobalRules(universeId);
-
-    // 3. Montagem do System Prompt
+    // --- 3. MONTAGEM DO PROMPT ---
     const contextMessage: Message = {
       role: "system",
       content: [
@@ -118,7 +140,7 @@ export async function POST(req: NextRequest) {
       ].join("\n"),
     };
 
-    // 4. Chamada ao Modelo (Streaming)
+    // --- 4. CHAMADA OPENAI ---
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
       messages: [contextMessage, ...messages],
@@ -142,10 +164,12 @@ export async function POST(req: NextRequest) {
     return new NextResponse(stream, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
+
   } catch (err: any) {
-    console.error("Erro em /api/chat:", err);
+    console.error("ERRO CRÍTICO em /api/chat:", err);
+    // Retorna JSON de erro claro para o frontend
     return NextResponse.json(
-      { error: "Erro inesperado ao processar a requisição." },
+      { error: `Erro interno no chat: ${err.message}` },
       { status: 500 }
     );
   }
