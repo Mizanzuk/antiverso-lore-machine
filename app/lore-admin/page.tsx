@@ -339,6 +339,18 @@ export default function LoreAdminPage() {
     return <>{elements}</>;
   };
 
+  // --- HELPER FILTROS ---
+  const allTypes = useMemo(() => {
+    const standard = LORE_TYPES.map(t => t.value);
+    const fromData = fichas.map(f => (f.tipo || "").toLowerCase().trim()).filter(Boolean);
+    return Array.from(new Set([...standard, ...fromData])).sort();
+  }, [fichas]);
+
+  function getTypeLabel(typeValue: string) {
+    const found = LORE_TYPES.find(t => t.value === typeValue);
+    return found ? found.label : typeValue.charAt(0).toUpperCase() + typeValue.slice(1);
+  }
+
   // --- CRUD MUNDOS ---
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true }); }
   function startEditWorld(world: any) { setWorldFormMode("edit"); setWorldForm({ id: world.id, nome: world.nome, descricao: world.descricao, tipo: world.tipo, ordem: world.ordem, has_episodes: world.has_episodes }); }
@@ -448,17 +460,6 @@ export default function LoreAdminPage() {
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
 
-  const allTypes = useMemo(() => {
-    const standard = LORE_TYPES.map(t => t.value);
-    const fromData = fichas.map(f => (f.tipo || "").toLowerCase().trim()).filter(Boolean);
-    return Array.from(new Set([...standard, ...fromData])).sort();
-  }, [fichas]);
-
-  function getTypeLabel(typeValue: string) {
-    const found = LORE_TYPES.find(t => t.value === typeValue);
-    return found ? found.label : typeValue.charAt(0).toUpperCase() + typeValue.slice(1);
-  }
-
   const filteredFichas = fichas.filter((f) => {
     if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes((f.tipo || "").toLowerCase())) return false;
     if (fichasSearchTerm.trim().length > 0) {
@@ -482,7 +483,7 @@ export default function LoreAdminPage() {
     return fichas.filter(f => 
       f.titulo.toLowerCase().includes(lower) || 
       (f.tipo && f.tipo.toLowerCase().includes(lower))
-    ).slice(0, 6); // Limita a 6 sugestões
+    ).slice(0, 6);
   }, [mentionQuery, fichas]);
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
@@ -522,7 +523,7 @@ export default function LoreAdminPage() {
                   <span className="font-medium truncate">{w.nome}</span>
                 </div>
                 
-                {/* Botões EDIT e DEL */}
+                {/* Botões EDIT e DEL no Hover */}
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5 z-10">
                    <button 
                      onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} 
@@ -547,7 +548,7 @@ export default function LoreAdminPage() {
           <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorld?.nome || "Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
           <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-3 text-white focus:border-emerald-500 outline-none" placeholder="Buscar..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
           
-          {/* Filtros de Categorias */}
+          {/* Filtros de Categorias (Sem limite .slice) */}
           <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto scrollbar-thin">
             <button 
               onClick={() => setFichaFilterTipos([])} 
@@ -583,8 +584,8 @@ export default function LoreAdminPage() {
                   <span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span>
                 </div>
                 {f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed pr-8">{f.resumo}</span>}
-
-                {/* Botões EDIT e DEL aparecem no hover */}
+                
+                {/* Botões EDIT e DEL no Hover */}
                 <div className="absolute right-2 top-2 hidden group-hover:flex flex-col gap-1 bg-black/90 rounded p-0.5 z-10">
                    <button 
                      onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} 
