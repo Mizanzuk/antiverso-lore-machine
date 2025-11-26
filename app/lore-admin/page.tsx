@@ -249,7 +249,6 @@ export default function LoreAdminPage() {
     text.replace(pattern, (match, _group, offset) => {
       if (typeof offset !== "number") return match;
       if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
-      
       const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
       if (target) {
         elements.push(
@@ -276,16 +275,24 @@ export default function LoreAdminPage() {
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true }); }
   function startEditWorld(world: any) { setWorldFormMode("edit"); setWorldForm({ id: world.id, nome: world.nome, descricao: world.descricao, tipo: world.tipo, ordem: world.ordem, has_episodes: world.has_episodes }); }
   function cancelWorldForm() { setWorldFormMode("idle"); }
+  
   async function handleSaveWorld(e: React.FormEvent) {
-    e.preventDefault(); setIsSavingWorld(true);
+    e.preventDefault(); 
+    setIsSavingWorld(true);
     const payload: any = { nome: worldForm.nome.trim(), descricao: worldForm.descricao.trim() || null, has_episodes: worldForm.has_episodes };
     if(worldFormMode==='create') await supabaseBrowser.from("worlds").insert([payload]);
     else await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
-    setIsSavingWorld(false); cancelWorldForm(); await fetchAllData();
+    setIsSavingWorld(false); 
+    cancelWorldForm(); 
+    await fetchAllData();
   }
-  async function handleDeleteWorld(id: string) {
-    if(!confirm("Deletar mundo?")) return;
-    await supabaseBrowser.from("worlds").delete().eq("id", id); await fetchAllData();
+  
+  async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    if(!confirm("Tem certeza que deseja deletar este Mundo? Essa ação é irreversível.")) return;
+    await supabaseBrowser.from("worlds").delete().eq("id", id); 
+    if(selectedWorldId === id) setSelectedWorldId(null);
+    await fetchAllData();
   }
 
   // --- CRUD FICHAS ---
@@ -303,6 +310,7 @@ export default function LoreAdminPage() {
     }); 
   }
   function cancelFichaForm() { setFichaFormMode("idle"); }
+  
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault(); setIsSavingFicha(true);
     const payload: any = {
@@ -329,8 +337,9 @@ export default function LoreAdminPage() {
     setIsSavingFicha(false); cancelFichaForm();
     const w = worlds.find(x => x.id === selectedWorldId); await fetchFichas(w);
   }
+  
   async function handleDeleteFicha(id: string) {
-    if(!confirm("Deletar ficha?")) return;
+    if(!confirm("Tem certeza que deseja apagar esta ficha?")) return;
     await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
     await supabaseBrowser.from("fichas").delete().eq("id", id);
     if(selectedFichaId === id) setSelectedFichaId(null);
@@ -381,11 +390,9 @@ export default function LoreAdminPage() {
   const allTypes = useMemo(() => {
     const standard = LORE_TYPES.map(t => t.value);
     const fromData = fichas.map(f => (f.tipo || "").toLowerCase().trim()).filter(Boolean);
-    // Junta tudo num Set para remover duplicatas e ordena
     return Array.from(new Set([...standard, ...fromData])).sort();
   }, [fichas]);
 
-  // Helper para pegar o Label bonito do tipo
   function getTypeLabel(typeValue: string) {
     const found = LORE_TYPES.find(t => t.value === typeValue);
     return found ? found.label : typeValue.charAt(0).toUpperCase() + typeValue.slice(1);
@@ -427,21 +434,55 @@ export default function LoreAdminPage() {
       {error && <div className="px-4 py-2 text-[11px] text-red-400 bg-red-950/40 border-b border-red-900">{error}</div>}
 
       <main className="flex flex-1 overflow-hidden">
+        {/* 1. COLUNA MUNDOS */}
         <section className="w-64 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-950/50">
-          <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2><button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+</button></div>
-          <div className="flex-1 overflow-auto space-y-1 pr-1">{worlds.map((w) => (<div key={w.id} className={`group border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} onClick={() => { setSelectedWorldId(w.id); fetchFichas(w); }}><div className="flex items-center justify-between"><span className="font-medium">{w.nome}</span><span className="opacity-0 group-hover:opacity-100 text-[9px] text-neutral-500">EDIT</span></div></div>))}</div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2>
+            {/* Botão + agora chama o modal corretamente */}
+            <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
+          </div>
+          <div className="flex-1 overflow-auto space-y-1 pr-1">
+            {worlds.map((w) => (
+              <div 
+                key={w.id} 
+                className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} 
+                onClick={() => { setSelectedWorldId(w.id); fetchFichas(w); }}
+              >
+                <div className="flex items-center justify-between pr-6">
+                  <span className="font-medium truncate">{w.nome}</span>
+                </div>
+                
+                {/* Botões EDIT e DEL aparecem no hover */}
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5">
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); startEditWorld(w); }} 
+                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded"
+                   >
+                     Edit
+                   </button>
+                   <button 
+                     onClick={(e) => handleDeleteWorld(w.id, e)} 
+                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded"
+                   >
+                     Del
+                   </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
+        {/* 2. COLUNA FICHAS */}
         <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-900/20">
           <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorld?.nome || "Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
           <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-3 text-white focus:border-emerald-500 outline-none" placeholder="Buscar..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
           
-          {/* FILTROS DE CATEGORIA ATUALIZADOS */}
-          <div className="flex flex-wrap gap-1 mb-3">
+          {/* Filtros de Categorias (Todas visíveis, com tooltip) */}
+          <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto scrollbar-thin">
             <button 
               onClick={() => setFichaFilterTipos([])} 
               className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.length === 0 ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
-              title="Mostrar todas as categorias"
+              title="Todas as categorias"
             >
               TODOS
             </button>
@@ -452,7 +493,7 @@ export default function LoreAdminPage() {
                   key={t} 
                   onClick={() => toggleFilterTipo(t)} 
                   className={`px-2 py-0.5 text-[9px] uppercase tracking-wide rounded border ${fichaFilterTipos.includes(t) ? "border-emerald-500 text-emerald-300" : "border-neutral-800 text-neutral-500"}`}
-                  title={label} // Tooltip com nome completo
+                  title={label}
                 >
                   {t.slice(0,3).toUpperCase()}
                 </button>
@@ -460,22 +501,68 @@ export default function LoreAdminPage() {
             })}
           </div>
 
-          <div className="flex-1 overflow-auto space-y-1 pr-1">{filteredFichas.map((f) => (<div key={f.id} className={`border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} onClick={() => handleSelectFicha(f.id)}><div className="flex justify-between items-start"><span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span><span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span></div>{f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed">{f.resumo}</span>}</div>))}</div>
+          <div className="flex-1 overflow-auto space-y-1 pr-1">
+            {filteredFichas.map((f) => (
+              <div 
+                key={f.id} 
+                className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} 
+                onClick={() => handleSelectFicha(f.id)}
+              >
+                <div className="flex justify-between items-start pr-8">
+                  <span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span>
+                  <span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span>
+                </div>
+                {f.resumo && <span className="text-neutral-500 line-clamp-2 text-[10px] leading-relaxed pr-8">{f.resumo}</span>}
+
+                {/* Botões EDIT e DEL aparecem no hover */}
+                <div className="absolute right-2 top-2 hidden group-hover:flex flex-col gap-1 bg-black/90 rounded p-0.5 z-10">
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); startEditFicha(f); }} 
+                     className="text-[9px] px-1.5 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-center"
+                   >
+                     Edit
+                   </button>
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); handleDeleteFicha(f.id); }} 
+                     className="text-[9px] px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded text-center"
+                   >
+                     Del
+                   </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
+        {/* 3. COLUNA DETALHES */}
         <section className="flex-1 p-6 flex flex-col min-h-0 overflow-y-auto bg-black">
           {!selectedFicha ? <div className="flex items-center justify-center h-full text-neutral-600 text-xs">Selecione uma ficha para visualizar</div> : (
             <div className="max-w-3xl mx-auto w-full">
-              <div className="flex justify-end gap-2 mb-6"><button onClick={() => startEditFicha(selectedFicha)} className="px-3 py-1 rounded border border-neutral-800 text-[10px] hover:bg-neutral-900 text-neutral-400">Editar</button><button onClick={() => handleDeleteFicha(selectedFicha.id)} className="px-3 py-1 rounded border border-red-900/30 text-[10px] hover:bg-red-900/20 text-red-400">Excluir</button></div>
-              <div className="mb-8 pb-6 border-b border-neutral-900"><div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2"><span>{selectedFicha.tipo}</span>{selectedFicha.slug && <span className="text-neutral-600 font-normal lowercase">/ {selectedFicha.slug}</span>}</div><h1 className="text-3xl font-bold text-white mb-3">{selectedFicha.titulo}</h1>{selectedFicha.resumo && <p className="text-lg text-neutral-400 italic leading-relaxed">{renderWikiText(selectedFicha.resumo)}</p>}</div>
+              {/* Header Ficha */}
+              <div className="mb-8 pb-6 border-b border-neutral-900">
+                <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2">
+                  <span>{selectedFicha.tipo}</span>
+                  {selectedFicha.slug && <span className="text-neutral-600 font-normal lowercase">/ {selectedFicha.slug}</span>}
+                </div>
+                <h1 className="text-3xl font-bold text-white mb-3">{selectedFicha.titulo}</h1>
+                {selectedFicha.resumo && <p className="text-lg text-neutral-400 italic leading-relaxed">{renderWikiText(selectedFicha.resumo)}</p>}
+              </div>
               
+              {/* Botões Principais de Ação (Duplicados aqui também por conveniência) */}
+              <div className="flex justify-end gap-2 mb-6">
+                <button onClick={() => startEditFicha(selectedFicha)} className="px-3 py-1 rounded border border-neutral-800 text-[10px] hover:bg-neutral-900 text-neutral-400">Editar Ficha</button>
+                <button onClick={() => handleDeleteFicha(selectedFicha.id)} className="px-3 py-1 rounded border border-red-900/30 text-[10px] hover:bg-red-900/20 text-red-400">Excluir Ficha</button>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-12">
+                {/* Conteúdo */}
                 <div className="space-y-6">
                    {selectedFicha.imagem_url && <div className="rounded border border-neutral-800 overflow-hidden bg-neutral-900/30"><img src={selectedFicha.imagem_url} className="w-full object-cover opacity-80 hover:opacity-100" /></div>}
                    <div><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-neutral-300 leading-loose whitespace-pre-wrap font-light">{renderWikiText(selectedFicha.conteudo)}</div></div>
                    {selectedFicha.aparece_em && <div className="p-4 rounded bg-neutral-900/30 border border-neutral-800"><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">Aparece em</h3><div className="text-xs text-neutral-400 whitespace-pre-wrap">{renderWikiText(selectedFicha.aparece_em)}</div></div>}
                 </div>
                 
+                {/* Sidebar Metadados */}
                 <div className="space-y-8">
                   <div>
                     <h3 className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold mb-3 flex items-center gap-2">🔗 Conexões Detectadas</h3>
@@ -512,7 +599,7 @@ export default function LoreAdminPage() {
         </section>
       </main>
 
-      {/* MODAL DE EDIÇÃO DE FICHA COMPLETO */}
+      {/* MODAL DE EDIÇÃO DE FICHA */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl">
@@ -589,6 +676,98 @@ export default function LoreAdminPage() {
 
             </div>
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
+          </form>
+        </div>
+      )}
+      
+      {/* MODAL DE CRIAÇÃO/EDIÇÃO DE MUNDO */}
+      {worldFormMode !== "idle" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <form
+            onSubmit={handleSaveWorld}
+            className="w-full max-w-md max-h-[90vh] overflow-auto border border-neutral-800 rounded-lg p-4 bg-neutral-950/95 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-neutral-400">
+                {worldFormMode === "create" ? "Novo Mundo" : "Editar Mundo"}
+              </div>
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="text-[11px] text-neutral-500 hover:text-neutral-200"
+              >
+                fechar
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">Nome</label>
+              <input
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs"
+                value={worldForm.nome}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    nome: e.target.value,
+                  }))
+                }
+                placeholder="Ex: Arquivos Vermelhos"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-neutral-500">
+                Descrição
+              </label>
+              <textarea
+                className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs min-h-[140px]"
+                value={worldForm.descricao}
+                onChange={(e) =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    descricao: e.target.value,
+                  }))
+                }
+                placeholder="Resumo do Mundo…"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setWorldForm((prev) => ({
+                    ...prev,
+                    has_episodes: !prev.has_episodes,
+                  }))
+                }
+                className={`h-4 px-2 rounded border text-[11px] ${
+                  worldForm.has_episodes
+                    ? "border-emerald-400 text-emerald-300 bg-emerald-400/10"
+                    : "border-neutral-700 text-neutral-400 bg-black/40"
+                }`}
+              >
+                Este mundo possui episódios
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={cancelWorldForm}
+                className="px-3 py-1 text-[11px] rounded border border-neutral-700 text-neutral-300 hover:border-neutral-500"
+                disabled={isSavingWorld}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingWorld}
+                className="px-3 py-1 text-[11px] rounded bg-emerald-500 text-black font-medium hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {isSavingWorld ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
           </form>
         </div>
       )}
