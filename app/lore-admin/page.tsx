@@ -4,13 +4,39 @@ import React, { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
+// --- CONSTANTES ---
+const LORE_TYPES = [
+  { value: "personagem", label: "Personagem" },
+  { value: "local", label: "Local" },
+  { value: "evento", label: "Evento" },
+  { value: "empresa", label: "Empresa" },
+  { value: "agencia", label: "Agência" },
+  { value: "midia", label: "Mídia" },
+  { value: "conceito", label: "Conceito" },
+  { value: "epistemologia", label: "Epistemologia" },
+  { value: "regra_de_mundo", label: "Regra de Mundo" },
+  { value: "objeto", label: "Objetos" },
+  { value: "roteiro", label: "Roteiro" },
+  { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
+const CAMADAS_TEMPORAIS = [
+  { value: "linha_principal", label: "Linha Principal" },
+  { value: "flashback", label: "Flashback" },
+  { value: "flashforward", label: "Flashforward" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
+  { value: "historico_antigo", label: "Histórico / Antigo" },
+  { value: "outro", label: "Outro" },
+];
+
+// --- TIPOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
 type WorldFormMode = "idle" | "create" | "edit";
 type FichaFormMode = "idle" | "create" | "edit";
 type CodeFormMode = "idle" | "create" | "edit";
 
-// --- TIPOS PARA RECONCILIAÇÃO ---
 type DuplicatePair = {
   id_a: string;
   titulo_a: string;
@@ -38,7 +64,6 @@ type FichaFull = {
   [key: string]: any;
 };
 
-// --- TIPOS PARA RELAÇÕES (WIKI) ---
 type Relation = {
   id: string;
   tipo_relacao: string;
@@ -52,45 +77,6 @@ type Relation = {
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-const KNOWN_TIPOS = [
-  "personagem",
-  "local",
-  "empresa",
-  "agencia",
-  "midia",
-  "conceito",
-  "epistemologia",
-  "evento",
-  "regra_de_mundo",
-  "roteiro",
-];
-
-function getWorldPrefix(worldName: string | null | undefined): string {
-  if (!worldName) return "XX";
-  const words = worldName.trim().split(/\s+/);
-  if (words.length === 0) return "XX";
-  if (words.length === 1) {
-    return words[0].slice(0, 2).toUpperCase();
-  }
-  return (words[0][0] + words[1][0]).toUpperCase();
-}
-
-function getTipoPrefix(tipo: string | null | undefined): string {
-  if (!tipo) return "XX";
-  const key = tipo.toLowerCase();
-  switch (key) {
-    case "personagem": return "PS";
-    case "local": return "LC";
-    case "empresa": return "EM";
-    case "agencia": return "AG";
-    case "midia": return "MD";
-    case "conceito": return "CC";
-    case "epistemologia": return "EP";
-    case "evento": return "EV";
-    case "regra_de_mundo": return "RM";
-    default: return key.slice(0, 2).toUpperCase() || "XX";
-  }
-}
 
 export default function LoreAdminPage() {
   const [view, setView] = useState<ViewState>("loading");
@@ -99,6 +85,7 @@ export default function LoreAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Dados
   const [worlds, setWorlds] = useState<any[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<any[]>([]);
@@ -107,9 +94,11 @@ export default function LoreAdminPage() {
   const [relations, setRelations] = useState<Relation[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
 
+  // Filtros
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
   const [fichasSearchTerm, setFichasSearchTerm] = useState<string>("");
 
+  // Forms
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<{
@@ -127,7 +116,7 @@ export default function LoreAdminPage() {
   }>({
     id: "", titulo: "", slug: "", tipo: "", resumo: "", conteudo: "", tags: "",
     ano_diegese: "", ordem_cronologica: "", aparece_em: "", codigo: "", imagem_url: "",
-    data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: ""
+    data_inicio: "", data_fim: "", granularidade_data: "indefinido", descricao_data: "", camada_temporal: "linha_principal"
   });
 
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
@@ -136,9 +125,11 @@ export default function LoreAdminPage() {
     id: string; code: string; label: string; description: string; episode: string;
   }>({ id: "", code: "", label: "", description: "", episode: "" });
 
+  // Modais Visuais
   const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
   const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
 
+  // Reconciliação
   const [showReconcile, setShowReconcile] = useState(false);
   const [reconcilePairs, setReconcilePairs] = useState<DuplicatePair[]>([]);
   const [reconcileLoading, setReconcileLoading] = useState(false);
@@ -146,6 +137,7 @@ export default function LoreAdminPage() {
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
   const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
+  // --- AUTH ---
   useEffect(() => {
     const checkSession = async () => {
       setView("loading");
@@ -171,6 +163,7 @@ export default function LoreAdminPage() {
     setView("loggedOut"); setEmail(""); setPassword("");
   }
 
+  // --- DATA FETCHING ---
   async function fetchAllData() {
     try {
       setIsLoadingData(true); setError(null);
@@ -225,11 +218,7 @@ export default function LoreAdminPage() {
     setRelations([]);
     const { data, error: relError } = await supabaseBrowser
       .from("lore_relations")
-      .select(`
-        *,
-        source:source_ficha_id(id, titulo, tipo),
-        target:target_ficha_id(id, titulo, tipo)
-      `)
+      .select(`*, source:source_ficha_id(id, titulo, tipo), target:target_ficha_id(id, titulo, tipo)`)
       .or(`source_ficha_id.eq.${fichaId},target_ficha_id.eq.${fichaId}`);
 
     if (relError) { console.error("Erro ao carregar relações:", relError); return; }
@@ -242,7 +231,7 @@ export default function LoreAdminPage() {
     fetchRelations(fichaId);
   }
 
-  // --- WIKI LINK RENDERER MELHORADO ---
+  // --- WIKI RENDERER ---
   const renderWikiText = (text: string | null | undefined) => {
     if (!text) return null;
     const currentFichaId = selectedFichaId;
@@ -251,8 +240,6 @@ export default function LoreAdminPage() {
       .map((f) => ({ id: f.id as string, titulo: (f.titulo as string).trim() }));
 
     if (candidates.length === 0) return text;
-
-    // Ordena candidatos por tamanho do título (decrescente) para evitar que "Ana" substitua parte de "Ana Maria"
     candidates.sort((a, b) => b.titulo.length - a.titulo.length);
 
     const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
@@ -262,18 +249,12 @@ export default function LoreAdminPage() {
     text.replace(pattern, (match, _group, offset) => {
       if (typeof offset !== "number") return match;
       if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
-      
       const target = candidates.find((c) => c.titulo.toLowerCase() === match.toLowerCase());
       if (target) {
         elements.push(
-          <button
-            key={`${target.id}-${offset}`}
-            type="button"
-            className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors"
-            onClick={() => handleSelectFicha(target.id)}
-          >
+          <button key={`${target.id}-${offset}`} type="button" className="underline decoration-dotted decoration-emerald-500/70 hover:text-emerald-300 text-emerald-100 font-medium cursor-pointer transition-colors" onClick={() => handleSelectFicha(target.id)}>
             {match}
-          </button>,
+          </button>
         );
       } else {
         elements.push(match);
@@ -285,17 +266,27 @@ export default function LoreAdminPage() {
     return <>{elements}</>;
   };
 
-  // --- CRUD ---
+  // --- CRUD MUNDOS ---
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ id: "", nome: "", descricao: "", tipo: "", ordem: "", has_episodes: true }); }
   function startEditWorld(world: any) { setWorldFormMode("edit"); setWorldForm({ id: world.id, nome: world.nome, descricao: world.descricao, tipo: world.tipo, ordem: world.ordem, has_episodes: world.has_episodes }); }
   function cancelWorldForm() { setWorldFormMode("idle"); }
-  async function handleSaveWorld(e: React.FormEvent) { e.preventDefault(); setIsSavingWorld(true); const payload: any = { nome: worldForm.nome.trim(), descricao: worldForm.descricao.trim() || null, has_episodes: worldForm.has_episodes }; if(worldFormMode==='create') await supabaseBrowser.from("worlds").insert([payload]); else await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id); setIsSavingWorld(false); cancelWorldForm(); await fetchAllData(); }
-  async function handleDeleteWorld(id: string) { await supabaseBrowser.from("worlds").delete().eq("id", id); await fetchAllData(); }
+  async function handleSaveWorld(e: React.FormEvent) {
+    e.preventDefault(); setIsSavingWorld(true);
+    const payload: any = { nome: worldForm.nome.trim(), descricao: worldForm.descricao.trim() || null, has_episodes: worldForm.has_episodes };
+    if(worldFormMode==='create') await supabaseBrowser.from("worlds").insert([payload]);
+    else await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
+    setIsSavingWorld(false); cancelWorldForm(); await fetchAllData();
+  }
+  async function handleDeleteWorld(id: string) {
+    if(!confirm("Deletar mundo?")) return;
+    await supabaseBrowser.from("worlds").delete().eq("id", id); await fetchAllData();
+  }
 
+  // --- CRUD FICHAS ---
   function startCreateFicha() { 
     if(!selectedWorldId) return alert("Selecione um mundo");
     setFichaFormMode("create"); 
-    setFichaForm({ id:"", titulo:"", slug:"", tipo:"", resumo:"", conteudo:"", tags:"", ano_diegese:"", ordem_cronologica:"", aparece_em:"", codigo:"", imagem_url:"", data_inicio:"", data_fim:"", granularidade_data:"indefinido", descricao_data:"", camada_temporal:"" }); 
+    setFichaForm({ id:"", titulo:"", slug:"", tipo:"conceito", resumo:"", conteudo:"", tags:"", ano_diegese:"", ordem_cronologica:"", aparece_em:"", codigo:"", imagem_url:"", data_inicio:"", data_fim:"", granularidade_data:"indefinido", descricao_data:"", camada_temporal:"linha_principal" }); 
   }
   function startEditFicha(f: any) { 
     setFichaFormMode("edit"); 
@@ -339,18 +330,26 @@ export default function LoreAdminPage() {
     if(selectedFichaId === id) setSelectedFichaId(null);
     const w = worlds.find(x => x.id === selectedWorldId); await fetchFichas(w);
   }
+
+  // --- CRUD CÓDIGOS ---
   function startCreateCode() { setCodeFormMode("create"); setCodeForm({ id:"", code:"", label:"", description:"", episode:"" }); }
   function startEditCode(c:any) { setCodeFormMode("edit"); setCodeForm({ id:c.id, code:c.code, label:c.label, description:c.description, episode:"" }); }
   function cancelCodeForm() { setCodeFormMode("idle"); }
-  async function handleSaveCode(e:React.FormEvent) { e.preventDefault(); const payload:any = { ficha_id: selectedFichaId, code: codeForm.code, label: codeForm.label, description: codeForm.description, updated_at: new Date().toISOString() }; if(codeFormMode==='create') await supabaseBrowser.from("codes").insert([payload]); else await supabaseBrowser.from("codes").update(payload).eq("id", codeForm.id); setIsSavingCode(false); setCodeFormMode("idle"); fetchCodes(selectedFichaId!); }
+  async function handleSaveCode(e:React.FormEvent) {
+    e.preventDefault(); 
+    const payload:any = { ficha_id: selectedFichaId, code: codeForm.code, label: codeForm.label, description: codeForm.description, updated_at: new Date().toISOString() }; 
+    if(codeFormMode==='create') await supabaseBrowser.from("codes").insert([payload]); 
+    else await supabaseBrowser.from("codes").update(payload).eq("id", codeForm.id); 
+    setIsSavingCode(false); setCodeFormMode("idle"); fetchCodes(selectedFichaId!); 
+  }
   async function handleDeleteCode(id: string) { await supabaseBrowser.from("codes").delete().eq("id", id); fetchCodes(selectedFichaId!); }
 
-  // RECONCILIAÇÃO
+  // --- RECONCILIAÇÃO ---
   async function openReconcile() { setShowReconcile(true); setReconcileLoading(true); const res = await fetch("/api/lore/reconcile"); const json = await res.json(); setReconcilePairs(json.duplicates || []); setReconcileLoading(false); }
   async function handleSelectReconcilePair(pair: DuplicatePair) { setReconcileLoading(true); const {data:dA} = await supabaseBrowser.from("fichas").select("*").eq("id", pair.id_a).single(); const {data:dB} = await supabaseBrowser.from("fichas").select("*").eq("id", pair.id_b).single(); setComparing({a:dA, b:dB}); setMergeDraft({...dA}); setReconcileLoading(false); }
   function updateMergeDraft(field: keyof FichaFull, value: any) { if(mergeDraft) setMergeDraft({...mergeDraft, [field]: value}); }
   async function executeMerge(wId: string, lId: string) { if(!confirm("Confirmar fusão?")) return; setReconcileProcessing(true); await fetch("/api/lore/reconcile", {method:"POST", body:JSON.stringify({winnerId:wId, loserId:lId, mergedData:mergeDraft})}); setComparing(null); setMergeDraft(null); openReconcile(); setReconcileProcessing(false); }
-
+  
   const FieldChoice = ({ label, field }: { label: string; field: keyof FichaFull }) => {
     if (!comparing || !mergeDraft) return null;
     const valA = comparing.a[field];
@@ -370,8 +369,8 @@ export default function LoreAdminPage() {
 
   // --- UI ---
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-  const dynamicTipos = Array.from(new Set<string>([...KNOWN_TIPOS, ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
   const selectedFicha = fichas.find((f) => f.id === selectedFichaId) || null;
+  const dynamicTipos = Array.from(new Set<string>([...LORE_TYPES.map(t=>t.value), ...fichas.map((f) => (f.tipo || "").toLowerCase()).filter((t) => !!t)]));
 
   const filteredFichas = fichas.filter((f) => {
     if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes((f.tipo || "").toLowerCase())) return false;
@@ -379,8 +378,7 @@ export default function LoreAdminPage() {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      const inTags = (Array.isArray(f.tags) ? f.tags.join(",") : (f.tags || "")).toLowerCase().includes(q);
-      if (!inTitulo && !inResumo && !inTags) return false;
+      if (!inTitulo && !inResumo) return false;
     }
     return true;
   });
@@ -450,21 +448,87 @@ export default function LoreAdminPage() {
         </section>
       </main>
 
+      {/* MODAL DE EDIÇÃO DE FICHA ATUALIZADO */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl">
             <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">Editar Ficha</h2>
             <div className="grid gap-4">
+              
+              {/* TIPO (DROPDOWN COM SUPORTE A NOVO TIPO) */}
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase text-zinc-500">Tipo</label>
+                <select 
+                  className="w-full bg-black border border-zinc-800 p-2 text-xs rounded"
+                  value={LORE_TYPES.some(t => t.value === fichaForm.tipo) ? fichaForm.tipo : "novo"}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "novo") {
+                      const custom = prompt("Digite o nome da nova categoria:");
+                      if (custom) setFichaForm({...fichaForm, tipo: custom.toLowerCase().trim()});
+                    } else {
+                      setFichaForm({...fichaForm, tipo: val});
+                    }
+                  }}
+                >
+                  {LORE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  {!LORE_TYPES.some(t => t.value === fichaForm.tipo) && <option value={fichaForm.tipo}>{fichaForm.tipo} (Atual)</option>}
+                  <option value="novo">+ Nova Categoria...</option>
+                </select>
+              </div>
+
               <div><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.titulo} onChange={e=>setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
-              <div className="grid grid-cols-2 gap-4"><div><label className="text-[10px] uppercase text-zinc-500">Tipo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tipo} onChange={e=>setFichaForm({...fichaForm, tipo: e.target.value})} /></div><div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div></div>
+              
+              {/* SLUG */}
+              <div><label className="text-[10px] uppercase text-zinc-500">Slug</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.slug} onChange={e=>setFichaForm({...fichaForm, slug: e.target.value})} /></div>
+              
+              {/* RESUMO E CONTEÚDO */}
               <div><label className="text-[10px] uppercase text-zinc-500">Resumo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={fichaForm.resumo} onChange={e=>setFichaForm({...fichaForm, resumo: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Conteúdo</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-40 font-mono" value={fichaForm.conteudo} onChange={e=>setFichaForm({...fichaForm, conteudo: e.target.value})} /></div>
+              
+              {/* CAMPOS DE TIMELINE (APARECEM APENAS SE FOR EVENTO) */}
+              {fichaForm.tipo === 'evento' && (
+                <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2">
+                   <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
+                   
+                   <div>
+                     <label className="text-xs text-zinc-400">Descrição da Data</label>
+                     <input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} placeholder='ex: "Na tarde de 23 de agosto..."' />
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-2">
+                      <div><label className="text-xs text-zinc-400">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.data_inicio || ''} onChange={e=>setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
+                      <div><label className="text-xs text-zinc-400">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.data_fim || ''} onChange={e=>setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-zinc-400">Granularidade</label>
+                        <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.granularidade_data || 'vago'} onChange={e=>setFichaForm({...fichaForm, granularidade_data: e.target.value})}>
+                           {GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-zinc-400">Camada</label>
+                        <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.camada_temporal || 'linha_principal'} onChange={e=>setFichaForm({...fichaForm, camada_temporal: e.target.value})}>
+                           {CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {/* TAGS E CÓDIGO */}
               <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.tags} onChange={e=>setFichaForm({...fichaForm, tags: e.target.value})} /></div>
+              <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
+
             </div>
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500">Salvar</button></div>
           </form>
         </div>
       )}
+
+      {/* MODAL DE RECONCILIAÇÃO (Mantido) */}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
   );
