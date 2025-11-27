@@ -7,6 +7,22 @@ export const dynamic = "force-dynamic";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
+// --- NOVAS PERSONAS ---
+const PERSONAS = {
+  consulta: {
+    nome: "Urizen",
+    titulo: "A Lei (Consulta)",
+    descricao: "Guardião da Lei e da Lógica, responsável por consultar fatos estabelecidos.",
+    modo: "CONSULTA ESTRITA",
+  },
+  criativo: {
+    nome: "Urthona",
+    titulo: "O Fluxo (Criativo)",
+    descricao: "Forjador da Visão e da Imaginação, livre para expandir o universo.",
+    modo: "CRIATIVO COM PROTOCOLO DE COERÊNCIA",
+  }
+};
+
 // --- VALIDAÇÃO DE UUID ---
 function isValidUUID(uuid: any): boolean {
   if (typeof uuid !== 'string') return false;
@@ -69,15 +85,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nenhuma mensagem válida." }, { status: 400 });
     }
 
-    // Detecta o modo (Criativo vs Consulta) baseado na primeira mensagem de sistema enviada pelo frontend
+    // Detecta o modo (Consulta vs Criativo) baseado na última mensagem de sistema enviada pelo frontend
     const systemMessageFromFrontend = messages.find(m => m.role === "system")?.content || "";
+    // O frontend agora injeta a instrução com o nome da persona e o modo (ex: "Você é Urizen, o Lei...")
     const isCreativeMode = systemMessageFromFrontend.includes("MODO CRIATIVO");
-
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const currentPersona = isCreativeMode ? PERSONAS.criativo : PERSONAS.consulta;
+    
+    // Remove a mensagem de sistema do frontend antes do RAG/LLM para não poluir
+    const conversationMessages = messages.filter(m => m.role !== "system");
+    const lastUser = [...conversationMessages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
+    
 
     // 1. Busca Contextual (Fichas)
-    // Usa a nova função searchLore que foca em texto e fichas vivas
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
       const loreResults = await searchLore(userQuestion, { limit: 10, universeId });
@@ -100,14 +120,14 @@ export async function POST(req: NextRequest) {
     let specificInstructions = "";
     if (isCreativeMode) {
       specificInstructions = `
-VOCÊ ESTÁ EM MODO CRIATIVO, MAS COM O PROTOCOLO DE COERÊNCIA ATIVO.
+VOCÊ É ${currentPersona.nome}. VOCÊ ESTÁ EM MODO CRIATIVO, MAS COM O PROTOCOLO DE COERÊNCIA ATIVO.
 Você é livre para expandir o universo, mas DEVE checar datas, status de vida/morte e regras nos [FATOS ESTABELECIDOS].
 Se o usuário sugerir algo que contradiz um fato (ex: personagem morto agindo), AVISE sobre a inconsistência.
 Se não houver contradição, seja criativo e expanda a narrativa.
       `;
     } else {
       specificInstructions = `
-VOCÊ ESTÁ EM MODO CONSULTA ESTRITA.
+VOCÊ É ${currentPersona.nome}. VOCÊ ESTÁ EM MODO CONSULTA ESTRITA.
 Responda APENAS com base nos [FATOS ESTABELECIDOS] e nas [LEIS IMUTÁVEIS].
 Não invente. Se a informação não estiver no contexto, diga que não sabe ou que ainda não foi definida.
       `;
@@ -117,8 +137,8 @@ Não invente. Se a informação não estiver no contexto, diga que não sabe ou 
     const contextMessage: Message = {
       role: "system",
       content: [
-        "Você é Or, o guardião criativo deste Universo.",
-        "Você está respondendo dentro da Lore Machine.",
+        `Você é ${currentPersona.nome}, o ${currentPersona.titulo} deste Universo.`, // Nova descrição da persona
+        `Sua função é atuar como ${currentPersona.descricao}.`,
         "",
         globalRules,
         "",
@@ -130,13 +150,10 @@ Não invente. Se a informação não estiver no contexto, diga que não sabe ou 
       ].join("\n"),
     };
 
-    // Filtra a mensagem de sistema antiga do frontend para não duplicar
-    const conversationMessages = messages.filter(m => m.role !== "system");
-
     // 5. Geração e Streaming
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
-      messages: [contextMessage, ...conversationMessages],
+      messages: [contextMessage, ...conversationMessages], // Usa conversationMessages limpas
       temperature: isCreativeMode ? 0.7 : 0.2,
       stream: true,
     });
