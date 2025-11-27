@@ -26,7 +26,7 @@ type ChatSession = {
   mode: ChatMode;
   createdAt: number;
   messages: ChatMessage[];
-  universeId?: string; // Vincula sessão ao universo
+  universeId?: string; 
 };
 
 type World = {
@@ -169,17 +169,14 @@ export default function Page() {
   const [userId, setUserId] = useState<string | null>(null);
   const [remoteLoaded, setRemoteLoaded] = useState(false);
 
-  // --- ESTADOS DE UNIVERSO ---
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>(""); 
   
-  // Modal Novo Universo
   const [showUniverseModal, setShowUniverseModal] = useState(false);
   const [newUniverseName, setNewUniverseName] = useState("");
   const [newUniverseDesc, setNewUniverseDesc] = useState("");
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
   
-  // Modal Editar Universo
   const [showEditUniModal, setShowEditUniModal] = useState(false);
   const [editUniForm, setEditUniForm] = useState({ id: "", nome: "", descricao: "" });
 
@@ -192,7 +189,7 @@ export default function Page() {
   const [viewMode, setViewMode] = useState<ViewMode>("chat"); 
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
   
-  // Estados de Catálogo (opcionais, mantidos para compatibilidade)
+  // Estados de Catálogo
   const [worlds, setWorlds] = useState<World[]>([]);
   const [entities, setEntities] = useState<LoreEntity[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
@@ -206,7 +203,7 @@ export default function Page() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
 
-  // --- 1. VERIFICAÇÃO DE SESSÃO ---
+  // --- 1. AUTH ---
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session }, error } = await supabaseBrowser.auth.getSession();
@@ -221,8 +218,7 @@ export default function Page() {
     checkSession();
   }, []);
 
-  // --- 2. CARREGAR UNIVERSOS E SESSÕES ---
-  
+  // --- 2. LOADERS ---
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -250,12 +246,39 @@ export default function Page() {
         setUniverses([]);
         setSelectedUniverseId("");
         setSessions([]);
-        setShowUniverseModal(true); // Abre modal se não houver universos
+        setShowUniverseModal(true); 
     }
   }
 
-  // --- 3. FUNÇÕES DE CHAT CORE ---
-  
+  // Carrega Catálogo (agora seguro, passando userId)
+  async function loadCatalog() {
+    if (!userId) return;
+    try {
+      setLoadingCatalog(true);
+      setCatalogError(null);
+      const res = await fetch("/api/catalog", {
+        headers: { "x-user-id": userId } // HEADER DE SEGURANÇA
+      });
+      if (!res.ok) throw new Error("Erro ao carregar catálogo");
+      const data = (await res.json()) as CatalogResponse;
+      setWorlds(data.worlds ?? []);
+      setEntities(data.entities ?? []);
+    } catch (err) {
+      console.error(err);
+      setCatalogError("Não foi possível carregar o catálogo do AntiVerso agora.");
+    } finally {
+      setLoadingCatalog(false);
+    }
+  }
+
+  // Trigger de carga do catálogo
+  useEffect(() => {
+    if (viewMode === "catalog" && userId) {
+        loadCatalog();
+    }
+  }, [viewMode, userId]); // Carrega quando entra no modo catálogo
+
+  // --- 3. CHAT CORE ---
   const newChatCallback = useCallback((newMode: ChatMode = "consulta", uniId: string | null = selectedUniverseId) => {
     if (!uniId) {
         if (universes.length === 0) setShowUniverseModal(true);
@@ -283,8 +306,7 @@ export default function Page() {
     newChatCallback(newMode, selectedUniverseId);
   }
 
-  // --- EFEITOS AUXILIARES ---
-
+  // --- EFEITOS E PERSISTÊNCIA ---
   useEffect(() => {
     if (!selectedUniverseId) {
         setActiveSessionId(null);
@@ -292,7 +314,6 @@ export default function Page() {
     }
     const relevantSessions = sessions.filter(s => s.universeId === selectedUniverseId);
     const activeIsRelevant = activeSessionId && relevantSessions.some(s => s.id === activeSessionId);
-    
     if (!activeIsRelevant && relevantSessions.length > 0) {
         setActiveSessionId(relevantSessions[0].id);
     } else if (!activeIsRelevant && selectedUniverseId && view === "loggedIn") {
@@ -300,7 +321,6 @@ export default function Page() {
     }
   }, [selectedUniverseId, sessions, view, activeSessionId, newChatCallback]);
 
-  // Load Remote
   useEffect(() => {
     if (view !== "loggedIn" || !userId || remoteLoaded) return;
     const loadRemote = async () => {
@@ -316,7 +336,6 @@ export default function Page() {
     loadRemote();
   }, [view, userId, remoteLoaded]);
 
-  // Save Remote
   useEffect(() => {
     if (view !== "loggedIn" || !userId) return;
     const saveRemote = async () => {
@@ -346,17 +365,16 @@ export default function Page() {
     if (viewMode === "chat") scrollToBottom();
   }, [messages.length, viewMode]);
 
+  // --- UTILS ---
   function renderAssistantMarkdown(text: string) {
     const lines = text.split(/\r?\n/);
     const blocks: JSX.Element[] = [];
     let currentList: string[] = [];
-
     const flushList = () => {
       if (!currentList.length) return;
       blocks.push(<ul className="list-disc pl-5 space-y-1">{currentList.map((item, idx) => <li key={idx} className="leading-relaxed">{applyBoldInline(item)}</li>)}</ul>);
       currentList = [];
     };
-
     lines.forEach((rawLine) => {
       const line = rawLine || "";
       if (line.startsWith("### ")) {
@@ -395,23 +413,18 @@ export default function Page() {
         if (!selectedUniverseId) setShowUniverseModal(true);
         return;
     }
-
     if (typingIntervalRef.current !== null) {
       window.clearInterval(typingIntervalRef.current);
       typingIntervalRef.current = null;
     }
-
     const newUserMessage: ChatMessage = {
       id: typeof crypto !== "undefined" ? crypto.randomUUID() : Date.now().toString(),
       role: "user",
       content: value,
     };
-
     const placeholderId = typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-assistant-placeholder`;
     const placeholderAssistant: ChatMessage = { id: placeholderId, role: "assistant", content: "" };
-
     setInput("");
-
     setSessions((prev) => prev.map((s) => {
       if (s.id !== activeSession.id) return s;
       const hadUserBefore = s.messages.some((m) => m.role === "user");
@@ -420,21 +433,15 @@ export default function Page() {
       if (!hadUserBefore && s.title === "Nova conversa") newTitle = buildTitleFromQuestion(newUserMessage.content);
       return { ...s, title: newTitle, messages: updatedMessages, mode: s.mode ?? "consulta" };
     }));
-
     setLoading(true);
 
     try {
       const currentUniName = universes.find(u => u.id === selectedUniverseId)?.nome || "neste universo";
       const currentPersona = PERSONAS[mode].nome;
       const currentPersonaTitle = PERSONAS[mode].titulo;
-
-      const systemPromptBase = 
-        `Você é ${currentPersona}, o ${currentPersonaTitle} de ${currentUniName}. Você está em MODO ${mode.toUpperCase()}.`;
-
+      const systemPromptBase = `Você é ${currentPersona}, o ${currentPersonaTitle} de ${currentUniName}. Você está em MODO ${mode.toUpperCase()}.`;
       const systemPromptConsulta = systemPromptBase + ` Use apenas o lore existente fornecido pelo banco de dados local. Não invente fatos novos e nem traga informações de outras mídias se não estiverem no contexto. Se não tiver certeza, diga que aquela informação ainda não está definida neste universo.`;
-      
       const systemPromptCriativo = systemPromptBase + ` Você pode propor ideias novas de ficção para ${currentUniName}, desde que respeitem a coerência do lore já estabelecido aqui.`;
-
       const systemPrompt = mode === "consulta" ? systemPromptConsulta : systemPromptCriativo;
       
       const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
@@ -455,14 +462,12 @@ export default function Page() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let fullText = "";
-
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
           if (!chunk) continue;
           fullText += chunk;
-          
           setSessions((prev) => prev.map((s) => {
             if (s.id !== activeSession.id) return s;
             return { ...s, messages: s.messages.map(m => m.id === placeholderId ? { ...m, content: fullText } : m) };
@@ -472,11 +477,9 @@ export default function Page() {
         setLoading(false);
         return;
       }
-
       const data = await res.json();
       const fullReply: string = typeof data?.reply === "string" ? data.reply : "Algo deu errado ao gerar a resposta.";
       let index = 0; const step = 10; const delay = 20;
-
       typingIntervalRef.current = window.setInterval(() => {
         index += step;
         const slice = fullReply.slice(0, index);
@@ -516,7 +519,6 @@ export default function Page() {
   }
 
   function scrollToBottom() { const el = viewportRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }
-  
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!loading && selectedUniverseId) void onSubmit(); } }
   function startRenameSession(sessionId: string, currentTitle: string) { setRenamingSessionId(sessionId); setRenameDraft(currentTitle); }
   function confirmRenameSession() { if (!renamingSessionId) return; const newTitle = renameDraft.trim(); if (!newTitle) { setRenamingSessionId(null); setRenameDraft(""); return; } setSessions((prev) => prev.map((s) => s.id === renamingSessionId ? { ...s, title: newTitle } : s)); setRenamingSessionId(null); setRenameDraft(""); }
@@ -579,6 +581,63 @@ export default function Page() {
         newChatCallback("consulta", uniData.id);
     } catch(e: any) { alert("Falha inesperada durante a criação do universo: " + e.message); } finally { setIsCreatingUniverse(false); }
   }
+
+  // Helpers para catálogo
+  const catalogTypes: { id: string; label: string }[] = [
+    { id: "all", label: "Todos os tipos" },
+    { id: "personagem", label: "Personagens" },
+    { id: "local", label: "Locais" },
+    { id: "organizacao", label: "Empresas / Agências" },
+    { id: "midia", label: "Mídias" },
+    { id: "arquivo_aris", label: "Arquivos ARIS" },
+    { id: "episodio", label: "Episódios" },
+    { id: "evento", label: "Eventos" },
+    { id: "conceito", label: "Conceitos" },
+    { id: "objeto", label: "Objetos" },
+  ];
+
+  const filteredEntitiesAll = entities.filter((e) => {
+    if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
+    if (selectedType !== "all" && e.tipo !== selectedType) return false;
+    if (searchTerm.trim().length > 0) {
+      const q = normalize(searchTerm);
+      const inTitle = normalize(e.titulo).includes(q);
+      const inResumo = normalize(e.resumo).includes(q);
+      const inSlug = normalize(e.slug).includes(q);
+      const inTags = (e.tags ?? []).map((t) => t.toLowerCase()).some((t) => t.includes(q));
+      const inCodes = (e.codes ?? []).map((c) => c.toLowerCase()).some((c) => c.includes(q));
+      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntitiesAll.length / itemsPerPage));
+  const safePage = currentPage > totalPages ? totalPages : Math.max(1, currentPage);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const pageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
+
+  function getWorldName(worldId?: string | null): string | null {
+    if (!worldId) return null;
+    const w = worlds.find((w) => w.id === worldId);
+    return w ? w.nome : worldId;
+  }
+
+  function handleCatalogClick(entity: LoreEntity) {
+    const titulo = entity.titulo;
+    const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
+    setInput(prompt);
+    setViewMode("chat");
+  }
+
+  const CatalogPagination = () => {
+    if (totalPages <= 1) return null;
+    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-1 text-xs text-gray-300 my-2">
+        {pages.map((p) => (<button key={p} onClick={() => setCurrentPage(p)} className={clsx("px-2 py-1 rounded-md border", p === safePage ? "bg-white/20 border-white text-white" : "bg-transparent border-white/20 hover:bg-white/10")}>{p}</button>))}
+      </div>
+    );
+  };
 
   const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Or";
   const selectedUniverseData = universes.find(u => u.id === selectedUniverseId);
@@ -762,7 +821,7 @@ export default function Page() {
           
           <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-2">
-              <span className="text-gray-400">Mudar para:</span>
+              <span className="text-gray-400">Modo:</span>
               <button 
                 onClick={() => handleModeChange("consulta")} 
                 className={clsx("px-2 py-1 rounded-full border text-xs", mode === "consulta" ? persona.styles.button : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}
@@ -776,6 +835,31 @@ export default function Page() {
                 disabled={!selectedUniverseId}
               >
                 Criativo
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
+              <button
+                onClick={() => setViewMode("chat")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "chat"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setViewMode("catalog")}
+                className={clsx(
+                  "px-2 py-1 rounded-full text-[11px]",
+                  viewMode === "catalog"
+                    ? "bg-white text-black"
+                    : "text-gray-300 hover:bg-white/10"
+                )}
+              >
+                Catálogo
               </button>
             </div>
           </div>
@@ -819,9 +903,124 @@ export default function Page() {
 
             {/* MODO CATÁLOGO */}
             {viewMode === "catalog" && selectedUniverseId && (
-               <div className="space-y-3">
-                  {/* ... Catálogo content ... */}
-               </div>
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Catálogo do AntiVerso
+                </h2>
+                <p className="text-xs text-gray-400 mb-1">
+                  {filteredEntitiesAll.length} entrada
+                  {filteredEntitiesAll.length === 1 ? "" : "s"} encontrada
+                  {selectedWorldId !== "all" && (
+                    <>
+                      {" "}
+                      · Mundo:{" "}
+                      <span className="text-gray-200">
+                        {getWorldName(selectedWorldId) ?? selectedWorldId}
+                      </span>
+                    </>
+                  )}
+                  {selectedType !== "all" && (
+                    <>
+                      {" "}
+                      · Tipo:{" "}
+                      <span className="text-gray-200">
+                        {
+                          catalogTypes.find((t) => t.id === selectedType)
+                            ?.label
+                        }
+                      </span>
+                    </>
+                  )}
+                  {searchTerm.trim().length > 0 && (
+                    <>
+                      {" "}
+                      · Busca:{" "}
+                      <span className="text-gray-200">
+                        “{searchTerm.trim()}”
+                      </span>
+                    </>
+                  )}
+                </p>
+
+                <CatalogPagination />
+
+                {catalogError && (
+                  <p className="text-xs text-red-400 mt-2">{catalogError}</p>
+                )}
+
+                {loadingCatalog && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Carregando catálogo...
+                  </p>
+                )}
+
+                {!loadingCatalog && pageEntities.length === 0 && (
+                  <p className="text-sm text-gray-500 mt-4">
+                    Nenhuma entrada para esses filtros. Tente limpar a busca ou
+                    escolher outro mundo/tipo.
+                  </p>
+                )}
+
+                {!loadingCatalog && pageEntities.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {pageEntities.map((entity) => (
+                      <button
+                        key={entity.id}
+                        onClick={() => handleCatalogClick(entity)}
+                        className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-50 truncate">
+                            {entity.titulo}
+                          </h3>
+                          {entity.tipo && (
+                            <span className="text-[10px] uppercase tracking-wide px-2 py-[2px] rounded-full border border-white/20 text-gray-200">
+                              {entity.tipo}
+                            </span>
+                          )}
+                        </div>
+
+                        {entity.resumo && (
+                          <p className="text-xs text-gray-300 line-clamp-3 mb-2">
+                            {entity.resumo}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-400">
+                          {getWorldName(entity.world_id) && (
+                            <span className="px-2 py-[1px] rounded-full bg-white/5">
+                              {getWorldName(entity.world_id)}
+                            </span>
+                          )}
+                          {(entity.codes ?? []).map((code) => (
+                            <span
+                              key={code}
+                              className="px-2 py-[1px] rounded-full bg-black/40 border border-white/20 text-[10px]"
+                            >
+                              {code}
+                            </span>
+                          ))}
+                          {(entity.tags ?? []).map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-2 py-[1px] rounded-full bg-black/30 border border-white/10"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                          {entity.ano_diegese && (
+                            <span className="ml-auto text-[10px] text-gray-400">
+                              Ano diegético: {entity.ano_diegese}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <CatalogPagination />
+              </div>
             )}
             
           </div>
