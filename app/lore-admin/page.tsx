@@ -576,9 +576,10 @@ function LoreAdminContent() {
     if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); // Chama o fetch completo
   }
 
+  // MUDANÇA: Altera a referência ao Or para Urizen
   async function checkConsistency() {
     const textToCheck = `[PROPOSTA DE FICHA] Título: ${fichaForm.titulo} Tipo: ${fichaForm.tipo} Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"} Resumo: ${fichaForm.resumo} Conteúdo: ${fichaForm.conteudo}`.trim();
-    alert("Consultando o Or sobre a coerência...");
+    alert("Consultando Urizen, a Lei, sobre a coerência...");
     try {
       const res = await fetch("/api/lore/consistency", {
         method: "POST",
@@ -586,7 +587,8 @@ function LoreAdminContent() {
         body: JSON.stringify({ input: textToCheck, universeId: selectedUniverseId })
       });
       const data = await res.json();
-      if (data.analysis) alert("RELATÓRIO DO OR:\n\n" + data.analysis);
+      // MUDANÇA: Altera o título do relatório para Urizen
+      if (data.analysis) alert("RELATÓRIO DE URIZEN:\n\n" + data.analysis);
       else alert("Erro ao analisar. Tente novamente.");
     } catch (err) {
       console.error(err);
@@ -726,7 +728,7 @@ function LoreAdminContent() {
     <div className="h-screen bg-black text-neutral-100 flex flex-col overflow-hidden">
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between bg-black/40 backdrop-blur-md">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-[11px] text-neutral-300 hover:text-white">← Home</a>
+          <a href="/" className="text-[11px] text-neutral-300 hover:text-white">← Home (Chat)</a>
           <a href="/lore-upload" className="text-[11px] text-neutral-400 hover:text-white">Upload</a>
           <a href="/lore-admin/timeline" className="text-[11px] text-neutral-400 hover:text-white">Timeline</a>
         </div>
@@ -959,7 +961,6 @@ function LoreAdminContent() {
                   }}
                 >
                   {/* Mundo Raiz (Universo Global) */}
-                  {/* Encontrar o mundo raiz se existir */}
                   {(() => {
                      const rootWorld = worlds.find(w => w.is_root);
                      return rootWorld ? (
@@ -1007,7 +1008,8 @@ function LoreAdminContent() {
                 </div>
                 {fichaForm.imagem_url && (
                   <div className="mt-2 p-1 border border-zinc-800 rounded bg-black/50 w-24 h-24 flex items-center justify-center overflow-hidden">
-                    <img src={fichaForm.imagem_url} className="max-w-full max-h-full object-contain" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={fichaForm.imagem_url} alt="" className="max-w-full max-h-full object-contain" />
                   </div>
                 )}
               </div>
@@ -1029,7 +1031,7 @@ function LoreAdminContent() {
               {fichaForm.tipo === 'evento' && (
                 <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
-                   <div><label className="text-[10px] uppercase text-zinc-500">Descrição da Data</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} /></div>
+                   <div><label className="text-[10px] uppercase text-zinc-500">Descrição Data</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.descricao_data || ''} onChange={e=>setFichaForm({...fichaForm, descricao_data: e.target.value})} /></div>
                    <div className="grid grid-cols-2 gap-2">
                       <div><label className="text-[10px] uppercase text-zinc-500">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_inicio || ''} onChange={e=>setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
                       <div><label className="text-[10px] uppercase text-zinc-500">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white" value={fichaForm.data_fim || ''} onChange={e=>setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
@@ -1045,7 +1047,7 @@ function LoreAdminContent() {
               <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo || ""} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
-               <button type="button" onClick={checkConsistency} className="px-4 py-2 rounded text-xs font-bold border border-purple-500 text-purple-400 hover:bg-purple-900/20">🕵️ Verificar Coerência</button>
+               <button type="button" onClick={checkConsistency} className="px-4 py-2 rounded text-xs font-bold border border-purple-500 text-purple-400 hover:bg-purple-900/20">🕵️ Verificar Coerência (Urizen)</button>
                <button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button>
                <button type="submit" disabled={isUploadingImage} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingFicha ? "Salvando..." : "Salvar"}</button>
             </div>
