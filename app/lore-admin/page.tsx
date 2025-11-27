@@ -458,7 +458,6 @@ function LoreAdminContent() {
         if (deleteCodesError) console.warn("Aviso: Falha ao limpar códigos (ignorando).", deleteCodesError);
 
         // 1b. Deletar Relações (onde a ficha é SOURCE ou TARGET)
-        // Usamos .or() para pegar as relações onde a ficha é fonte OU alvo
         const { error: deleteRelsError } = await supabaseBrowser
             .from("lore_relations")
             .delete()
@@ -861,7 +860,7 @@ function LoreAdminContent() {
 
               <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-12">
                 <div className="space-y-6">
-                   {selectedFicha.imagem_url && <div className="rounded border border-neutral-800 overflow-hidden bg-neutral-900/30"><img src={selectedFicha.imagem_url} className="w-full object-cover opacity-80 hover:opacity-100" /></div>}
+                   {selectedFicha.imagem_url && <div className="rounded border border-neutral-800 overflow-hidden bg-neutral-900/30"><img src={selectedFicha.imagem_url} alt="" className="w-full object-cover opacity-80 hover:opacity-100" /></div>}
                    <div><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-neutral-300 leading-loose whitespace-pre-wrap font-light">{renderWikiText(selectedFicha.conteudo)}</div></div>
                    {selectedFicha.aparece_em && <div className="p-4 rounded bg-neutral-900/30 border border-neutral-800"><h3 className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-1">Aparece em</h3><div className="text-xs text-neutral-400 whitespace-pre-wrap">{renderWikiText(selectedFicha.aparece_em)}</div></div>}
                 </div>
@@ -924,18 +923,18 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAL UNIVERSO */}
+      {/* MODAL UNIVERSO (CORRIGIDO) */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
+          <form onSubmit={e => { e.preventDefault(); saveUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
             <h3 className="text-white font-bold mb-4">{universeFormMode === 'create' ? 'Novo Universo' : 'Editar Universo'}</h3>
             <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} />
             <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-24 text-xs" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setUniverseFormMode('idle')} className="text-zinc-400 text-xs">Cancelar</button>
-              <button onClick={saveUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button>
+              <button type="button" onClick={() => setUniverseFormMode('idle')} className="text-zinc-400 text-xs">Cancelar</button>
+              <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
       
