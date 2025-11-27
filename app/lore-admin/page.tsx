@@ -233,42 +233,72 @@ function LoreAdminContent() {
       if (urlUni && data.find(u => u.id === urlUni)) {
         handleSelectUniverse(urlUni);
       } else if (data.length > 0 && !selectedUniverseId) {
-        handleSelectUniverse(data[0].id);
+        // CORREÇÃO DE SELEÇÃO: Se for o primeiro load, pega o primeiro universo e carrega o resto.
+        const defaultUniId = data[0].id;
+        setSelectedUniverseId(defaultUniId);
+        loadWorlds(defaultUniId);
+        // Não chama loadFichas aqui, loadWorlds vai chamar
       }
     }
     setIsLoadingData(false);
   }
 
   async function loadWorlds(uniId: string) {
+    // 1. Carregar todos os mundos do universo
     const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
     const list = (data as World[]) || [];
     setWorlds(list);
+
+    // 2. Determinar qual mundo deve ser o selecionado
     const urlWorld = searchParams.get("world");
     const targetWorld = list.find(w => w.id === urlWorld);
+    
+    let effectiveWorldId = selectedWorldId;
+    
     if (targetWorld) {
-      setSelectedWorldId(targetWorld.id);
+        effectiveWorldId = targetWorld.id;
     } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
-      setSelectedWorldId(null);
+        // Se o mundo selecionado não existe mais no novo universo, deseleciona.
+        effectiveWorldId = null; 
     }
-    loadFichas(uniId, targetWorld ? targetWorld.id : selectedWorldId);
+    
+    // CORREÇÃO: Força a seleção a NULL se não for um mundo válido para carregar 'Antiverso (Tudo)'
+    setSelectedWorldId(effectiveWorldId); 
+
+    // 3. Carregar fichas com base no mundo efetivo.
+    loadFichas(uniId, effectiveWorldId);
   }
 
   async function loadFichas(uniId: string, wId: string | null) {
     setError(null);
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
+    
     if (wId) {
+      // Se há um worldId específico selecionado (filtro por mundo)
       const { data: rootWorldData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId).eq("is_root", true).single();
-      if (rootWorldData) {
-        query = query.or(`world_id.eq.${wId},world_id.eq.${rootWorldData.id}`);
+      
+      // CORREÇÃO DA LÓGICA DE FILTRO: Se o mundo selecionado é o mundo raiz, 
+      // ou se nenhum mundo está selecionado (wId === null), carrega todas as fichas do universo.
+      if (wId === rootWorldData?.id || wId === null) {
+          const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
+          const ids = wData?.map((w:any) => w.id) || [];
+          if (ids.length > 0) query = query.in("world_id", ids);
+          else query = query.eq("id", "0");
       } else {
-        query = query.eq("world_id", wId);
+          // Filtra por um mundo filho específico
+          query = query.eq("world_id", wId);
       }
+    } else if (uniId) {
+        // Se wId é null (Antiverso - Tudo), carrega todas as fichas do universo
+        const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
+        const ids = wData?.map((w:any) => w.id) || [];
+        if (ids.length > 0) query = query.in("world_id", ids);
+        else query = query.eq("id", "0");
     } else {
-      const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
-      const ids = wData?.map((w:any) => w.id) || [];
-      if (ids.length > 0) query = query.in("world_id", ids);
-      else query = query.eq("id", "0");
+        // Não há universo selecionado, não carrega nada
+        query = query.eq("id", "0");
     }
+    
     const { data, error } = await query;
     if (error) console.error(error);
     const loadedFichas = (data as FichaFull[]) || [];
@@ -462,7 +492,7 @@ function LoreAdminContent() {
     }
     cancelFichaForm();
     const currentWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-    await fetchFichas(selectedUniverseId!, currentWorld ? currentWorld.id : null);
+    await loadFichas(selectedUniverseId!, currentWorld ? currentWorld.id : null);
   }
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
@@ -534,7 +564,7 @@ function LoreAdminContent() {
 
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
-  const selectedWorldData = worlds.find(w => w.id === selectedWorldId); // Correção aplicada aqui!
+  const selectedWorldData = worlds.find(w => w.id === selectedWorldId); // Correção do bug anterior
   const rootWorld = worlds.find(w => w.is_root);
   const childWorlds = worlds.filter(w => !w.is_root);
 
@@ -632,6 +662,7 @@ function LoreAdminContent() {
                 <button onClick={() => currentUniverse && requestDeleteUniverse(currentUniverse)} className="p-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900" title="Deletar Universo">×</button>
               </div>
 
+              {/* MUNDO RAIZ / TODAS AS FICHAS */}
               <div onClick={() => handleSelectWorld(null)} className={`cursor-pointer p-3 rounded border transition-all ${!selectedWorldId ? "border-emerald-500 bg-emerald-900/20 text-white" : "border-zinc-800 text-zinc-400 hover:bg-zinc-900"}`}>
                 <div className="text-xs font-bold flex items-center gap-2">{currentUniverse?.nome || "Universo"} (Tudo)</div>
                 <div className="text-[9px] opacity-60 mt-1">Regras, conceitos e todas as fichas.</div>
@@ -641,6 +672,7 @@ function LoreAdminContent() {
               <h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2>
               <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
             </div>
+            {/* CORREÇÃO: Renderiza apenas mundos FILHOS */}
             <div className="flex-1 overflow-auto space-y-1 pr-1">
               {childWorlds.map((w) => (
                 <div key={w.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} onClick={() => handleSelectWorld(w.id)}>
@@ -651,11 +683,14 @@ function LoreAdminContent() {
                   </div>
                 </div>
               ))}
+              {childWorlds.length === 0 && (
+                <p className="text-[10px] text-zinc-500 mt-2">Nenhum mundo filho encontrado neste universo.</p>
+              )}
             </div>
           </section>
         )}
 
-        {/* 2. COLUNA LISTA */}
+        {/* 2. COLUNA LISTA (FICHAS) */}
         {!isFocusMode && (
           <section className="w-80 border-r border-neutral-800 p-4 flex flex-col min-h-0 bg-neutral-900/20">
             <div className="flex items-center justify-between mb-4"><h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">{selectedWorldId ? worlds.find(w=>w.id===selectedWorldId)?.nome : "Todas as Fichas"}</h2><button onClick={startCreateFicha} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white">+ Nova</button></div>
@@ -687,6 +722,9 @@ function LoreAdminContent() {
             </div>
 
             <div className="flex-1 overflow-auto space-y-1 pr-1">
+              {fichas.length === 0 && (
+                 <p className="text-[10px] text-zinc-500 mt-2">Nenhuma ficha carregada. Verifique os mundos ou filtros.</p>
+              )}
               {filteredFichas.map((f) => (
                 <div key={f.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all flex flex-col gap-1 ${selectedFichaId === f.id ? "border-emerald-500/50 bg-emerald-900/20" : "border-neutral-800/50 hover:bg-neutral-800/50"}`} onClick={() => handleSelectFicha(f.id)}>
                   <div className="flex justify-between items-start pr-8"><span className="font-medium text-neutral-200 line-clamp-1">{f.titulo}</span><span className="text-[9px] uppercase tracking-wide text-neutral-500">{f.tipo}</span></div>
