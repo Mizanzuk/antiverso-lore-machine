@@ -514,7 +514,11 @@ export default function TimelinePage() {
         <aside className="w-64 border-r border-zinc-800 p-4 overflow-y-auto bg-zinc-950/50">
           <div className="mb-4">
              <label className="text-[9px] uppercase text-zinc-500 font-bold">Universo</label>
-             <select className="w-full bg-black border border-zinc-800 rounded text-xs p-1 mt-1" value={selectedUniverseId || ""} onChange={e => setSelectedUniverseId(e.target.value)}>
+             <select 
+               className="w-full bg-black border border-zinc-800 rounded text-xs p-1 mt-1" 
+               value={selectedUniverseId || ""} 
+               onChange={e => setSelectedUniverseId(e.target.value)}
+             >
                {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
              </select>
           </div>
