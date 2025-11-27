@@ -186,6 +186,7 @@ export default function LoreUploadPage() {
   // NOVOS ESTADOS (UNIVERSO)
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
+  const [userId, setUserId] = useState<string | null>(null); // Estado para User ID
 
   // ESTADOS ORIGINAIS
   const [worlds, setWorlds] = useState<World[]>([]);
@@ -216,8 +217,18 @@ export default function LoreUploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. CARREGAR UNIVERSOS
+  // 0. AUTH (Carrega usuário)
   useEffect(() => {
+    const getUser = async () => {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (session) setUserId(session.user.id);
+    };
+    getUser();
+  }, []);
+
+  // 1. CARREGAR UNIVERSOS (Depende de userId)
+  useEffect(() => {
+    if (!userId) return;
     async function fetchUniverses() {
       const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
       if (data) {
@@ -226,14 +237,17 @@ export default function LoreUploadPage() {
       }
     }
     fetchUniverses();
-  }, []);
+  }, [userId]);
 
   // RefetchWorlds declarado aqui para ser chamado no useEffect e no modal
   const fetchWorlds = async () => {
+      if (!userId) return;
       setError(null);
       try {
         const params = new URLSearchParams({ universeId: selectedUniverseId });
-        const res = await fetch(`/api/catalog?${params.toString()}`);
+        const res = await fetch(`/api/catalog?${params.toString()}`, {
+            headers: { 'x-user-id': userId } // Header de segurança
+        });
         
         if (!res.ok) {
            throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
@@ -268,9 +282,9 @@ export default function LoreUploadPage() {
   
   // 2. CARREGAR MUNDOS (Chama a função refatorada)
   useEffect(() => {
-    if (!selectedUniverseId) return;
+    if (!selectedUniverseId || !userId) return;
     fetchWorlds();
-  }, [selectedUniverseId]);
+  }, [selectedUniverseId, userId]);
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -560,6 +574,11 @@ export default function LoreUploadPage() {
     setError(null);
     setSuccessMessage(null);
 
+    if (!userId) {
+       setError("Erro de autenticação. Recarregue a página.");
+       return;
+    }
+
     if (suggestedFichas.length === 0) {
       setError("Não há fichas para salvar.");
       return;
@@ -608,7 +627,10 @@ export default function LoreUploadPage() {
 
       const response = await fetch("/api/lore/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            "x-user-id": userId // ENVIANDO HEADER CORRETO
+        },
         body: JSON.stringify(payload),
       });
 
