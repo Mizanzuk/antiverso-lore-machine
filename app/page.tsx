@@ -107,7 +107,7 @@ const MAX_SESSIONS = 40;
 
 const STOPWORDS = new Set([
   "de", "da", "do", "das", "dos", "e", "a", "o", "os", "as", "um", "uma", "uns", "umas",
-  "que", "por", "para", "com", "na", "no", "nas", "nos", "nas", "em", "se", "sobre", "como",
+  "que", "por", "para", "com", "na", "no", "nas", "nos", "em", "se", "sobre", "como",
   "qual", "quais", "quando", "onde", "porque", "porquê", "ser", "tem", "ter", "vai",
   "vou", "tá", "tava", "está", "estao", "estão", "quero", "queria", "querer", "novo",
   "nova", "novas", "novos", "historia", "história", "historias", "histórias", "contar",
@@ -521,17 +521,19 @@ export default function Page() {
     });
   }
 
-  // --- HANDLERS DE NOVO UNIVERSO ---
+  // --- HANDLERS DE NOVO UNIVERSO (Refatorado) ---
   async function createUniverse() {
     if (!newUniverseName.trim()) return alert("Nome do universo é obrigatório");
     
+    // 1. Criar Universo
     const { data: uniData, error: uniError } = await supabaseBrowser
       .from("universes")
       .insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null })
       .select().single();
     
-    if (uniError || !uniData) return alert("Erro ao criar universo.");
+    if (uniError || !uniData) return alert("Erro ao criar universo: " + uniError.message);
 
+    // 2. Criar Mundo Raiz
     const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
     await supabaseBrowser.from("worlds").insert({
       id: rootId,
@@ -542,12 +544,14 @@ export default function Page() {
       ordem: 0
     });
 
+    // Atualiza estado localmente e seleciona o novo ID
     setUniverses(prev => [...prev, uniData]);
     setSelectedUniverseId(uniData.id);
     setShowUniverseModal(false);
     setNewUniverseName("");
     setNewUniverseDesc("");
     
+    // Cria um chat novo para o novo universo
     newChat();
   }
 
