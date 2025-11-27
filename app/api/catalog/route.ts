@@ -26,10 +26,12 @@ export async function GET() {
       console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
+    // CORREÇÃO: Removendo 'codigo' da seleção, pois a coluna 'lore_entities.codigo' não existe ou está nomeada incorretamente.
+    // Preservando 'codes' que deve ser o campo correto (array de códigos).
     const { data: entities, error: entitiesError } = await client
       .from("lore_entities")
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo, codes"
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codes"
       )
       .order("ano_diegese", { ascending: true })
       .limit(500);
