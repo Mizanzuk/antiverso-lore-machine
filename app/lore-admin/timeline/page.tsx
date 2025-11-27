@@ -46,6 +46,12 @@ type TimelineGroup = {
   isOpen: boolean;
 };
 
+type CatalogResponse = {
+  worlds: World[];
+  entities: any[];
+  types: { id: string; label: string }[];
+};
+
 // --- CONSTANTES ---
 const CAMADAS = [
   { value: "", label: "Todas as camadas" },
@@ -161,41 +167,42 @@ export default function TimelinePage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS (Filtrando Root)
-  useEffect(() => {
+  // 2. CARREGAR MUNDOS (CORRIGIDO: CHAMA API DO SERVIDOR)
+  // Refatorado para usar a API /api/catalog (RLS bypass)
+  const fetchWorlds = async () => {
     if (!selectedUniverseId) return;
 
-    async function fetchWorlds() {
-      setIsLoadingData(true);
-      try {
-        const { data, error } = await supabaseBrowser
-          .from("worlds")
-          .select("id, nome, descricao, ordem, has_episodes, is_root") 
-          .eq("universe_id", selectedUniverseId)
-          .order("ordem", { ascending: true });
+    setIsLoadingData(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ universeId: selectedUniverseId });
+      const res = await fetch(`/api/catalog?${params.toString()}`);
 
-        if (error) throw error;
-
-        const list = (data || []) as World[];
-        
-        // CORREÇÃO: Removendo o filtro de 'playableWorlds'. 
-        // Vamos deixar todos os mundos aparecerem, mas o botão "Antiverso (Completo)" 
-        // já cuida da lógica do is_root.
-        // O filtro original era: const playableWorlds = list.filter(w => !w.is_root);
-        // Agora apenas definimos todos os mundos carregados
-        setWorlds(list); 
-        // Não reseta selectedWorldId aqui para manter o estado se possível
-      } catch (err) {
-        console.error(err);
-        setError("Erro ao carregar mundos.");
-      } finally {
-        setIsLoadingData(false);
+      if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Falha na rede ou API' }));
+          throw new Error(errorData.error || `Falha ao carregar Mundos. Status: ${res.status}`);
       }
+      
+      const data = (await res.json()) as CatalogResponse;
+      
+      // Define todos os mundos carregados pela API.
+      setWorlds(data.worlds); 
+      
+    } catch (err: any) {
+      console.error(err);
+      setError("Erro ao carregar mundos.");
+      setWorlds([]);
+    } finally {
+      setIsLoadingData(false);
     }
+  }
+
+  useEffect(() => {
+    if (!selectedUniverseId) return;
     fetchWorlds();
   }, [selectedUniverseId]);
 
-  // 3. CARREGAR EVENTOS (CORREÇÃO: CHAMA A API DO BACK-END)
+  // 3. CARREGAR EVENTOS (CHAMA A API DO BACK-END)
   useEffect(() => {
     if (!selectedUniverseId) return;
 
@@ -207,7 +214,6 @@ export default function TimelinePage() {
         // CONSTRUÇÃO DOS PARÂMETROS PARA A ROTA DA API (BACK-END)
         const params = new URLSearchParams();
         
-        // Se um mundo específico estiver selecionado, usamos ele
         if (selectedWorldId) {
             params.set("worldId", selectedWorldId);
         } else {
@@ -422,6 +428,8 @@ export default function TimelinePage() {
 
       const inserted = (data?.[0] || null) as World | null;
       if (inserted) {
+        // CORREÇÃO: Força o refetch da lista de mundos
+        fetchWorlds();
         setWorlds((prev) => [...prev, inserted]);
         setCreateData(prev => ({ ...prev, world_id: inserted.id }));
         setShowNewWorldModal(false);
@@ -752,40 +760,13 @@ export default function TimelinePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
             <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
             <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
             <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Componente Auxiliar para Renderizar o Card
-function EventCard({ event, selectedEvent, onSelect, onDelete, onEdit }: { event: TimelineEvent, selectedEvent: TimelineEvent | null, onSelect: (e: TimelineEvent) => void, onDelete: (e: TimelineEvent) => void, onEdit: (e: TimelineEvent) => void }) {
-  const isSelected = selectedEvent?.ficha_id === event.ficha_id;
-  return (
-    <div 
-      onClick={() => onSelect(event)}
-      className={clsx(
-        "group relative p-3 rounded-lg border transition-all cursor-pointer hover:shadow-lg",
-        isSelected ? "bg-zinc-800 border-emerald-500/50 shadow-emerald-900/10" : "bg-zinc-900/40 border-zinc-800 hover:border-zinc-600"
-      )}
-    >
-      <div className="flex justify-between items-start mb-1">
-        <span className="text-[10px] font-mono text-emerald-500/80 bg-emerald-900/20 px-1.5 rounded">{formatDescricaoData(event) || "S/ Data"}</span>
-        {event.camada_temporal && <span className="text-[9px] text-zinc-500 uppercase">{event.camada_temporal.replace('_', ' ')}</span>}
-      </div>
-      <h4 className={clsx("font-semibold text-sm mb-1", isSelected ? "text-white" : "text-zinc-300")}>{event.titulo || "Sem título"}</h4>
-      {event.resumo && <p className="text-xs text-zinc-500 line-clamp-2">{event.resumo}</p>}
-      
-      {/* Botões de ação rápida no hover */}
-      <div className="absolute top-2 right-2 hidden group-hover:flex gap-1">
-         <button onClick={(e) => { e.stopPropagation(); onEdit(event); }} className="p-1 bg-zinc-700 text-zinc-300 rounded hover:bg-zinc-600 hover:text-white text-[10px]">✎</button>
-         <button onClick={(e) => { e.stopPropagation(); onDelete(event); }} className="p-1 bg-red-900/50 text-red-300 rounded hover:bg-red-900 hover:text-white text-[10px]">×</button>
-      </div>
     </div>
   );
 }
