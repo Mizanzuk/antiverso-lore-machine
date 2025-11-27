@@ -22,6 +22,7 @@ function makeSlug(title: string | null | undefined): string {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const worldId = searchParams.get("worldId");
+  const universeId = searchParams.get("universeId"); // NOVO: Captura o universeId
   const camada = searchParams.get("camada_temporal");
 
   if (!supabaseAdmin) {
@@ -41,7 +42,34 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: true });
 
   if (worldId) {
+    // Se worldId é fornecido, filtra por ele.
     query = query.eq("world_id", worldId);
+  } else if (universeId) {
+    // Se universeId é fornecido (e não há worldId), buscamos todos os world_ids desse universo.
+    try {
+      const { data: worldsData, error: worldsError } = await supabaseAdmin
+        .from("worlds")
+        .select("id")
+        .eq("universe_id", universeId);
+
+      if (worldsError) throw worldsError;
+
+      const worldIds = worldsData?.map((w) => w.id) || [];
+      
+      if (worldIds.length > 0) {
+        // Filtra os eventos de todas as fichas que pertencem a algum mundo desse universo.
+        query = query.in("world_id", worldIds);
+      } else {
+        // Não há mundos no universo, retorna vazio.
+        return NextResponse.json({ success: true, error: null, events: [] });
+      }
+    } catch (err) {
+      console.error("Erro ao buscar mundos por universo:", err);
+      return NextResponse.json(
+        { success: false, error: "Erro ao buscar mundos para filtragem." },
+        { status: 500 }
+      );
+    }
   }
 
   if (camada && camada.trim().length > 0) {
