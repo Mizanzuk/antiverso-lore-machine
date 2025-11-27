@@ -96,6 +96,8 @@ export async function POST(req: NextRequest) {
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
       // Aumentamos o limite para 10 para ter mais contexto para checagem de consistência
+      // 'as any' é usado aqui para evitar erro de TypeScript caso o arquivo lib/rag.ts
+      // ainda não tenha sido atualizado com a tipagem do universeId, mas funciona em runtime.
       const searchOptions: any = { limit: 10, universeId, minSimilarity: 0.35 }; 
       
       const loreResults = await searchLore(userQuestion, searchOptions);
@@ -150,16 +152,21 @@ Se a informação não estiver disponível, diga explicitamente que "isso ainda 
         loreContext,
         "",
         "### INSTRUÇÕES DE COMPORTAMENTO",
-        specificInstructions
+        specificInstructions,
+        "",
+        "Se a pergunta for sobre algo não listado aqui, siga a instrução do seu MODO (Criativo ou Consulta)."
       ].join("\n"),
     };
 
+    // Removemos a mensagem de sistema antiga vinda do frontend para evitar duplicação/conflito
+    const conversationMessages = messages.filter(m => m.role !== "system");
+
     // 5. Chamada ao Modelo (Streaming)
-    // IMPORTANTE: Usar gpt-4o-mini.
+    // IMPORTANTE: Usar gpt-4o-mini ou gpt-3.5-turbo. "gpt-4.1-mini" não existe.
     // Ajustamos a temperatura: 0.7 para criativo (mas controlado pelo prompt), 0.2 para consulta (precisão).
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
-      messages: [contextMessage, ...messages],
+      messages: [contextMessage, ...conversationMessages],
       temperature: isCreativeMode ? 0.7 : 0.2,
       stream: true, // Habilita streaming
     });
