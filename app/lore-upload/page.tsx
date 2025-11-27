@@ -47,6 +47,7 @@ type World = {
   has_episodes?: boolean | null;
   descricao_longa?: string | null;
   universe_id?: string | null;
+  is_root?: boolean; // Adicionado para consistência
 };
 
 type SuggestedFicha = {
@@ -227,7 +228,7 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS (CORREÇÃO: CHAMA API DO SERVIDOR)
+  // 2. CARREGAR MUNDOS (CORRIGIDO: CHAMA API DO SERVIDOR)
   useEffect(() => {
     if (!selectedUniverseId) return;
 
@@ -243,22 +244,25 @@ export default function LoreUploadPage() {
         
         const data = (await res.json()) as CatalogResponse;
         
-        const worldList = data.worlds.filter(w => !w.is_root); // Filtramos o root para a lista dropdown
+        // Filtra para mostrar apenas mundos filhos (não is_root), mais Mundo Raiz
+        const rootWorld = data.worlds.find(w => w.is_root);
+        const childWorlds = data.worlds.filter(w => !w.is_root);
         
+        // Combina o mundo raiz (opcional) com os filhos para a lista do dropdown
+        let worldList: World[] = [];
+        if (rootWorld) worldList.push(rootWorld);
+        worldList = [...worldList, ...childWorlds];
+
         if (worldList.length > 0) {
           setWorlds(worldList);
-          // Tenta selecionar o primeiro mundo filho, senão o primeiro da lista geral.
-          setSelectedWorldId(worldList[0].id);
-        } else {
-          // Se não houver mundos filhos, ainda podemos ter o mundo raiz
-          const rootWorld = data.worlds.find(w => w.id === selectedUniverseId + '_root_' + w.id.split('_').pop());
-          if (rootWorld) {
-             setWorlds([rootWorld]);
-             setSelectedWorldId(rootWorld.id);
-          } else {
-             setWorlds([]);
-             setSelectedWorldId("");
+          
+          // Tenta selecionar o mundo atualmente selecionado, senão o primeiro
+          if (!worldList.find(w => w.id === selectedWorldId)) {
+             setSelectedWorldId(worldList[0].id);
           }
+        } else {
+          setWorlds([]);
+          setSelectedWorldId("");
         }
       } catch (err: any) {
         console.error("Erro ao carregar Mundos:", err);
@@ -267,7 +271,7 @@ export default function LoreUploadPage() {
     }
 
     fetchWorlds();
-  }, [selectedUniverseId]);
+  }, [selectedUniverseId]); // Depende apenas do UniverseId
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -364,7 +368,8 @@ export default function LoreUploadPage() {
 
       const inserted = (data?.[0] || null) as World | null;
       if (inserted) {
-        setWorlds((prev) => [...prev, inserted]);
+        // CORREÇÃO: Força o reload da lista para pegar o mundo criado via API
+        fetchWorlds(); 
         setSelectedWorldId(inserted.id);
         setShowNewWorldModal(false);
         setNewWorldName("");
@@ -647,6 +652,51 @@ export default function LoreUploadPage() {
     setSuggestedFichas([]);
     setSuccessMessage(null);
   }
+
+  // RefetchWorlds declarado aqui para ser chamado no useEffect e no modal
+  const fetchWorlds = async () => {
+      setError(null);
+      try {
+        const params = new URLSearchParams({ universeId: selectedUniverseId });
+        const res = await fetch(`/api/catalog?${params.toString()}`);
+        
+        if (!res.ok) {
+           throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
+        }
+        
+        const data = (await res.json()) as CatalogResponse;
+        
+        // Filtra para mostrar apenas mundos filhos (não is_root), mais Mundo Raiz
+        const rootWorld = data.worlds.find(w => w.is_root);
+        const childWorlds = data.worlds.filter(w => !w.is_root);
+        
+        // Combina o mundo raiz (opcional) com os filhos para a lista do dropdown
+        let worldList: World[] = [];
+        if (rootWorld) worldList.push(rootWorld);
+        worldList = [...worldList, ...childWorlds];
+
+        if (worldList.length > 0) {
+          setWorlds(worldList);
+          
+          if (!worldList.find(w => w.id === selectedWorldId)) {
+             setSelectedWorldId(worldList[0].id);
+          }
+        } else {
+          setWorlds([]);
+          setSelectedWorldId("");
+        }
+      } catch (err: any) {
+        console.error("Erro ao carregar Mundos:", err);
+        setError(err.message || "Erro ao carregar Mundos.");
+      }
+  }
+  
+  // 2. CARREGAR MUNDOS (Chama a função refatorada)
+  useEffect(() => {
+    if (!selectedUniverseId) return;
+    fetchWorlds();
+  }, [selectedUniverseId]);
+
 
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const worldHasEpisodes = selectedWorld?.has_episodes !== false;
