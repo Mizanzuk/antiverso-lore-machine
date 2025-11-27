@@ -410,25 +410,65 @@ function LoreAdminContent() {
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ nome: "", descricao: "", has_episodes: true }); }
   function startEditWorld(w: World) { setWorldFormMode("edit"); setWorldForm(w); }
   function cancelWorldForm() { setWorldFormMode("idle"); setWorldForm({}); }
+  
+  // CORREÇÃO 2: Força o reload do catálogo completo para resolver o problema do "Teste 4" não aparecer
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
     const payload = { ...worldForm, universe_id: selectedUniverseId };
     const safeName = payload.nome || "novo_mundo";
+    
     if (worldFormMode === 'create') {
        const slugId = safeName.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
-       await supabaseBrowser.from("worlds").insert([{ ...payload, id: slugId }]);
+       const { error } = await supabaseBrowser.from("worlds").insert([{ ...payload, id: slugId }]);
+       // Adicione tratamento de erro aqui se necessário
     } else {
-       await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
+       const { error } = await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
+       // Adicione tratamento de erro aqui se necessário
     }
+    
     setWorldFormMode("idle");
-    if(selectedUniverseId) loadWorlds(selectedUniverseId);
+    if(selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
   }
+  
+  // CORREÇÃO 1: Adiciona a exclusão de fichas para resolver o problema de Foreign Key (FK)
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
-    if (!confirm("Tem certeza que deseja deletar este Mundo? Essa ação é irreversível.")) return;
-    await supabaseBrowser.from("worlds").delete().eq("id", id);
-    if (selectedWorldId === id) setSelectedWorldId(null);
-    if (selectedUniverseId) loadWorlds(selectedUniverseId);
+    if (!confirm("ATENÇÃO: Deletar um mundo também deletará TODAS as fichas, códigos e relações vinculadas a ele. Esta ação é irreversível.")) return;
+    
+    setError(null);
+
+    try {
+      // 1. Deletar Fichas associadas (necessário para FK)
+      // Nota: A exclusão em cascata deve cuidar de codes e relations, mas forçamos a exclusão 
+      // das Fichas para que o mundo possa ser deletado.
+      const { error: deleteFichasError } = await supabaseBrowser
+        .from("fichas")
+        .delete()
+        .eq("world_id", id);
+
+      if (deleteFichasError) {
+        throw new Error("Não foi possível deletar fichas vinculadas. Erro: " + deleteFichasError.message);
+      }
+      
+      // 2. Deletar o Mundo
+      const { error: deleteWorldError } = await supabaseBrowser
+        .from("worlds")
+        .delete()
+        .eq("id", id);
+
+      if (deleteWorldError) {
+        throw new Error(deleteWorldError.message);
+      }
+
+      // 3. Atualizar estado
+      if (selectedWorldId === id) setSelectedWorldId(null);
+      if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
+
+    } catch (err: any) {
+      console.error("Erro ao deletar mundo:", err);
+      setError("Erro ao deletar Mundo: " + err.message);
+      
+    }
   }
 
   function startCreateFicha() { 
