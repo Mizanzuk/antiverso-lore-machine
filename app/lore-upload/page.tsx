@@ -89,6 +89,12 @@ type ExtractResponse = {
   fichas: ApiFicha[];
 };
 
+type CatalogResponse = {
+  worlds: World[];
+  entities: ApiFicha[];
+  types: { id: string; label: string }[];
+};
+
 // --- MAPA DE PREFIXOS POR TIPO ---
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
@@ -209,7 +215,7 @@ export default function LoreUploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. CARREGAR UNIVERSOS (NOVO)
+  // 1. CARREGAR UNIVERSOS
   useEffect(() => {
     async function fetchUniverses() {
       const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
@@ -221,33 +227,42 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS
+  // 2. CARREGAR MUNDOS (CORREÇÃO: CHAMA API DO SERVIDOR)
   useEffect(() => {
     if (!selectedUniverseId) return;
 
     async function fetchWorlds() {
-      const { data, error } = await supabaseBrowser
-        .from("worlds")
-        .select("*")
-        .eq("universe_id", selectedUniverseId)
-        .order("ordem", { ascending: true });
-
-      if (error) {
-        console.error(error);
-        setError("Erro ao carregar Mundos.");
-        return;
-      }
-
-      let list = (data || []) as World[];
-
-      if (list.length > 0) {
-        setWorlds(list);
-        if (!list.find(w => w.id === selectedWorldId)) {
-           setSelectedWorldId(list[0].id);
+      setError(null);
+      try {
+        const params = new URLSearchParams({ universeId: selectedUniverseId });
+        const res = await fetch(`/api/catalog?${params.toString()}`);
+        
+        if (!res.ok) {
+           throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
         }
-      } else {
-        setWorlds([]);
-        setSelectedWorldId("");
+        
+        const data = (await res.json()) as CatalogResponse;
+        
+        const worldList = data.worlds.filter(w => !w.is_root); // Filtramos o root para a lista dropdown
+        
+        if (worldList.length > 0) {
+          setWorlds(worldList);
+          // Tenta selecionar o primeiro mundo filho, senão o primeiro da lista geral.
+          setSelectedWorldId(worldList[0].id);
+        } else {
+          // Se não houver mundos filhos, ainda podemos ter o mundo raiz
+          const rootWorld = data.worlds.find(w => w.id === selectedUniverseId + '_root_' + w.id.split('_').pop());
+          if (rootWorld) {
+             setWorlds([rootWorld]);
+             setSelectedWorldId(rootWorld.id);
+          } else {
+             setWorlds([]);
+             setSelectedWorldId("");
+          }
+        }
+      } catch (err: any) {
+        console.error("Erro ao carregar Mundos:", err);
+        setError(err.message || "Erro ao carregar Mundos.");
       }
     }
 
@@ -421,8 +436,8 @@ export default function LoreUploadPage() {
       const data = (await response.json()) as ExtractResponse;
       const rawFichas = data.fichas || [];
 
-      const selected = worlds.find((w) => w.id === selectedWorldId) || null;
-      const prefix = getWorldPrefix(selected);
+      const selected = worlds.find((w) => w.id === selectedWorldId);
+      const prefix = getWorldPrefix(selected || null); // Passando null como fallback
       const normalizedEpisode = normalizeEpisode(unitNumber || "");
       const typeCounters: Record<string, number> = {};
 
@@ -806,8 +821,8 @@ export default function LoreUploadPage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
           <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
             <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
-            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded border border-zinc-800 bg-zinc-900/80 px-2 py-1 text-xs min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
+            <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
             <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
             <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
           </div>
