@@ -180,7 +180,7 @@ export default function TimelinePage() {
         const playableWorlds = list.filter(w => !w.is_root);
 
         setWorlds(playableWorlds);
-        setSelectedWorldId(null);
+        // Não reseta selectedWorldId aqui para manter o estado se possível
       } catch (err) {
         console.error(err);
         setError("Erro ao carregar mundos.");
@@ -191,48 +191,39 @@ export default function TimelinePage() {
     fetchWorlds();
   }, [selectedUniverseId]);
 
-  // 3. CARREGAR EVENTOS
+  // 3. CARREGAR EVENTOS (CORREÇÃO: CHAMA A API DO BACK-END)
   useEffect(() => {
     if (!selectedUniverseId) return;
 
     async function fetchEvents() {
       setIsLoadingData(true);
       setError(null);
+      
       try {
-        let query = supabaseBrowser
-          .from("fichas")
-          .select("id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at")
-          .eq("tipo", "evento")
-          .order("data_inicio", { ascending: true, nullsFirst: true })
-          .order("created_at", { ascending: true });
-
+        // CONSTRUÇÃO DOS PARÂMETROS PARA A ROTA DA API (BACK-END)
+        const params = new URLSearchParams();
+        
+        // Se um mundo específico estiver selecionado, usamos ele
         if (selectedWorldId) {
-          query = query.eq("world_id", selectedWorldId);
+            params.set("worldId", selectedWorldId);
         } else {
-          const { data: wData } = await supabaseBrowser
-            .from("worlds")
-            .select("id")
-            .eq("universe_id", selectedUniverseId);
-            
-          const worldIds = wData?.map(w => w.id) || [];
-          if (worldIds.length > 0) {
-            query = query.in("world_id", worldIds);
-          } else {
-            setEvents([]);
-            setIsLoadingData(false);
-            return;
-          }
+            // Se "Tudo" estiver selecionado, passamos o universeId e a API se vira.
+            params.set("universeId", selectedUniverseId);
         }
 
         if (selectedCamada) {
-          query = query.eq("camada_temporal", selectedCamada);
+            params.set("camada_temporal", selectedCamada);
         }
 
-        const { data, error } = await query;
-        if (error) throw error;
+        const res = await fetch(`/api/lore/timeline?${params.toString()}`);
+        const json = await res.json();
+        
+        if (!res.ok || json.error) {
+            throw new Error(json.error || "Erro desconhecido ao buscar eventos.");
+        }
 
-        const mappedEvents: TimelineEvent[] = (data || []).map((row: any) => ({
-          ficha_id: row.id,
+        const mappedEvents: TimelineEvent[] = (json.events || []).map((row: any) => ({
+          ficha_id: row.ficha_id,
           world_id: row.world_id,
           titulo: row.titulo,
           resumo: row.resumo,
@@ -252,7 +243,7 @@ export default function TimelinePage() {
         setExpandedGroups(new Set()); 
       } catch (err: any) {
         console.error(err);
-        setError(err.message);
+        setError(`Falha ao buscar eventos: ${err.message}`);
       } finally {
         setIsLoadingData(false);
       }
