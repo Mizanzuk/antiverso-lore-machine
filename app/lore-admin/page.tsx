@@ -417,6 +417,7 @@ function LoreAdminContent() {
     if (!file) return;
     setIsUploadingImage(true);
     try {
+      // @ts-ignore
       const compressedFile = await compressImage(file);
       const fileName = `${Date.now()}_${compressedFile.name.replace(/\s+/g, '_')}`;
       const { data, error } = await supabaseBrowser.storage.from("lore-assets").upload(fileName, compressedFile);
@@ -674,6 +675,7 @@ function LoreAdminContent() {
               <h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2>
               <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
             </div>
+            {/* CORREÇÃO: Renderiza apenas mundos FILHOS */}
             <div className="flex-1 overflow-auto space-y-1 pr-1">
               {childWorlds.map((w) => (
                 <div key={w.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} onClick={() => handleSelectWorld(w.id)}>
@@ -986,143 +988,4 @@ export default function LoreAdminPage() {
   );
 }
 
-}
-
-{
-type: uploaded file
-fileName: mizanzuk/antiverso-lore-machine/Mizanzuk-antiverso-lore-machine-490d0e7bc22f5ead87327842c2bfd089bb1a9b37/lib/supabaseBrowser.ts
-fullContent:
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("⚠️ Erro Crítico: Variáveis de ambiente do Supabase não encontradas no navegador.");
-}
-
-// Exportação NOMEADA correta para evitar o erro "Element type is invalid"
-export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey);
-
-}
-
-Excelente notícia! Se o Catálogo (Lore-Admin) parou de mostrar o "lixo", significa que a API já está bloqueando acessos sem credenciais. Isso é ótimo.
-
-Porém, como você observou, **"não aparecer nada"** no Admin pode ser porque a página do Admin (`/lore-admin`) ainda não está enviando a "carteirinha" (`x-user-id`) para a API, então a API recusa o pedido e a lista volta vazia.
-
-Para finalizar a segurança e garantir que **Urizen/Urthona** (o Chat) e o **Admin** funcionem apenas com os seus dados, precisamos atualizar mais 3 arquivos cruciais.
-
-Aqui estão os códigos para finalizar a blindagem do sistema:
-
-### 1. Atualizar `lib/rag.ts`
-Este é o "cérebro" da busca. Vamos garantir que ele só busque fichas que tenham o seu `user_id`.
-
-```typescript
-import { supabaseAdmin } from "./supabase";
-
-const STOPWORDS = new Set([
-  "a", "as", "o", "os", "um", "uma", "uns", "umas",
-  "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
-  "e", "ou", "mas", "que", "se", "por", "para", "com", "sem",
-  "quem", "qual", "quais", "onde", "como", "quando", "porquê", "porque",
-  "é", "são", "foi", "foram", "era", "eram", "está", "estão",
-  "me", "fale", "sobre", "diga", "explique", "mostre", "vida", "historia", "história",
-  "existe", "existem", "sabe", "conhece"
-]);
-
-function extractMainKeyword(text: string): string {
-  const words = text
-    .toLowerCase()
-    .replace(/[^\w\sÀ-ÿ]/g, "") 
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !STOPWORDS.has(w)); 
-  
-  // Retorna a primeira palavra-chave relevante ou o texto original se falhar
-  return words.length > 0 ? words[0] : text.trim();
-}
-
-export type LoreChunk = {
-  id: string;
-  source: string;
-  source_type: string;
-  title: string;
-  content: string;
-  similarity: number;
-};
-
-export async function searchLore(
-  query: string,
-  options: { limit?: number; minSimilarity?: number; universeId?: string; userId?: string } = {}
-): Promise<LoreChunk[]> {
-  if (!supabaseAdmin) return [];
-
-  const limit = options.limit ?? 8;
-  const universeId = options.universeId;
-  const userId = options.userId; // NOVO PARÂMETRO
-
-  let results: LoreChunk[] = [];
-
-  try {
-      let worldIds: string[] = [];
-
-      // 1. Se tiver Universo, busca mundos (COM FILTRO DE USUÁRIO SE DISPONÍVEL)
-      if (universeId) {
-        let wQuery = supabaseAdmin
-            .from("worlds")
-            .select("id")
-            .eq("universe_id", universeId);
-        
-        if (userId) {
-            wQuery = wQuery.eq("user_id", userId); // SEGURANÇA
-        }
-
-        const { data: worlds } = await wQuery;
-        worldIds = worlds?.map(w => w.id) || [];
-      }
-
-      const term = extractMainKeyword(query);
-      if (!term) return [];
-
-      // 2. Construir Query nas Fichas
-      let dbQuery = supabaseAdmin
-        .from("fichas")
-        .select("id, titulo, resumo, conteudo, tipo, tags, world_id");
-
-      // FILTRO DE USUÁRIO (CRÍTICO)
-      if (userId) {
-        dbQuery = dbQuery.eq("user_id", userId);
-      }
-
-      if (worldIds.length > 0) {
-        dbQuery = dbQuery.in("world_id", worldIds);
-      }
-
-      // Busca Textual
-      dbQuery = dbQuery.or(`titulo.ilike.%${term}%,resumo.ilike.%${term}%,tags.ilike.%${term}%,conteudo.ilike.%${term}%`);
-      dbQuery = dbQuery.limit(limit);
-
-      const { data: matches, error } = await dbQuery;
-
-      if (error) {
-        console.error("Erro na busca de fichas:", error);
-        return [];
-      }
-
-      if (matches && matches.length > 0) {
-        results = matches.map((f: any) => ({
-          id: f.id,
-          source: "Ficha Viva",
-          source_type: f.tipo,
-          title: f.titulo,
-          content: `[TIPO]: ${f.tipo}\n[RESUMO]: ${f.resumo || "N/A"}\n[TAGS]: ${f.tags}\n[CONTEÚDO]:\n${f.conteudo || ""}`,
-          similarity: 1.0
-        }));
-      }
-
-  } catch (err) {
-    console.error("Erro fatal na busca:", err);
-    return [];
-  }
-
-  return results;
 }
