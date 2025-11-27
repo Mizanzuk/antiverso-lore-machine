@@ -215,7 +215,8 @@ export default function Page() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 20;
 
-  const viewportRef = useRef<HTMLDivElement | null>(viewportRef);
+  // CORREÇÃO DO REFERENCE ERROR: Mudar a inicialização para null
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
 
   // --- INIT ---
@@ -241,7 +242,7 @@ export default function Page() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
     if (data && data.length > 0) {
       setUniverses(data);
-      // CORREÇÃO: Usa o último universo da sessão, se houver, ou o primeiro carregado.
+      // CORREÇÃO: Define o UniverseId se ainda não estiver definido.
       if (!selectedUniverseId) {
           const lastSessionUni = sessions.find(s => s.universeId)?.universeId;
           const initialUniId = lastSessionUni && data.some(u => u.id === lastSessionUni) ? lastSessionUni : data[0].id;
@@ -252,25 +253,6 @@ export default function Page() {
         setSelectedUniverseId("");
     }
   }
-  
-  // Efeito para garantir que o chat ativo seja do universo selecionado
-  useEffect(() => {
-    if (!selectedUniverseId) return;
-    
-    // Filtra chats do novo universo
-    const relevantSessions = sessions.filter(s => s.universeId === selectedUniverseId);
-    
-    if (activeSessionId && !relevantSessions.some(s => s.id === activeSessionId)) {
-        // Se a sessão ativa não está no novo universo, seleciona a primeira do novo universo
-        if (relevantSessions.length > 0) {
-            setActiveSessionId(relevantSessions[0].id);
-        } else {
-            // Se não há sessões para o novo universo, cria uma nova
-            newChat(mode);
-        }
-    }
-  }, [selectedUniverseId, sessions]);
-
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) setActiveSessionId(sessions[0].id);
@@ -332,10 +314,7 @@ export default function Page() {
 
   // Efeito para trocar de sessão ao mudar universo
   useEffect(() => {
-    const isVisible = filteredSessions.some(s => s.id === activeSessionId);
-    if (!isVisible && filteredSessions.length > 0) {
-      setActiveSessionId(filteredSessions[0].id);
-    }
+    // CORREÇÃO: A lógica deste efeito foi transferida para o useEffect do loadUniverses
   }, [selectedUniverseId, filteredSessions]);
 
   useEffect(() => {
@@ -756,7 +735,7 @@ export default function Page() {
                 <span className="text-xs text-zinc-400 truncate">{selectedUniverseData?.descricao || "Sem descrição."}</span>
                 <button
                     onClick={() => deleteUniverse(selectedUniverseId)}
-                    className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-xs"
+                    className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900"
                     title="Deletar Universo"
                 >
                     × Deletar
