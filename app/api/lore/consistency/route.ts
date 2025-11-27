@@ -1,5 +1,3 @@
-// app/api/lore/consistency/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { searchLore } from "@/lib/rag";
@@ -19,44 +17,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Input necessário." }, { status: 400 });
     }
 
-    // 1. RAG FOCADO: Busca fatos existentes que se assemelham ao input
-    // Aumentamos o limite para pegar mais contexto temporal e regras
+    // 1. Busca Fichas Relacionadas (Usando a nova busca textual inteligente)
     const relatedFacts = await searchLore(input, { 
       limit: 10, 
-      universeId,
-      minSimilarity: 0.3 
+      universeId
     });
 
     // 2. BUSCA DE ENTIDADES ESPECÍFICAS (Reforço)
-    // Se o texto menciona nomes que já existem, buscamos seus dados vitais (nascimento/morte)
-    // Isso é uma busca "burra" de texto para garantir que pegamos fichas exatas
+    // Tenta encontrar personagens citados no texto para pegar datas de nascimento/morte
     const keywords = input.match(/[A-Z][a-zÀ-ÿ]+(?:\s[A-Z][a-zÀ-ÿ]+)*/g) || [];
     let hardFacts = "";
     
     if (keywords.length > 0 && universeId) {
-        // Remove duplicatas e limita
         const uniqueNames = Array.from(new Set(keywords)).slice(0, 5);
         
-        const { data: entities } = await supabaseAdmin
-            .from("fichas")
-            .select("titulo, tipo, ano_diegese, data_inicio, data_fim, conteudo")
-            .in("titulo", uniqueNames) // Busca exata por nome
-            .limit(5);
+        // Precisamos descobrir o ID dos mundos deste universo para filtrar
+        const { data: worlds } = await supabaseAdmin
+            .from("worlds")
+            .select("id")
+            .eq("universe_id", universeId);
+            
+        const worldIds = worlds?.map((w: any) => w.id) || [];
 
-        if (entities && entities.length > 0) {
-            hardFacts = entities.map((e: any) => 
-                `[DADO RÍGIDO] ${e.titulo} (${e.tipo}): Ano Base ${e.ano_diegese || "?"}, Início ${e.data_inicio || "?"}, Fim/Morte ${e.data_fim || "?"}.`
-            ).join("\n");
+        if (worldIds.length > 0) {
+            const { data: entities } = await supabaseAdmin
+                .from("fichas")
+                .select("titulo, tipo, ano_diegese, data_inicio, data_fim, conteudo")
+                .in("world_id", worldIds)
+                .in("titulo", uniqueNames)
+                .limit(5);
+
+            if (entities && entities.length > 0) {
+                hardFacts = entities.map((e: any) => 
+                    `[DADO RÍGIDO] ${e.titulo} (${e.tipo}): Ano Base ${e.ano_diegese || "?"}, Início ${e.data_inicio || "?"}, Fim/Morte ${e.data_fim || "?"}.`
+                ).join("\n");
+            }
         }
     }
 
     // 3. O JUIZ (Prompt de Verificação)
+    const contextText = relatedFacts.map((f) => `- ${f.title}: ${f.content.slice(0, 300)}...`).join("\n");
+
     const systemPrompt = `
 Você é o Módulo de Coerência Lógica do AntiVerso.
 Sua única função é detectar INCONSISTÊNCIAS, ANACRONISMOS e FUROS DE ROTEIRO.
 
 CONTEXTO ESTABELECIDO (Verdade Absoluta):
-${relatedFacts.map((f) => `- ${f.title}: ${f.content.slice(0, 300)}...`).join("\n")}
+${contextText}
 ${hardFacts}
 
 INPUT PROPOSTO (O que o usuário quer criar):
