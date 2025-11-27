@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// ... (Tipos e Helpers mantidos iguais ao original, omitidos aqui para brevidade) ...
 // TIPOS
 type FichaMeta = {
   periodo_diegese?: string | null;
@@ -62,7 +61,6 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
 }
 
 async function processChunk(text: string, chunkIndex: number, totalChunks: number): Promise<ExtractedFicha[]> {
-    // ... (Lógica do processChunk mantida igual, apenas injetando aqui para contexto) ...
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     const systemPrompt = `
   Você é o Motor de Lore do AntiVerso.
@@ -128,16 +126,18 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
     return Array.from(map.values());
 }
 
-// --- HANDLER PRINCIPAL ATUALIZADO ---
-
 export async function POST(req: NextRequest) {
   try {
     if (!openai) {
       return NextResponse.json({ error: "OPENAI_API_KEY não configurada." }, { status: 500 });
     }
     
-    // CAPTURA O USER ID
-    const userId = req.headers.get("x-user-id");
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = await req.json().catch(() => ({}));
     const { worldId, unitNumber, text, documentName } = body as {
@@ -151,21 +151,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Campo 'text' é obrigatório." }, { status: 400 });
     }
 
-    // 1. SALVAR ROTEIRO COM USER_ID
+    // 1. SALVAR ROTEIRO
     let roteiroId: string | null = null;
-    if (supabaseAdmin && userId) {
+    if (supabase) {
       const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
       const titulo = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
       
       try {
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await supabase
           .from("roteiros")
           .insert({ 
             world_id: worldId ?? null, 
             titulo, 
             conteudo: text, 
             episodio,
-            user_id: userId // VINCULA AO DONO
+            // user_id não precisa ser passado se o banco tiver default auth.uid() e RLS
           })
           .select("id")
           .single();
