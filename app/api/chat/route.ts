@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { searchLore } from "@/lib/rag";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -28,27 +28,23 @@ function isValidUUID(uuid: any): boolean {
   return regex.test(uuid);
 }
 
-async function fetchGlobalRules(universeId?: string, userId?: string): Promise<string> {
-  if (!supabaseAdmin || !universeId || !isValidUUID(universeId)) {
+// Agora recebe o cliente supabase autenticado
+async function fetchGlobalRules(supabase: any, universeId?: string): Promise<string> {
+  if (!universeId || !isValidUUID(universeId)) {
     return "";
   }
 
   try {
-    // Busca o mundo raiz com segurança
-    let query = supabaseAdmin
+    const { data: rootWorld, error: worldError } = await supabase
       .from("worlds")
       .select("id")
       .eq("universe_id", universeId)
-      .eq("is_root", true);
-    
-    if (userId) query = query.eq("user_id", userId);
-
-    const { data: rootWorld, error: worldError } = await query.maybeSingle();
+      .eq("is_root", true)
+      .maybeSingle();
 
     if (worldError || !rootWorld) return "";
 
-    // Busca regras
-    const { data: rules } = await supabaseAdmin
+    const { data: rules } = await supabase
       .from("fichas")
       .select("titulo, conteudo, tipo")
       .eq("world_id", rootWorld.id)
@@ -57,7 +53,7 @@ async function fetchGlobalRules(universeId?: string, userId?: string): Promise<s
     if (!rules || rules.length === 0) return "";
 
     const rulesText = rules
-      .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
+      .map((f: any) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
       .join("\n");
 
     return `
@@ -77,8 +73,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "OPENAI_API_KEY não configurada." }, { status: 500 });
     }
 
-    // Captura o User ID do header (enviado pelo frontend seguro)
-    const userId = req.headers.get("x-user-id") || undefined;
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Acesso negado." }, { status: 401 });
+    }
 
     const body = await req.json().catch(() => null);
     const messages = (body?.messages ?? []) as Message[];
@@ -96,13 +96,12 @@ export async function POST(req: NextRequest) {
     const lastUser = [...conversationMessages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
     
-    // 1. Busca Contextual (COM USER_ID)
+    // 1. Busca Contextual (Passando o cliente seguro)
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
-      const loreResults = await searchLore(userQuestion, { 
+      const loreResults = await searchLore(supabase, userQuestion, { 
         limit: 10, 
-        universeId,
-        userId // Passando a credencial
+        universeId
       });
       
       if (loreResults && loreResults.length > 0) {
@@ -116,8 +115,8 @@ export async function POST(req: NextRequest) {
       console.error("Erro na busca RAG:", ragError);
     }
 
-    // 2. Busca de Regras Globais (COM USER_ID)
-    const globalRules = await fetchGlobalRules(universeId, userId);
+    // 2. Busca de Regras Globais
+    const globalRules = await fetchGlobalRules(supabase, universeId);
 
     let specificInstructions = "";
     if (isCreativeMode) {
