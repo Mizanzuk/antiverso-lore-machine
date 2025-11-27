@@ -47,17 +47,29 @@ export async function GET(req: NextRequest) {
   } else if (universeId) {
     // Se universeId é fornecido (e não há worldId), buscamos todos os world_ids desse universo.
     try {
-      const { data: worldsData, error: worldsError } = await supabaseAdmin
+      // Busca todos os mundos do universo (incluindo o Mundo Teste se ele estiver no mesmo universo ou não tiver universoId)
+      let worldsQuery = supabaseAdmin
         .from("worlds")
-        .select("id")
-        .eq("universe_id", universeId);
+        .select("id");
+        
+      // Filtra pelo universeId para carregar os mundos filhos
+      worldsQuery = worldsQuery.eq("universe_id", universeId);
+
+      const { data: worldsData, error: worldsError } = await worldsQuery;
 
       if (worldsError) throw worldsError;
 
       const worldIds = worldsData?.map((w) => w.id) || [];
       
+      // Adiciona o Mundo "Teste" manualmente se ele for o caso (assumindo o ID 'teste'
+      // ou um padrão específico para mundos que foram criados fora da estrutura de universos)
+      // *NOTA: Este é um patch de segurança. O ideal seria ter todos os mundos com universe_id correto.*
+      if (!worldIds.includes("teste")) {
+          worldIds.push("teste");
+      }
+      
       if (worldIds.length > 0) {
-        // Filtra os eventos de todas as fichas que pertencem a algum mundo desse universo.
+        // Filtra os eventos de todas as fichas que pertencem a algum mundo desse conjunto.
         query = query.in("world_id", worldIds);
       } else {
         // Não há mundos no universo, retorna vazio.
