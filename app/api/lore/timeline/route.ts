@@ -1,20 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-function makeSlug(title: string | null | undefined): string {
-  const base =
-    (title ?? "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "evento";
-
-  const stamp = Date.now().toString(36);
-  return `${base}-${stamp}`;
-}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -22,23 +9,20 @@ export async function GET(req: NextRequest) {
   const universeId = searchParams.get("universeId");
   const camada = searchParams.get("camada_temporal");
   
-  // 1. SEGURANÇA
-  const userId = req.headers.get("x-user-id");
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (!supabaseAdmin || !userId) {
-    return NextResponse.json(
-      { success: false, error: "Acesso negado ou Supabase off." },
-      { status: 401 }
-    );
+  if (authError || !user) {
+    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
   }
 
-  let query = supabaseAdmin
+  // RLS filtra automaticamente pelo user_id
+  let query = supabase
     .from("fichas")
     .select(
       "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at, user_id"
     )
     .eq("tipo", "evento")
-    .eq("user_id", userId) // FILTRO OBRIGATÓRIO
     .order("data_inicio", { ascending: true, nullsFirst: true })
     .order("created_at", { ascending: true });
 
@@ -46,14 +30,10 @@ export async function GET(req: NextRequest) {
     query = query.eq("world_id", worldId);
   } else if (universeId) {
     try {
-      // Busca mundos do universo QUE PERTENCEM AO USUÁRIO
-      let worldsQuery = supabaseAdmin
+      const { data: worldsData, error: worldsError } = await supabase
         .from("worlds")
         .select("id")
-        .eq("universe_id", universeId)
-        .eq("user_id", userId); // SEGURANÇA
-
-      const { data: worldsData, error: worldsError } = await worldsQuery;
+        .eq("universe_id", universeId);
 
       if (worldsError) throw worldsError;
 
@@ -108,13 +88,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const userId = req.headers.get("x-user-id");
-  if (!supabaseAdmin || !userId) {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
     return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
   }
 
   const body = await req.json();
   const { ficha_id, ...fields } = body || {};
+
+  function makeSlug(title: string | null | undefined): string {
+    const base = (title ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "evento";
+    return `${base}-${Date.now().toString(36)}`;
+  }
 
   if (ficha_id) {
     // UPDATE
@@ -130,15 +117,12 @@ export async function POST(req: NextRequest) {
       data_fim: fields.data_fim || null,
     };
 
-    const { error } = await supabaseAdmin
+    const { error } = await supabase
       .from("fichas")
       .update(updateData)
-      .eq("id", ficha_id)
-      .eq("user_id", userId); // GARANTE PROPRIEDADE
+      .eq("id", ficha_id); // RLS garante ownership
 
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
-    }
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     return NextResponse.json({ success: true, error: null, mode: "update" });
   }
 
@@ -151,7 +135,8 @@ export async function POST(req: NextRequest) {
   
   const insertData: any = {
     world_id: fields.world_id,
-    user_id: userId, // VINCULA AO DONO
+    // user_id injetado automaticamente pelo RLS/Default do banco ou explícito:
+    // user_id: user.id,
     tipo: "evento",
     titulo: fields.titulo ?? "",
     slug,
@@ -165,15 +150,13 @@ export async function POST(req: NextRequest) {
     data_fim: fields.data_fim || null,
   };
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from("fichas")
     .insert(insertData)
     .select("id")
     .single();
 
-  if (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 400 });
-  }
+  if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
 
   return NextResponse.json({
     success: true,
@@ -184,8 +167,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const userId = req.headers.get("x-user-id");
-  if (!supabaseAdmin || !userId) {
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
     return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
   }
   
@@ -194,11 +179,10 @@ export async function DELETE(req: NextRequest) {
 
   if (!fichaId) return NextResponse.json({ success: false }, { status: 400 });
 
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from("fichas")
     .delete()
-    .eq("id", fichaId)
-    .eq("user_id", userId); // GARANTE PROPRIEDADE
+    .eq("id", fichaId); // RLS protege
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
 
