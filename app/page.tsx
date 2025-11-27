@@ -175,6 +175,7 @@ export default function Page() {
   const [showUniverseModal, setShowUniverseModal] = useState(false);
   const [newUniverseName, setNewUniverseName] = useState("");
   const [newUniverseDesc, setNewUniverseDesc] = useState("");
+  const [isCreatingUniverse, setIsCreatingUniverse] = useState(false); // Novo estado
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -216,7 +217,7 @@ export default function Page() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 20;
 
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(viewportRef);
   const typingIntervalRef = useRef<number | null>(null);
 
   // --- INIT ---
@@ -521,38 +522,57 @@ export default function Page() {
     });
   }
 
-  // --- HANDLERS DE NOVO UNIVERSO (Refatorado) ---
+  // --- HANDLERS DE NOVO UNIVERSO (Refatorado com Try/Catch) ---
   async function createUniverse() {
     if (!newUniverseName.trim()) return alert("Nome do universo é obrigatório");
     
-    // 1. Criar Universo
-    const { data: uniData, error: uniError } = await supabaseBrowser
-      .from("universes")
-      .insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null })
-      .select().single();
-    
-    if (uniError || !uniData) return alert("Erro ao criar universo: " + uniError.message);
+    setIsCreatingUniverse(true);
 
-    // 2. Criar Mundo Raiz
-    const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
-    await supabaseBrowser.from("worlds").insert({
-      id: rootId,
-      nome: newUniverseName.trim(),
-      universe_id: uniData.id,
-      is_root: true,
-      tipo: "meta_universo",
-      ordem: 0
-    });
+    try {
+        // 1. Criar Universo
+        const { data: uniData, error: uniError } = await supabaseBrowser
+          .from("universes")
+          .insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null })
+          .select().single();
+        
+        if (uniError || !uniData) {
+            alert("Erro ao criar universo: " + (uniError?.message || "Erro desconhecido."));
+            return;
+        }
 
-    // Atualiza estado localmente e seleciona o novo ID
-    setUniverses(prev => [...prev, uniData]);
-    setSelectedUniverseId(uniData.id);
-    setShowUniverseModal(false);
-    setNewUniverseName("");
-    setNewUniverseDesc("");
-    
-    // Cria um chat novo para o novo universo
-    newChat();
+        // 2. Criar Mundo Raiz
+        const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
+        const { error: worldError } = await supabaseBrowser.from("worlds").insert({
+            id: rootId,
+            nome: uniData.nome,
+            universe_id: uniData.id,
+            is_root: true,
+            tipo: "meta_universo",
+            ordem: 0
+        });
+
+        if (worldError) {
+             alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS no Supabase. Erro: " + (worldError?.message || "Erro desconhecido."));
+             // Não retornamos para forçar a atualização, mas a UI deve refletir o erro.
+             return;
+        }
+
+
+        // 3. Sucesso: Atualiza estado localmente e seleciona o novo ID
+        setUniverses(prev => [...prev, uniData]);
+        setSelectedUniverseId(uniData.id);
+        setShowUniverseModal(false);
+        setNewUniverseName("");
+        setNewUniverseDesc("");
+        
+        // Cria um chat novo para o novo universo
+        newChat();
+
+    } catch(e: any) {
+        alert("Falha inesperada durante a criação do universo: " + e.message);
+    } finally {
+        setIsCreatingUniverse(false);
+    }
   }
 
   // --- CARREGAR CATÁLOGO (Mantido, mas não usado na view principal) ---
@@ -646,8 +666,14 @@ export default function Page() {
             className="w-full bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
             value={selectedUniverseId}
             onChange={(e) => {
-              if (e.target.value === "__new__") setShowUniverseModal(true);
-              else setSelectedUniverseId(e.target.value);
+              const value = e.target.value;
+              if (value === "__new__") {
+                setShowUniverseModal(true);
+                // CORREÇÃO: Força o seletor a voltar ao ID atual.
+                e.target.value = selectedUniverseId || universes[0]?.id || "";
+              } else {
+                setSelectedUniverseId(value);
+              }
             }}
           >
             {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
@@ -779,7 +805,7 @@ export default function Page() {
             <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-xs" placeholder="Descrição (opcional)" value={newUniverseDesc} onChange={e=>setNewUniverseDesc(e.target.value)} />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowUniverseModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
-              <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Criar</button>
+              <button type="submit" disabled={isCreatingUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">{isCreatingUniverse ? "Criando..." : "Criar"}</button>
             </div>
           </form>
         </div>
