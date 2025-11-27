@@ -113,8 +113,9 @@ async function generateAutomaticCode(opts: {
   world: WorldRow;
   tipo: string;
   unitNumber: string;
+  userId: string; // NOVO
 }): Promise<string | null> {
-  const { fichaId, world, tipo, unitNumber } = opts;
+  const { fichaId, world, tipo, unitNumber, userId } = opts;
 
   const worldPrefix = getWorldPrefix(world);
   const normalizedTipo = tipo
@@ -135,9 +136,10 @@ async function generateAutomaticCode(opts: {
     basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
   }
 
-  const { data: existing, error } = await supabaseAdmin!
+  const { data: existing } = await supabaseAdmin!
     .from("codes")
     .select("code")
+    .eq("user_id", userId) // FILTRO DE SEGURANÇA
     .ilike("code", `${basePrefix}%`);
 
   let nextNumber = 1;
@@ -162,6 +164,7 @@ async function generateAutomaticCode(opts: {
     code: finalCode,
     label: "",
     description: "",
+    user_id: userId, // VINCULA AO USUÁRIO
   });
 
   await supabaseAdmin!.from("fichas").update({ codigo: finalCode }).eq("id", fichaId);
@@ -174,9 +177,10 @@ async function applyCodeForFicha(opts: {
   world: WorldRow;
   tipo: string;
   unitNumber: string;
+  userId: string;
   manualCode?: string | null;
 }): Promise<string | null> {
-  const { fichaId, world, tipo, unitNumber, manualCode } = opts;
+  const { fichaId, world, tipo, unitNumber, manualCode, userId } = opts;
   const trimmed = (manualCode ?? "").trim();
 
   if (trimmed.length > 0) {
@@ -185,26 +189,28 @@ async function applyCodeForFicha(opts: {
       code: trimmed,
       label: "",
       description: "",
+      user_id: userId,
     });
     await supabaseAdmin!.from("fichas").update({ codigo: trimmed }).eq("id", fichaId);
     return trimmed;
   }
 
-  return generateAutomaticCode({ fichaId, world, tipo, unitNumber });
+  return generateAutomaticCode({ fichaId, world, tipo, unitNumber, userId });
 }
 
-// Função NOVA para processar as relações vindas do META
-async function saveRelations(sourceFichaId: string, relacoes: any[]) {
+// Salvar relações (Wiki) com User ID
+async function saveRelations(sourceFichaId: string, relacoes: any[], userId: string) {
   if (!relacoes || relacoes.length === 0) return;
 
   for (const rel of relacoes) {
     const alvoTitulo = rel.alvo_titulo;
     if (!alvoTitulo) continue;
 
-    // Tenta achar a ficha alvo pelo título (match aproximado)
+    // Busca ficha alvo apenas dentro das fichas DO USUÁRIO
     const { data: targetFicha } = await supabaseAdmin!
       .from("fichas")
       .select("id")
+      .eq("user_id", userId)
       .ilike("titulo", alvoTitulo)
       .maybeSingle();
 
@@ -214,6 +220,7 @@ async function saveRelations(sourceFichaId: string, relacoes: any[]) {
         target_ficha_id: targetFicha.id,
         tipo_relacao: rel.tipo || "relacionado_a",
         descricao: `Gerado automaticamente via extração.`,
+        user_id: userId,
       });
     }
   }
@@ -230,6 +237,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 1. SEGURANÇA: Identificar usuário via Header
+    const userId = req.headers.get("x-user-id");
+    if (!userId) {
+      return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
+    }
+
     const body = await req.json();
     const worldId = String(body.worldId || "").trim();
     const unitNumber = String(body.unitNumber || "").trim();
@@ -242,14 +255,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 2. Verificar se o Mundo pertence ao Usuário
     const { data: worldRow } = await supabaseAdmin!
       .from("worlds")
       .select("*")
       .eq("id", worldId)
+      .eq("user_id", userId) // Garante propriedade
       .single();
 
     if (!worldRow) {
-      return NextResponse.json({ error: "Mundo não encontrado." }, { status: 400 });
+      return NextResponse.json({ error: "Mundo não encontrado ou acesso negado." }, { status: 400 });
     }
 
     const world = worldRow as WorldRow;
@@ -264,10 +279,12 @@ export async function POST(req: NextRequest) {
       const tagsStr = (ficha.tags || []).join(", ");
       const isEvento = tipoNormalizado === "evento";
 
+      // 3. Inserir com user_id
       const { data: inserted, error: insertError } = await supabaseAdmin!
         .from("fichas")
         .insert({
           world_id: world.id,
+          user_id: userId, // IMPORTANTE
           titulo,
           slug,
           tipo: tipoNormalizado,
@@ -292,18 +309,19 @@ export async function POST(req: NextRequest) {
 
       const fichaId = (inserted as any).id as string;
 
-      // Gera código
+      // Gera código (passando userId)
       const finalCode = await applyCodeForFicha({
         fichaId,
         world,
         tipo: tipoNormalizado,
         unitNumber,
         manualCode: ficha.codigo,
+        userId,
       });
 
-      // SALVA AS RELAÇÕES (WIKI)
+      // Salva relações (passando userId)
       if (ficha.meta && ficha.meta.relacoes) {
-        await saveRelations(fichaId, ficha.meta.relacoes);
+        await saveRelations(fichaId, ficha.meta.relacoes, userId);
       }
 
       saved.push({ fichaId, titulo, codigo: finalCode });
