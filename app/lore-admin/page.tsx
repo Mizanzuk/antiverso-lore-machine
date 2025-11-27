@@ -87,9 +87,12 @@ function FieldChoice({ label, field, comparing, mergeDraft, onSelect }: { label:
   );
 }
 
+// Mock de compressImage (mantido para evitar dependências não resolvidas)
 async function compressImage(file: File): Promise<File> {
+  // Apenas retorna o arquivo original para o mock do contexto.
   return file;
 }
+
 
 function LoreAdminContent() {
   const router = useRouter();
@@ -417,7 +420,6 @@ function LoreAdminContent() {
     if (!file) return;
     setIsUploadingImage(true);
     try {
-      // @ts-ignore
       const compressedFile = await compressImage(file);
       const fileName = `${Date.now()}_${compressedFile.name.replace(/\s+/g, '_')}`;
       const { data, error } = await supabaseBrowser.storage.from("lore-assets").upload(fileName, compressedFile);
@@ -604,17 +606,37 @@ function LoreAdminContent() {
   }
   async function handleDeleteRelation(id: string) { await supabaseBrowser.from("lore_relations").delete().eq("id", id); loadDetails(selectedFichaId!); }
 
-  async function openReconcile() { setShowReconcile(true); setReconcileLoading(true); const r = await fetch("/api/lore/reconcile"); const j = await r.json(); setReconcilePairs(j.duplicates||[]); setReconcileLoading(false); }
-  async function handleSelectReconcilePair(p: DuplicatePair) {
+  async function openReconcile() {
+    if (!userId) return; 
+    setShowReconcile(true);
     setReconcileLoading(true);
-    const {data:dA} = await supabaseBrowser.from("fichas").select("*").eq("id", p.id_a).single();
-    const {data:dB} = await supabaseBrowser.from("fichas").select("*").eq("id", p.id_b).single();
-    setComparing({a:dA, b:dB}); setMergeDraft(dA); setReconcileLoading(false);
+    try {
+      const r = await fetch("/api/lore/reconcile", {
+          headers: { 'x-user-id': userId } // HEADER ADICIONADO
+      });
+      const j = await r.json();
+      setReconcilePairs(j.duplicates || []);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao carregar duplicatas.");
+    } finally {
+      setReconcileLoading(false);
+    }
   }
+
   async function executeMerge(wId: string, lId: string) {
-    if(!confirm("Fundir?")) return;
-    await fetch("/api/lore/reconcile", {method:"POST", body:JSON.stringify({winnerId:wId, loserId:lId, mergedData:mergeDraft})});
-    setComparing(null); openReconcile();
+    if (!confirm("Fundir?") || !userId) return;
+    try {
+        await fetch("/api/lore/reconcile", {
+            method: "POST", 
+            body: JSON.stringify({ winnerId: wId, loserId: lId, mergedData: mergeDraft }),
+            headers: { 'Content-Type': 'application/json', 'x-user-id': userId } // HEADER ADICIONADO
+        });
+        setComparing(null);
+        openReconcile(); // Recarrega a lista
+    } catch(e: any) {
+        alert("Erro ao fundir: " + e.message);
+    }
   }
   function handleMergeSelect(field: keyof FichaFull, value: any) {
     setMergeDraft((prev: any) => ({ ...prev, [field]: value }));
@@ -652,6 +674,7 @@ function LoreAdminContent() {
                     const value = e.target.value;
                     if (value === "__new__") {
                       startCreateUniverse();
+                      // CORREÇÃO: Força o seletor a voltar ao ID atual.
                       e.target.value = selectedUniverseId || universes[0]?.id || "";
                     } else {
                       handleSelectUniverse(value);
@@ -702,7 +725,7 @@ function LoreAdminContent() {
             <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-2 text-white focus:border-emerald-500 outline-none" placeholder="Buscar por título, código, resumo..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
             
             {/* FILTRO POR EPISÓDIO (Se houver) */}
-            {selectedWorldData?.has_episodes && availableEpisodes.length > 0 && (
+            {selectedWorldId && worlds.find(w=>w.id===selectedWorldId)?.has_episodes && availableEpisodes.length > 0 && (
                <div className="mb-2">
                  <select 
                    className="w-full bg-black border border-zinc-800 rounded text-[10px] p-1 text-zinc-300"
@@ -832,7 +855,7 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAL UNIVERSO */}
+      {/* MODAL UNIVERSO (CORRIGIDO) */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <form onSubmit={e => { e.preventDefault(); saveUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
@@ -847,8 +870,6 @@ function LoreAdminContent() {
         </div>
       )}
       
-      {/* MODAL DE EDIÇÃO DE FICHA E MUNDO... */}
-      {/* ... (Resto dos modais, igual ao código anterior) ... */}
       {/* MODAL DE EDIÇÃO DE FICHA */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
