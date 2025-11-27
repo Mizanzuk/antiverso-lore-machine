@@ -106,6 +106,53 @@ function formatDescricaoData(event: TimelineEvent) {
   return "";
 }
 
+// --- CARD DE EVENTO AUXILIAR (Mantido) ---
+const EventCard = ({ event, selectedEvent, onSelect, onDelete, onEdit }: any) => {
+    const isSelected = selectedEvent && selectedEvent.ficha_id === event.ficha_id;
+    return (
+        <div 
+            key={event.ficha_id}
+            className={clsx(
+                "group relative border rounded-lg p-3 cursor-pointer transition-all min-h-24",
+                isSelected ? "border-emerald-500 bg-emerald-900/20 shadow-lg" : "border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/60"
+            )}
+            onClick={() => onSelect(event)}
+        >
+            <div className="flex justify-between items-start">
+                <div className="pr-10">
+                    <div className={clsx("text-[10px] uppercase font-mono tracking-wider mb-1", isSelected ? "text-emerald-300" : "text-zinc-500")}>
+                        {formatDescricaoData(event) || "Data Desconhecida"}
+                    </div>
+                    <h4 className="text-sm font-bold text-white leading-snug">
+                        {event.titulo || "Evento sem título"}
+                    </h4>
+                </div>
+                
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                        type="button"
+                        className="text-[10px] px-1 py-0.5 rounded border border-zinc-700 hover:border-zinc-400 text-zinc-300"
+                        onClick={(e) => { e.stopPropagation(); onEdit(event); }}
+                    >
+                        Edit
+                    </button>
+                    <button
+                        type="button"
+                        className="text-[10px] px-1 py-0.5 rounded border border-red-700 text-red-300 hover:bg-red-900/40"
+                        onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+                    >
+                        Del
+                    </button>
+                </div>
+            </div>
+            <p className="text-xs text-zinc-400 mt-2 line-clamp-2">
+                {event.resumo || event.conteudo || "Sem resumo."}
+            </p>
+        </div>
+    );
+};
+
+
 export default function TimelinePage() {
   // --- ESTADOS DE DADOS ---
   const [universes, setUniverses] = useState<Universe[]>([]);
@@ -167,8 +214,7 @@ export default function TimelinePage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS (CORRIGIDO: CHAMA API DO SERVIDOR)
-  // Refatorado para usar a API /api/catalog (RLS bypass)
+  // 2. CARREGAR MUNDOS (CHAMA API DO SERVIDOR)
   const fetchWorlds = async () => {
     if (!selectedUniverseId) return;
 
@@ -200,7 +246,7 @@ export default function TimelinePage() {
   useEffect(() => {
     if (!selectedUniverseId) return;
     fetchWorlds();
-  }, [selectedUniverseId]);
+  }, [selectedUniverseId, reloadCounter]); // Adiciona reloadCounter
 
   // 3. CARREGAR EVENTOS (CHAMA A API DO BACK-END)
   useEffect(() => {
@@ -233,20 +279,20 @@ export default function TimelinePage() {
         }
 
         const mappedEvents: TimelineEvent[] = (json.events || []).map((row: any) => ({
-          ficha_id: row.ficha_id,
-          world_id: row.world_id,
-          titulo: row.titulo,
-          resumo: row.resumo,
-          conteudo: row.conteudo,
-          tipo: row.tipo,
-          episodio: row.episodio,
-          camada_temporal: row.camada_temporal,
-          descricao_data: row.descricao_data,
-          data_inicio: row.data_inicio,
-          data_fim: row.data_fim,
-          granularidade_data: row.granularidade_data,
-          aparece_em: row.aparece_em,
-          created_at: row.created_at,
+          ficha_id: row.id as string,
+          world_id: (row as any).world_id ?? null,
+          titulo: (row as any).titulo ?? null,
+          resumo: (row as any).resumo ?? null,
+          conteudo: (row as any).conteudo ?? null,
+          tipo: (row as any).tipo ?? null,
+          episodio: (row as any).episodio ?? null,
+          camada_temporal: (row as any).camada_temporal ?? null,
+          descricao_data: (row as any).descricao_data ?? null,
+          data_inicio: (row as any).data_inicio ?? null,
+          data_fim: (row as any).data_fim ?? null,
+          granularidade_data: (row as any).granularidade_data ?? null,
+          aparece_em: (row as any).aparece_em ?? null,
+          created_at: (row as any).created_at ?? null,
         }));
 
         setEvents(mappedEvents);
@@ -371,7 +417,8 @@ export default function TimelinePage() {
     } catch (e: any) { alert(e.message); } finally { setIsSavingEdit(false); }
   }
 
-  async function handleSaveCreate() {
+  async function handleSaveCreate(e: React.FormEvent) {
+    e.preventDefault(); // Garante que não haverá reload
     if (!createData.world_id) return alert("Selecione um mundo.");
     setIsSavingCreate(true);
     try {
@@ -404,7 +451,8 @@ export default function TimelinePage() {
     setNewWorldHasEpisodes(true);
   }
 
-  async function handleCreateWorldFromModal() {
+  async function handleCreateWorldFromModal(e: React.FormEvent) {
+    e.preventDefault(); // Garante que não haverá reload
     if (!newWorldName.trim()) {
       alert("Dê um nome ao novo Mundo.");
       return;
@@ -428,9 +476,8 @@ export default function TimelinePage() {
 
       const inserted = (data?.[0] || null) as World | null;
       if (inserted) {
-        // CORREÇÃO: Força o refetch da lista de mundos
-        fetchWorlds();
-        setWorlds((prev) => [...prev, inserted]);
+        // CORREÇÃO: Força o refetch da lista de mundos e eventos
+        setReloadCounter(c => c + 1);
         setCreateData(prev => ({ ...prev, world_id: inserted.id }));
         setShowNewWorldModal(false);
         setNewWorldName("");
@@ -449,10 +496,10 @@ export default function TimelinePage() {
     <div className="flex h-screen bg-zinc-950 text-zinc-50 flex-col">
       {/* HEADER */}
       <header className="border-b border-zinc-900 px-4 py-2 flex items-center justify-between bg-black/40">
-        <div className="flex items-center gap-4">
-          <a href="/" className="text-[11px] text-zinc-300 hover:text-white">← Home</a>
-          <a href="/lore-upload" className="text-[11px] text-zinc-400 hover:text-white">Upload</a>
-          <a href="/lore-admin" className="text-[11px] text-zinc-400 hover:text-white">Catálogo</a>
+        <div className="flex items-center gap-4 text-xs">
+          <a href="/" className="text-zinc-300 hover:text-white">← Home</a>
+          <a href="/lore-upload" className="text-zinc-400 hover:text-white">Upload</a>
+          <a href="/lore-admin" className="text-zinc-400 hover:text-white">Catálogo</a>
         </div>
         <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
           Modo Timeline Visual
@@ -531,7 +578,7 @@ export default function TimelinePage() {
                   {CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 <button onClick={() => {
-                  const defWorld = selectedWorldId || (worlds.length > 0 ? worlds[0].id : "");
+                  const defWorld = selectedWorldId || (worlds.length > 0 ? worlds.find(w => w.is_root)?.id || worlds[0].id : "");
                   setCreateData({ world_id: defWorld, titulo: "", resumo: "", episodio: "", camada_temporal: "", descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "" });
                   setIsCreateOpen(true);
                 }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded shadow-lg shadow-emerald-900/20">+ Evento</button>
@@ -724,7 +771,7 @@ export default function TimelinePage() {
       {/* CRIAR EVENTO */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-           <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
+           <form onSubmit={handleSaveCreate} className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl">
               <h3 className="text-lg font-bold text-white mb-4">Novo Evento</h3>
               <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
                  <div>
@@ -748,23 +795,23 @@ export default function TimelinePage() {
                  <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                 <button onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
-                 <button onClick={handleSaveCreate} disabled={isSavingCreate} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingCreate ? "Criando..." : "Criar"}</button>
+                 <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
+                 <button type="submit" disabled={isSavingCreate} className="px-4 py-2 rounded text-xs bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingCreate ? "Criando..." : "Criar"}</button>
               </div>
-           </div>
+           </form>
         </div>
       )}
 
       {/* MODAL NOVO MUNDO (CHAMADO VIA DROPDOWN) */}
       {showNewWorldModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+          <form onSubmit={handleCreateWorldFromModal} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
             <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
             <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
-            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="button" onClick={handleCreateWorldFromModal} disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
-          </div>
+            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="submit" disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
+          </form>
         </div>
       )}
     </div>
