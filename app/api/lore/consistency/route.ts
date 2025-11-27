@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { searchLore } from "@/lib/rag";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    if (!openai || !supabaseAdmin) {
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!openai) {
       return NextResponse.json({ error: "Serviços não configurados." }, { status: 500 });
     }
 
@@ -17,22 +24,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Input necessário." }, { status: 400 });
     }
 
-    // 1. Busca Fichas Relacionadas (Usando a nova busca textual inteligente)
-    const relatedFacts = await searchLore(input, { 
+    // 1. Busca Fichas Relacionadas
+    const relatedFacts = await searchLore(supabase, input, { 
       limit: 10, 
       universeId
     });
 
-    // 2. BUSCA DE ENTIDADES ESPECÍFICAS (Reforço)
-    // Tenta encontrar personagens citados no texto para pegar datas de nascimento/morte
+    // 2. BUSCA DE ENTIDADES ESPECÍFICAS
     const keywords = input.match(/[A-Z][a-zÀ-ÿ]+(?:\s[A-Z][a-zÀ-ÿ]+)*/g) || [];
     let hardFacts = "";
     
     if (keywords.length > 0 && universeId) {
         const uniqueNames = Array.from(new Set(keywords)).slice(0, 5);
         
-        // Precisamos descobrir o ID dos mundos deste universo para filtrar
-        const { data: worlds } = await supabaseAdmin
+        // RLS garante que só vejo mundos meus
+        const { data: worlds } = await supabase
             .from("worlds")
             .select("id")
             .eq("universe_id", universeId);
@@ -40,7 +46,7 @@ export async function POST(req: NextRequest) {
         const worldIds = worlds?.map((w: any) => w.id) || [];
 
         if (worldIds.length > 0) {
-            const { data: entities } = await supabaseAdmin
+            const { data: entities } = await supabase
                 .from("fichas")
                 .select("titulo, tipo, ano_diegese, data_inicio, data_fim, conteudo")
                 .in("world_id", worldIds)
