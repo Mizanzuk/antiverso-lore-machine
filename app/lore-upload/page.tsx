@@ -228,11 +228,8 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, []);
 
-  // 2. CARREGAR MUNDOS (CORRIGIDO: CHAMA API DO SERVIDOR)
-  useEffect(() => {
-    if (!selectedUniverseId) return;
-
-    async function fetchWorlds() {
+  // RefetchWorlds declarado aqui para ser chamado no useEffect e no modal
+  const fetchWorlds = async () => {
       setError(null);
       try {
         const params = new URLSearchParams({ universeId: selectedUniverseId });
@@ -256,7 +253,6 @@ export default function LoreUploadPage() {
         if (worldList.length > 0) {
           setWorlds(worldList);
           
-          // Tenta selecionar o mundo atualmente selecionado, senão o primeiro
           if (!worldList.find(w => w.id === selectedWorldId)) {
              setSelectedWorldId(worldList[0].id);
           }
@@ -268,10 +264,13 @@ export default function LoreUploadPage() {
         console.error("Erro ao carregar Mundos:", err);
         setError(err.message || "Erro ao carregar Mundos.");
       }
-    }
-
+  }
+  
+  // 2. CARREGAR MUNDOS (Chama a função refatorada)
+  useEffect(() => {
+    if (!selectedUniverseId) return;
     fetchWorlds();
-  }, [selectedUniverseId]); // Depende apenas do UniverseId
+  }, [selectedUniverseId]);
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -520,6 +519,9 @@ export default function LoreUploadPage() {
     setIsCheckingConsistency(true);
     setConsistencyReport(null);
 
+    // MUDANÇA: Alerta sobre Urizen
+    alert("Consultando Urizen, a Lei, sobre a coerência...");
+
     // Montamos um "Resumo Executivo" do que está sendo proposto para entrar no banco
     const proposalText = suggestedFichas.map(f => `
       - [PROPOSTA] ${f.titulo} (${f.tipo}):
@@ -543,7 +545,8 @@ export default function LoreUploadPage() {
       if (data.analysis) {
         setConsistencyReport(data.analysis);
       } else {
-        setConsistencyReport("O Or não encontrou inconsistências óbvias.");
+        // MUDANÇA: Referência ao Urizen
+        setConsistencyReport("Urizen, a Lei, não encontrou inconsistências óbvias nos Registros.");
       }
     } catch (err) {
       console.error(err);
@@ -652,50 +655,6 @@ export default function LoreUploadPage() {
     setSuggestedFichas([]);
     setSuccessMessage(null);
   }
-
-  // RefetchWorlds declarado aqui para ser chamado no useEffect e no modal
-  const fetchWorlds = async () => {
-      setError(null);
-      try {
-        const params = new URLSearchParams({ universeId: selectedUniverseId });
-        const res = await fetch(`/api/catalog?${params.toString()}`);
-        
-        if (!res.ok) {
-           throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
-        }
-        
-        const data = (await res.json()) as CatalogResponse;
-        
-        // Filtra para mostrar apenas mundos filhos (não is_root), mais Mundo Raiz
-        const rootWorld = data.worlds.find(w => w.is_root);
-        const childWorlds = data.worlds.filter(w => !w.is_root);
-        
-        // Combina o mundo raiz (opcional) com os filhos para a lista do dropdown
-        let worldList: World[] = [];
-        if (rootWorld) worldList.push(rootWorld);
-        worldList = [...worldList, ...childWorlds];
-
-        if (worldList.length > 0) {
-          setWorlds(worldList);
-          
-          if (!worldList.find(w => w.id === selectedWorldId)) {
-             setSelectedWorldId(worldList[0].id);
-          }
-        } else {
-          setWorlds([]);
-          setSelectedWorldId("");
-        }
-      } catch (err: any) {
-        console.error("Erro ao carregar Mundos:", err);
-        setError(err.message || "Erro ao carregar Mundos.");
-      }
-  }
-  
-  // 2. CARREGAR MUNDOS (Chama a função refatorada)
-  useEffect(() => {
-    if (!selectedUniverseId) return;
-    fetchWorlds();
-  }, [selectedUniverseId]);
 
 
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
@@ -823,19 +782,19 @@ export default function LoreUploadPage() {
                 <div className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
-                      🛡️ Protocolo de Coerência
+                      🛡️ Protocolo de Coerência (Urizen)
                     </h3>
                     <button
                       onClick={handleCheckConsistency}
                       disabled={isCheckingConsistency}
                       className="px-3 py-1.5 text-xs bg-purple-900/30 text-purple-200 border border-purple-500/50 rounded hover:bg-purple-900/50 transition-colors disabled:opacity-50"
                     >
-                      {isCheckingConsistency ? "Analisando Linha do Tempo..." : "Verificar Conflitos"}
+                      {isCheckingConsistency ? "Analisando Linha do Tempo..." : "Verificar Coerência (Urizen)"}
                     </button>
                   </div>
                   
                   <p className="text-xs text-zinc-500 mb-3">
-                    Antes de salvar, peça para o Or verificar se estas novas fichas contradizem fatos estabelecidos (datas de morte, regras de mundo, locais destruídos).
+                    Antes de salvar, peça para **Urizen**, a Lei, verificar se estas novas fichas contradizem fatos estabelecidos (datas de morte, regras de mundo, locais destruídos).
                   </p>
 
                   {consistencyReport && (
@@ -844,7 +803,7 @@ export default function LoreUploadPage() {
                         ? "bg-red-950/30 border-red-800 text-red-200" // Estilo de Erro
                         : "bg-emerald-950/30 border-emerald-800 text-emerald-200" // Estilo de Sucesso
                     }`}>
-                      <strong>Relatório do Or:</strong>
+                      <strong>Relatório de Urizen:</strong>
                       <br/>
                       {consistencyReport}
                     </div>
