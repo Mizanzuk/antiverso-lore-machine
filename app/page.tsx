@@ -64,7 +64,7 @@ type CatalogResponse = {
 
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
-// --- NOVAS PERSONAS ---
+// --- PERSONAS ---
 const PERSONAS = {
   consulta: {
     nome: "Urizen",
@@ -171,7 +171,6 @@ export default function Page() {
 
   // --- ESTADOS DE UNIVERSO ---
   const [universes, setUniverses] = useState<Universe[]>([]);
-  // selectedUniverseId é o ID do universo ativo
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>(""); 
   
   // Modal Novo Universo
@@ -180,14 +179,11 @@ export default function Page() {
   const [newUniverseDesc, setNewUniverseDesc] = useState("");
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
   
-  // Modal Editar Universo (Requisito 6)
+  // Modal Editar Universo
   const [showEditUniModal, setShowEditUniModal] = useState(false);
   const [editUniForm, setEditUniForm] = useState({ id: "", nome: "", descricao: "" });
 
-
-  // CORREÇÃO DO REFERENCE ERROR: Inicializa sessões vazias
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -196,7 +192,7 @@ export default function Page() {
   const [viewMode, setViewMode] = useState<ViewMode>("chat"); 
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
   
-  // Estados de Catálogo (mantidos para compatibilidade futura ou se quiser reativar a aba)
+  // Estados de Catálogo (opcionais, mantidos para compatibilidade)
   const [worlds, setWorlds] = useState<World[]>([]);
   const [entities, setEntities] = useState<LoreEntity[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
@@ -207,45 +203,29 @@ export default function Page() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 20;
 
-  // CORREÇÃO DO REFERENCE ERROR: Mudar a inicialização para null
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
 
-  // --- FUNÇÕES DE CHAT CORE (UseCallback para estabilidade) ---
-  
-  // Refatorado para criar nova sessão e selecionar o novo UniverseId
-  const newChatCallback = useCallback((newMode: ChatMode = "consulta", uniId: string | null = selectedUniverseId) => {
-    if (!uniId) {
-        alert("Selecione ou crie um Universo para iniciar uma nova conversa.");
-        return;
-    }
-    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
-    const newSession: ChatSession = { 
-      id, 
-      title: "Nova conversa", 
-      mode: newMode, 
-      createdAt: Date.now(), 
-      messages: [createIntroMessage(newMode)],
-      universeId: uniId // Vincula ao universo atual
+  // --- 1. VERIFICAÇÃO DE SESSÃO (Correção do Carregando Infinito) ---
+  useEffect(() => {
+    const checkSession = async () => {
+      // Verifica se existe sessão no Supabase
+      const { data: { session }, error } = await supabaseBrowser.auth.getSession();
+      
+      if (error || !session) {
+        setView("loggedOut");
+      } else {
+        setUserId(session.user.id);
+        setView("loggedIn");
+        loadUniverses(); // Carrega os dados se estiver logado
+      }
     };
-    setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
-    setActiveSessionId(id); setInput("");
-    setViewMode("chat");
-  }, [selectedUniverseId]);
-  
-  const newChat = (newMode: ChatMode = "consulta") => newChatCallback(newMode, selectedUniverseId);
+    checkSession();
+  }, []);
 
-  // Implementação Requisito 4: Abrir novo chat ao mudar o modo
-  const handleModeChange = (newMode: ChatMode) => { 
-    if (activeSession?.mode === newMode) return; // Não faz nada se o modo for o mesmo
-    
-    // Cria um novo chat com o novo modo, em vez de alterar o atual
-    newChatCallback(newMode, selectedUniverseId);
-  }
+  // --- 2. CARREGAR UNIVERSOS E SESSÕES ---
   
-  // --- INIT ---
-
-  // CORREÇÃO: Carrega sessões salvas no useEffect
+  // Carrega do LocalStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -262,29 +242,64 @@ export default function Page() {
     } catch (err) { console.error(err); }
   }, []);
 
-  // 1. Carrega Universos e define o UniverseId (Requisito 4)
+  // Busca Universos do Banco
   async function loadUniverses() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome, descricao").order("nome");
     
     if (data && data.length > 0) {
       setUniverses(data);
       
-      // Tenta carregar o último universo usado (Requisito 4)
+      // Tenta carregar o último universo usado
       const lastUsedUni = sessions.filter(s => s.universeId).pop()?.universeId;
       const initialUniId = lastUsedUni && data.some(u => u.id === lastUsedUni) ? lastUsedUni : data[0].id;
       
       setSelectedUniverseId(initialUniId); 
       
-      // Se não tem sessão para o universo inicial, cria uma nova no próximo useEffect.
-      
     } else {
+        // CORREÇÃO: Se não houver universos, abre o modal automaticamente
         setUniverses([]);
         setSelectedUniverseId("");
         setSessions([]);
+        setShowUniverseModal(true); // <--- AQUI A MÁGICA
     }
   }
 
-  // 2. Efeito para garantir que a sessão ativa é do universo correto
+  // --- 3. FUNÇÕES DE CHAT CORE (Corrigido duplicidade) ---
+  
+  const newChatCallback = useCallback((newMode: ChatMode = "consulta", uniId: string | null = selectedUniverseId) => {
+    if (!uniId) {
+        // Se tentar criar chat sem universo, força o modal de criação
+        if (universes.length === 0) {
+            setShowUniverseModal(true);
+        } else {
+            alert("Selecione um Universo para iniciar uma nova conversa.");
+        }
+        return;
+    }
+    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
+    const newSession: ChatSession = { 
+      id, 
+      title: "Nova conversa", 
+      mode: newMode, 
+      createdAt: Date.now(), 
+      messages: [createIntroMessage(newMode)],
+      universeId: uniId 
+    };
+    setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
+    setActiveSessionId(id); setInput("");
+    setViewMode("chat");
+  }, [selectedUniverseId, universes.length]);
+  
+  const newChat = (newMode: ChatMode = "consulta") => newChatCallback(newMode, selectedUniverseId);
+
+  const handleModeChange = (newMode: ChatMode) => { 
+    if (activeSession?.mode === newMode) return;
+    newChatCallback(newMode, selectedUniverseId);
+  }
+
+  // --- EFEITOS AUXILIARES ---
+
+  // Garante que a sessão ativa corresponde ao universo selecionado
   useEffect(() => {
     if (!selectedUniverseId) {
         setActiveSessionId(null);
@@ -295,15 +310,11 @@ export default function Page() {
     const activeIsRelevant = activeSessionId && relevantSessions.some(s => s.id === activeSessionId);
     
     if (!activeIsRelevant && relevantSessions.length > 0) {
-        // Seleciona a primeira sessão do universo ativo
         setActiveSessionId(relevantSessions[0].id);
     } else if (!activeIsRelevant && selectedUniverseId && view === "loggedIn") {
-        // Se mudou de universo e não tem sessões, cria uma nova
         newChatCallback("consulta", selectedUniverseId);
     }
-    
-  }, [selectedUniverseId, sessions, view, newChatCallback, activeSessionId]); // Depende do selectedUniverseId e sessions
-
+  }, [selectedUniverseId, sessions, view, activeSessionId, newChatCallback]);
 
   // Persistência Remota (Load)
   useEffect(() => {
@@ -338,10 +349,9 @@ export default function Page() {
   const mode: ChatMode = activeSession?.mode ?? "consulta";
   const persona = PERSONAS[mode];
 
-  // Filtro de Sessões (agora considera o universo)
+  // Filtro de Sessões da Sidebar
   const filteredSessions = sessions.filter((s) => {
     if (selectedUniverseId && s.universeId !== selectedUniverseId) return false;
-    
     if (!historySearchTerm.trim()) return true;
     const q = normalize(historySearchTerm);
     const inTitle = normalize(s.title).includes(q);
@@ -349,10 +359,11 @@ export default function Page() {
     return inTitle || inMessages;
   });
 
-
   useEffect(() => {
     if (viewMode === "chat") scrollToBottom();
   }, [messages.length, viewMode]);
+
+  // --- UTILS DE RENDERIZAÇÃO ---
 
   function renderAssistantMarkdown(text: string) {
     const lines = text.split(/\r?\n/);
@@ -400,7 +411,9 @@ export default function Page() {
     if (e) e.preventDefault();
     const value = input.trim();
     if (!value || loading || !activeSession || !selectedUniverseId) {
-        if (!selectedUniverseId) alert("Selecione ou crie um Universo para iniciar o Chat.");
+        if (!selectedUniverseId) {
+            setShowUniverseModal(true); // Abre modal se tentar falar sem universo
+        }
         return;
     }
 
@@ -508,7 +521,13 @@ export default function Page() {
     try {
       const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
       if (error) { setAuthError(error.message); setView("loggedOut"); setUserId(null); return; }
-      if (data?.session) { setView("loggedIn"); setUserId(data.session.user.id); loadUniverses(); } else { setView("loggedOut"); setUserId(null); }
+      if (data?.session) { 
+          setUserId(data.session.user.id);
+          setView("loggedIn"); 
+          loadUniverses(); 
+      } else { 
+          setView("loggedOut"); setUserId(null); 
+      }
     } catch (err: any) { setAuthError(err.message ?? "Erro ao fazer login"); setView("loggedOut"); setUserId(null); } finally { setAuthSubmitting(false); }
   }
 
@@ -524,7 +543,7 @@ export default function Page() {
   function confirmRenameSession() { if (!renamingSessionId) return; const newTitle = renameDraft.trim(); if (!newTitle) { setRenamingSessionId(null); setRenameDraft(""); return; } setSessions((prev) => prev.map((s) => s.id === renamingSessionId ? { ...s, title: newTitle } : s)); setRenamingSessionId(null); setRenameDraft(""); }
   function cancelRenameSession() { setRenamingSessionId(null); setRenameDraft(""); }
   
-  // Lógica de Deletar Universo (Requisito 8)
+  // Lógica de Deletar Universo
   async function deleteUniverse(uniId: string) {
     if (!uniId) return;
 
@@ -540,18 +559,13 @@ export default function Page() {
     }
 
     try {
-        // 1. Deletar mundos e fichas (incluindo o Mundo Raiz)
         const { error: worldError } = await supabaseBrowser.from("worlds").delete().eq("universe_id", uniId);
         if (worldError) throw worldError;
         
-        // 2. Deletar o registro de Universo
         const { error: uniError } = await supabaseBrowser.from("universes").delete().eq("id", uniId);
         if (uniError) throw uniError;
 
-        // 3. Limpar sessões locais que pertencem a este universo
         setSessions(prev => prev.filter(s => s.universeId !== uniId));
-        
-        // 4. Recarregar Universos
         loadUniverses();
 
     } catch (e: any) {
@@ -571,7 +585,6 @@ export default function Page() {
         
         if (error) throw error;
         
-        // Atualiza estado localmente
         setUniverses(prev => prev.map(u => u.id === editUniForm.id ? { ...u, nome: editUniForm.nome.trim(), descricao: editUniForm.descricao.trim() || null } : u));
         setShowEditUniModal(false);
 
@@ -580,29 +593,26 @@ export default function Page() {
     }
   }
 
-
   function deleteSession(sessionId: string) {
     const ok = window.confirm("Tem certeza que quer excluir esta conversa?"); if (!ok) return;
     setSessions((prev) => {
       const remaining = prev.filter((s) => s.id !== sessionId);
       if (remaining.length === 0) { 
-        // Se deletou a última sessão, cria uma nova no universo atual
-        newChatCallback("consulta", selectedUniverseId);
-        return prev.filter(s => s.id !== sessionId); // Remove the deleted session
+        if (selectedUniverseId) newChatCallback("consulta", selectedUniverseId);
+        return prev.filter(s => s.id !== sessionId); 
       }
       if (activeSessionId === sessionId && remaining[0]) setActiveSessionId(remaining[0].id);
       return remaining;
     });
   }
 
-  // --- HANDLERS DE NOVO UNIVERSO (Requisito 3) ---
+  // --- HANDLERS DE NOVO UNIVERSO ---
   async function createUniverse() {
     if (!newUniverseName.trim()) return alert("Nome do universo é obrigatório");
     
     setIsCreatingUniverse(true);
 
     try {
-        // 1. Criar Universo
         const { data: uniData, error: uniError } = await supabaseBrowser
           .from("universes")
           .insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null })
@@ -613,7 +623,6 @@ export default function Page() {
             return;
         }
 
-        // 2. Criar Mundo Raiz
         const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
         const { error: worldError } = await supabaseBrowser.from("worlds").insert({
             id: rootId,
@@ -629,15 +638,12 @@ export default function Page() {
              return;
         }
 
-
-        // 3. Sucesso: Atualiza estado localmente e seleciona o novo ID
         setUniverses(prev => [...prev, uniData]);
         setSelectedUniverseId(uniData.id);
         setShowUniverseModal(false);
         setNewUniverseName("");
         setNewUniverseDesc("");
         
-        // Cria um chat novo para o novo universo
         newChatCallback("consulta", uniData.id);
 
     } catch(e: any) {
@@ -646,79 +652,6 @@ export default function Page() {
         setIsCreatingUniverse(false);
     }
   }
-
-  // --- CARREGAR CATÁLOGO (Mantido, mas não usado na view principal) ---
-  useEffect(() => {
-    async function loadCatalog() {
-      try {
-        setLoadingCatalog(true);
-        setCatalogError(null);
-        const res = await fetch("/api/catalog");
-        if (!res.ok) throw new Error("Erro ao carregar catálogo");
-        const data = (await res.json()) as CatalogResponse;
-        setWorlds(data.worlds ?? []);
-        setEntities(data.entities ?? []);
-      } catch (err) {
-        console.error(err);
-        setCatalogError("Não foi possível carregar o catálogo do AntiVerso agora.");
-      } finally {
-        setLoadingCatalog(false);
-      }
-    }
-    loadCatalog();
-  }, []);
-
-  // Helpers de Catálogo (mantidos para o MODO CATÁLOGO)
-  const catalogTypes: { id: string; label: string }[] = [
-    { id: "all", label: "Todos os tipos" },
-    { id: "personagem", label: "Personagens" },
-    { id: "local", label: "Locais" },
-    { id: "organizacao", label: "Empresas / Agências" },
-    { id: "midia", label: "Mídias" },
-    { id: "arquivo_aris", label: "Arquivos ARIS" },
-    { id: "episodio", label: "Episódios" },
-    { id: "evento", label: "Eventos" },
-    { id: "conceito", label: "Conceitos" },
-    { id: "objeto", label: "Objetos" },
-  ];
-  const filteredEntitiesAll = entities.filter((e) => {
-    if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
-    if (selectedType !== "all" && e.tipo !== selectedType) return false;
-    if (searchTerm.trim().length > 0) {
-      const q = normalize(searchTerm);
-      const inTitle = normalize(e.titulo).includes(q);
-      const inResumo = normalize(e.resumo).includes(q);
-      const inSlug = normalize(e.slug).includes(q);
-      const inTags = (e.tags ?? []).map((t) => t.toLowerCase()).some((t) => t.includes(q));
-      const inCodes = (e.codes ?? []).map((c) => c.toLowerCase()).some((c) => c.includes(q));
-      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) return false;
-    }
-    return true;
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredEntitiesAll.length / itemsPerPage));
-  const safePage = currentPage > totalPages ? totalPages : Math.max(1, currentPage);
-  const startIndex = (safePage - 1) * itemsPerPage;
-  const pageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
-  function getWorldName(worldId?: string | null): string | null {
-    if (!worldId) return null;
-    const w = worlds.find((w) => w.id === worldId);
-    return w ? w.nome : worldId;
-  }
-  function handleCatalogClick(entity: LoreEntity) {
-    const titulo = entity.titulo;
-    const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
-    setInput(prompt);
-    setViewMode("chat");
-  }
-  const CatalogPagination = () => {
-    if (totalPages <= 1) return null;
-    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
-    return (
-      <div className="flex flex-wrap items-center justify-center gap-1 text-xs text-gray-300 my-2">
-        {pages.map((p) => (<button key={p} onClick={() => setCurrentPage(p)} className={clsx("px-2 py-1 rounded-md border", p === safePage ? "bg-white/20 border-white text-white" : "bg-transparent border-white/20 hover:bg-white/10")}>{p}</button>))}
-      </div>
-    );
-  };
 
   const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Or";
   const selectedUniverseData = universes.find(u => u.id === selectedUniverseId);
@@ -732,13 +665,11 @@ export default function Page() {
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-72 border-r border-white/10 bg-black/40">
         
-        {/* SEÇÃO DE UNIVERSO (REQUISTO 1-5) */}
+        {/* SEÇÃO DE UNIVERSO */}
         <div className="px-4 pt-4 pb-2">
           <label className="text-[10px] uppercase text-zinc-500 font-bold block mb-1">Universo do Chat</label>
           
           <div className="flex flex-col gap-2">
-            
-            {/* Requisito 3: Botão de criação se não houver Universos ou Dropdown se houver */}
             {universes.length === 0 ? (
                 <button 
                   onClick={() => setShowUniverseModal(true)}
@@ -755,14 +686,12 @@ export default function Page() {
                             const value = e.target.value;
                             if (value === "__new__") {
                                 setShowUniverseModal(true);
-                                // Força o seletor a reverter para o valor atual para evitar o dead click
                                 e.target.value = selectedUniverseId || universes[0]?.id || "";
                             } else {
                                 setSelectedUniverseId(value);
                             }
                         }}
                     >
-                        {/* Requisito 7: Opções do Universo + Última Opção Nova */}
                         {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
                         <option value="__new__" className="font-bold text-emerald-400">+ Novo Universo...</option>
                     </select>
@@ -773,7 +702,6 @@ export default function Page() {
             )}
           </div>
           
-          {/* Requisito 3 & 6 & 8: Botões Deletar/Editar Universo */}
           {selectedUniverseId && (
             <div className="flex items-start justify-between gap-2 mt-2 pt-2 border-t border-zinc-800">
                 <span className="text-xs text-zinc-400 truncate">{selectedUniverseData?.descricao || "Sem descrição."}</span>
@@ -827,7 +755,6 @@ export default function Page() {
           <div className={clsx({"opacity-50": !selectedUniverseId})}>
             <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">HISTÓRICO</p>
             
-            {/* Requisito 1: Tela Limpa */}
             {!selectedUniverseId && (
                 <p className="text-gray-500 text-[11px]">Nenhum Universo Selecionado.</p>
             )}
@@ -855,7 +782,6 @@ export default function Page() {
                             <span className={clsx("ml-1 flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border", personaData.styles.color, sessionMode === "consulta" ? "border-emerald-400 bg-emerald-500/10" : "border-purple-400 bg-purple-500/10")}>{modeLabel}</span>
                           </div>
                         </button>
-                        {/* Botões do Histórico - Padrão Sutil */}
                         <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button className="text-gray-500 hover:text-gray-200 transition text-[11px]" onClick={(e) => { e.stopPropagation(); startRenameSession(session.id, session.title); }}>✎</button>
                             <button className="text-gray-500 hover:text-red-400 transition text-[13px]" onClick={(e) => { e.stopPropagation(); deleteSession(session.id); }}>×</button>
@@ -887,7 +813,6 @@ export default function Page() {
         {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
           <div className="flex items-center gap-2">
-            {/* Ícone e Nome do Agente Ativo */}
             <div className={clsx("h-6 w-6 rounded-full", persona.styles.header)} />
             <div className="flex flex-col">
               <span className="text-sm font-medium">{persona.nome}</span>
@@ -895,7 +820,6 @@ export default function Page() {
             </div>
           </div>
           
-          {/* Requisito 3: Seleção de Modo (Consulta/Criativo) */}
           <div className="flex items-center gap-4 text-[11px]">
             <div className="flex items-center gap-2">
               <span className="text-gray-400">Mudar para:</span>
@@ -952,13 +876,6 @@ export default function Page() {
                 {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com {persona.nome} escrevendo abaixo.</p>}
               </div>
             )}
-
-            {/* MODO CATÁLOGO */}
-            {viewMode === "catalog" && selectedUniverseId && (
-               <div className="space-y-3">
-                  {/* ... Catálogo content ... */}
-               </div>
-            )}
             
           </div>
         </section>
@@ -981,7 +898,7 @@ export default function Page() {
         </footer>
       </main>
 
-      {/* MODAL NOVO UNIVERSO (REQUISITO 3) */}
+      {/* MODAL NOVO UNIVERSO */}
       {showUniverseModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <form onSubmit={e => { e.preventDefault(); createUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
@@ -996,7 +913,7 @@ export default function Page() {
         </div>
       )}
       
-      {/* MODAL EDITAR UNIVERSO (REQUISITO 6) */}
+      {/* MODAL EDITAR UNIVERSO */}
       {showEditUniModal && selectedUniverseData && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <form onSubmit={e => { e.preventDefault(); saveEditUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
