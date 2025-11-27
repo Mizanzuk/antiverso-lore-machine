@@ -1,48 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// GET: Busca lista de possíveis duplicatas
+// GET: Busca duplicatas
 export async function GET(req: NextRequest) {
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: "Supabase não configurado." }, { status: 500 });
-  }
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  const userId = req.headers.get("x-user-id");
-  if (!userId) {
-    return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
+  if (authError || !user) {
+    return NextResponse.json({ error: "Acesso negado." }, { status: 401 });
   }
 
   try {
-    // ATENÇÃO: A função RPC 'find_potential_duplicates' no banco deve suportar filtro por usuário.
-    // Se ela não suportar, ela pode retornar falso-positivos globais.
-    // Por segurança, vamos filtrar os resultados aqui ou confiar que o SQL foi atualizado.
-    
-    // Chamada RPC (assumindo que foi atualizada ou que vamos filtrar depois)
-    const { data, error } = await supabaseAdmin.rpc("find_potential_duplicates", {
+    // Chamada RPC
+    // NOTA: A função RPC 'find_potential_duplicates' no banco PRECISA filtrar por user_id internamente
+    // OU nós filtramos aqui. Assumindo que a RPC retorna tudo, vamos filtrar no código por segurança.
+    const { data, error } = await supabase.rpc("find_potential_duplicates", {
       similarity_threshold: 0.3,
     });
 
     if (error) {
-      console.error("Erro ao buscar duplicatas:", error);
+      console.error("Erro RPC:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // FILTRAGEM DE SEGURANÇA NO CÓDIGO (Caso o SQL traga tudo)
+    // Filtragem de Segurança no código:
     // Verifica se os IDs retornados pertencem ao usuário atual
     const rawPairs = (data || []) as any[];
     const idsToCheck = new Set<string>();
     rawPairs.forEach(p => { idsToCheck.add(p.id_a); idsToCheck.add(p.id_b); });
 
     if (idsToCheck.size > 0) {
-        const { data: myFichas } = await supabaseAdmin
+        const { data: myFichas } = await supabase
             .from("fichas")
-            .select("id")
-            .eq("user_id", userId) // Só minhas fichas
+            .select("id") // RLS aplica filtro por user_id aqui
             .in("id", Array.from(idsToCheck));
         
-        const myIds = new Set(myFichas?.map(f => f.id));
+        const myIds = new Set(myFichas?.map((f: any) => f.id));
         
         // Só retorna pares onde AMBAS as fichas são minhas
         const safePairs = rawPairs.filter(p => myIds.has(p.id_a) && myIds.has(p.id_b));
@@ -56,15 +51,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: Executa o MERGE (Fusão)
+// POST: Executa o MERGE
 export async function POST(req: NextRequest) {
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: "Supabase não configurado." }, { status: 500 });
-  }
+  const supabase = createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  const userId = req.headers.get("x-user-id");
-  if (!userId) {
-    return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
+  if (authError || !user) {
+    return NextResponse.json({ error: "Acesso negado." }, { status: 401 });
   }
 
   try {
@@ -72,22 +65,14 @@ export async function POST(req: NextRequest) {
     const { winnerId, loserId, mergedData } = body;
 
     if (!winnerId || !loserId || !mergedData) {
-      return NextResponse.json({ error: "Dados incompletos para merge." }, { status: 400 });
+      return NextResponse.json({ error: "Dados incompletos." }, { status: 400 });
     }
 
-    // VERIFICAÇÃO DE PROPRIEDADE (CRÍTICO)
-    const { data: checkOwner } = await supabaseAdmin
-        .from("fichas")
-        .select("id")
-        .in("id", [winnerId, loserId])
-        .eq("user_id", userId);
-    
-    if (!checkOwner || checkOwner.length !== 2) {
-        return NextResponse.json({ error: "Você não tem permissão para fundir estas fichas." }, { status: 403 });
-    }
+    // A verificação de propriedade é feita implicitamente pelo RLS nas queries abaixo.
+    // Se o usuário não for dono, o UPDATE/DELETE vai retornar '0 rows affected' ou erro.
 
     // 1. Atualizar a Ficha Vencedora
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await supabase
       .from("fichas")
       .update({
         titulo: mergedData.titulo,
@@ -104,33 +89,27 @@ export async function POST(req: NextRequest) {
         descricao_data: mergedData.descricao_data,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", winnerId); // Já checado acima
+      .eq("id", winnerId);
 
-    if (updateError) {
-      throw new Error(`Erro ao atualizar vencedora: ${updateError.message}`);
-    }
+    if (updateError) throw new Error(`Erro ao atualizar vencedora: ${updateError.message}`);
 
     // 2. Mover Códigos
-    const { error: codesError } = await supabaseAdmin
+    await supabase
       .from("codes")
       .update({ ficha_id: winnerId })
       .eq("ficha_id", loserId);
 
-    if (codesError) console.warn("Aviso: Erro ao mover códigos:", codesError);
-
     // 3. Apagar a Ficha Perdedora
-    const { error: deleteError } = await supabaseAdmin
+    const { error: deleteError } = await supabase
       .from("fichas")
       .delete()
       .eq("id", loserId);
 
-    if (deleteError) {
-      throw new Error(`Erro ao deletar perdedora: ${deleteError.message}`);
-    }
+    if (deleteError) throw new Error(`Erro ao deletar perdedora: ${deleteError.message}`);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error("Erro no merge:", err);
-    return NextResponse.json({ error: err.message || "Erro desconhecido." }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
