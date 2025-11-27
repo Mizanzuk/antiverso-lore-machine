@@ -7,4 +7,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error("⚠️ Erro Crítico: Variáveis de ambiente do Supabase não encontradas no navegador.");
 }
 
+// Exportação NOMEADA correta para evitar o erro "Element type is invalid"
 export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey);
