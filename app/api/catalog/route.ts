@@ -1,48 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    if (!supabaseAdmin) {
-      return NextResponse.json(
-        { error: "Supabase não configurado." },
-        { status: 500 }
-      );
-    }
+    const supabase = createClient();
 
-    // 1. SEGURANÇA: Identificar o usuário
-    // O frontend deve enviar o ID do usuário no header "x-user-id"
-    const userId = req.headers.get("x-user-id");
+    // Valida o usuário real via cookie
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (!userId) {
+    if (authError || !user) {
       return NextResponse.json(
-        { error: "Usuário não identificado (x-user-id ausente)." },
+        { error: "Usuário não identificado." },
         { status: 401 }
       );
     }
 
-    const client = supabaseAdmin;
-
-    // 2. Buscar Mundos (FILTRANDO POR USER_ID)
-    const { data: worlds, error: worldsError } = await client
+    // Busca Universos e Mundos (RLS filtra automaticamente)
+    const { data: worlds, error: worldsError } = await supabase
       .from("worlds")
       .select("id, nome, descricao, tipo, ordem, is_root, universe_id")
-      .eq("user_id", userId) // <--- FILTRO DE SEGURANÇA
       .order("ordem", { ascending: true });
 
     if (worldsError) {
       console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
-    // 3. Buscar Fichas (FILTRANDO POR USER_ID)
-    const { data: entities, error: entitiesError } = await client
+    // Busca Fichas (RLS filtra automaticamente)
+    const { data: entities, error: entitiesError } = await supabase
       .from("fichas")
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo, user_id"
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo"
       )
-      .eq("user_id", userId) // <--- FILTRO DE SEGURANÇA
       .order("titulo", { ascending: true })
       .limit(1000);
 
