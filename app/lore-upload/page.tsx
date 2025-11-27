@@ -409,6 +409,11 @@ export default function LoreUploadPage() {
     setError(null);
     setSuccessMessage(null);
 
+    if (!userId) {
+       setError("Usuário não autenticado.");
+       return;
+    }
+
     const world = worlds.find((w) => w.id === selectedWorldId) || null;
     const worldHasEpisodes = world?.has_episodes !== false;
 
@@ -433,7 +438,10 @@ export default function LoreUploadPage() {
 
       const response = await fetch("/api/lore/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            "x-user-id": userId // HEADER DE SEGURANÇA
+        },
         body: JSON.stringify({
           text,
           worldId: selectedWorldId,
@@ -444,7 +452,6 @@ export default function LoreUploadPage() {
       });
 
       if (!response.ok) {
-        console.error("Falha ao extrair fichas:", response.statusText);
         const errorData = await response.json().catch(() => null);
         const msg = errorData?.error || `Erro ao extrair fichas (status ${response.status}).`;
         setError(msg);
