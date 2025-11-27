@@ -62,12 +62,38 @@ type CatalogResponse = {
 
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 
-function createIntroMessage(): ChatMessage {
+// --- NOVAS PERSONAS ---
+const PERSONAS = {
+  consulta: {
+    nome: "Urizen",
+    titulo: "A Lei (Consulta)",
+    intro: "Eu sou Urizen, a Lei deste AntiVerso. Minha função é garantir a coerência dos Registros. O que você quer analisar hoje?",
+    styles: {
+      color: "text-emerald-200",
+      bg: "bg-emerald-900/20",
+      header: "bg-gradient-to-tr from-cyan-600 via-emerald-500 to-blue-500",
+      button: "bg-emerald-500/20 border-emerald-400 text-emerald-200",
+    }
+  },
+  criativo: {
+    nome: "Urthona",
+    titulo: "O Fluxo (Criativo)",
+    intro: "Eu sou Urthona, o Forjador. Minha forja está pronta para criar e expandir as narrativas. Qual a próxima história?",
+    styles: {
+      color: "text-purple-100",
+      bg: "bg-purple-900/30",
+      header: "bg-gradient-to-tr from-fuchsia-600 via-purple-500 to-pink-500",
+      button: "bg-purple-600/30 border-purple-400 text-purple-100",
+    }
+  }
+};
+
+function createIntroMessage(mode: ChatMode): ChatMessage {
+  const persona = PERSONAS[mode];
   return {
     id: "intro",
     role: "assistant",
-    content:
-      "Eu sou Or, guardião do AntiVerso. Podemos começar uma nova história, revisar o lore ou organizar o que você já escreveu. Sobre o que você quer falar hoje?",
+    content: persona.intro,
   };
 }
 
@@ -156,12 +182,19 @@ export default function Page() {
         const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed as ChatSession[];
+          // CORREÇÃO: Mapeia o modo para criar a mensagem de introdução correta
+          if (Array.isArray(parsed) && parsed.length > 0) {
+             return parsed.map((s: ChatSession) => ({
+                ...s,
+                // Garantir que a intro message reflita a nova persona/modo
+                messages: s.messages.map(m => m.id === "intro" ? createIntroMessage(s.mode || "consulta") : m)
+             })) as ChatSession[];
+          }
         }
       } catch (err) { console.error(err); }
     }
     const id = typeof crypto !== "undefined" ? crypto.randomUUID() : "session-inicial";
-    return [{ id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage()] }];
+    return [{ id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage("consulta")] }];
   });
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -191,7 +224,7 @@ export default function Page() {
     const checkSession = async () => {
       try {
         const { data: { session }, error } = await supabaseBrowser.auth.getSession();
-        if (error) { console.error(error); setView("loggedOut"); setUserId(null); return; }
+        if (error) { setView("loggedOut"); setUserId(null); return; }
         if (session) { 
           setView("loggedIn"); 
           setUserId(session.user.id);
@@ -200,7 +233,7 @@ export default function Page() {
           setView("loggedOut"); 
           setUserId(null); 
         }
-      } catch (err) { console.error(err); setView("loggedOut"); setUserId(null); }
+      } catch (err) { setView("loggedOut"); setUserId(null); }
     };
     checkSession();
   }, []);
@@ -257,6 +290,7 @@ export default function Page() {
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0];
   const messages = activeSession?.messages ?? [];
   const mode: ChatMode = activeSession?.mode ?? "consulta";
+  const persona = PERSONAS[mode];
 
   // Filtro de Sessões (agora considera o universo)
   const filteredSessions = sessions.filter((s) => {
@@ -274,14 +308,9 @@ export default function Page() {
 
   // Efeito para trocar de sessão ao mudar universo
   useEffect(() => {
-    // Se não houver sessão visível para este universo, reseta a seleção
     const isVisible = filteredSessions.some(s => s.id === activeSessionId);
     if (!isVisible && filteredSessions.length > 0) {
       setActiveSessionId(filteredSessions[0].id);
-    } else if (!isVisible) {
-      // Se não tem nenhuma sessão, cria uma nova para este universo
-      // (Mas evitamos loop infinito, só criamos se realmente não houver nada)
-      // newChat(); // Comentado para evitar criação automática excessiva, usuário clica em +
     }
   }, [selectedUniverseId, filteredSessions]);
 
@@ -364,16 +393,16 @@ export default function Page() {
     setLoading(true);
 
     try {
-      // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL ---
-      // Buscamos o nome do universo selecionado
       const currentUniName = universes.find(u => u.id === selectedUniverseId)?.nome || "neste universo";
+      const currentPersona = PERSONAS[mode].nome;
+      const currentPersonaTitle = PERSONAS[mode].titulo;
 
-      // Injetamos o nome no prompt para garantir isolamento
-      const systemPromptConsulta = 
-        `Você é Or, guardião de ${currentUniName}. Você está em MODO CONSULTA. Use apenas o lore existente fornecido pelo banco de dados local. Não invente fatos novos e nem traga informações do AntiVerso original se não estiverem no contexto. Se não tiver certeza, diga que aquela informação ainda não está definida neste universo.`;
+      const systemPromptBase = 
+        `Você é ${currentPersona}, o ${currentPersonaTitle} de ${currentUniName}. Você está em MODO ${mode.toUpperCase()}.`;
+
+      const systemPromptConsulta = systemPromptBase + ` Use apenas o lore existente fornecido pelo banco de dados local. Não invente fatos novos e nem traga informações de outras mídias se não estiverem no contexto. Se não tiver certeza, diga que aquela informação ainda não está definida neste universo.`;
       
-      const systemPromptCriativo = 
-        `Você é Or, guardião de ${currentUniName}. Você está em MODO CRIATIVO. Você pode propor ideias novas de ficção para ${currentUniName}, desde que respeitem a coerência do lore já estabelecido aqui.`;
+      const systemPromptCriativo = systemPromptBase + ` Você pode propor ideias novas de ficção para ${currentUniName}, desde que respeitem a coerência do lore já estabelecido aqui.`;
 
       const systemPrompt = mode === "consulta" ? systemPromptConsulta : systemPromptCriativo;
       
@@ -428,9 +457,8 @@ export default function Page() {
         }
       }, delay);
     } catch (err) {
-      console.error(err);
       if (typingIntervalRef.current !== null) { window.clearInterval(typingIntervalRef.current); typingIntervalRef.current = null; }
-      const errorText = "Houve um erro ao falar com Or. Verifique se suas chaves estão corretas e tente novamente.";
+      const errorText = "Houve um erro ao falar com o assistente. Verifique se suas chaves estão corretas e tente novamente.";
       setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, messages: s.messages.map((m) => m.id === placeholderId ? { ...m, content: errorText } : m) } : s));
       setLoading(false);
     }
@@ -440,32 +468,45 @@ export default function Page() {
     e.preventDefault(); setAuthSubmitting(true); setAuthError(null);
     try {
       const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
-      if (error) { console.error(error); setAuthError(error.message); setView("loggedOut"); setUserId(null); return; }
+      if (error) { setAuthError(error.message); setView("loggedOut"); setUserId(null); return; }
       if (data?.session) { setView("loggedIn"); setUserId(data.session.user.id); loadUniverses(); } else { setView("loggedOut"); setUserId(null); }
-    } catch (err: any) { console.error(err); setAuthError(err.message ?? "Erro ao fazer login"); setView("loggedOut"); setUserId(null); } finally { setAuthSubmitting(false); }
+    } catch (err: any) { setAuthError(err.message ?? "Erro ao fazer login"); setView("loggedOut"); setUserId(null); } finally { setAuthSubmitting(false); }
   }
 
   async function handleLogout() {
     try { await supabaseBrowser.auth.signOut(); } catch (err) { console.error(err); } 
-    finally { setView("loggedOut"); setUserId(null); setEmail(""); setPassword(""); setSessions([{ id: "default", title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage()] }]); setActiveSessionId(null); setRemoteLoaded(false); }
+    finally { setView("loggedOut"); setUserId(null); setEmail(""); setPassword(""); setSessions([{ id: "default", title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage("consulta")] }]); setActiveSessionId(null); setRemoteLoaded(false); }
   }
 
   function scrollToBottom() { const el = viewportRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }
-  function newChat() {
+  
+  function newChat(newMode: ChatMode = "consulta") {
     const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
     const newSession: ChatSession = { 
       id, 
       title: "Nova conversa", 
-      mode: "consulta", 
+      mode: newMode, 
       createdAt: Date.now(), 
-      messages: [createIntroMessage()],
+      messages: [createIntroMessage(newMode)],
       universeId: selectedUniverseId // Vincula ao universo atual
     };
     setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
     setActiveSessionId(id); setInput("");
     setViewMode("chat");
   }
-  function handleModeChange(newMode: ChatMode) { if (!activeSession) return; setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, mode: newMode } : s)); }
+
+  function handleModeChange(newMode: ChatMode) { 
+    if (!activeSession) { newChat(newMode); return; }
+    // Atualiza o modo e a mensagem de introdução (caso a sessão esteja vazia)
+    setSessions((prev) => prev.map((s) => {
+      if (s.id !== activeSession.id) return s;
+      const updatedMessages = s.messages.map(m => m.id === "intro" ? createIntroMessage(newMode) : m);
+      // Se for a primeira mensagem, a intro message já foi atualizada acima
+      // Se não for, apenas muda o modo
+      return { ...s, mode: newMode, messages: updatedMessages };
+    })); 
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!loading) void onSubmit(); } }
   function startRenameSession(sessionId: string, currentTitle: string) { setRenamingSessionId(sessionId); setRenameDraft(currentTitle); }
   function confirmRenameSession() { if (!renamingSessionId) return; const newTitle = renameDraft.trim(); if (!newTitle) { setRenamingSessionId(null); setRenameDraft(""); return; } setSessions((prev) => prev.map((s) => s.id === renamingSessionId ? { ...s, title: newTitle } : s)); setRenamingSessionId(null); setRenameDraft(""); }
@@ -474,7 +515,7 @@ export default function Page() {
     const ok = window.confirm("Tem certeza que quer excluir esta conversa?"); if (!ok) return;
     setSessions((prev) => {
       const remaining = prev.filter((s) => s.id !== sessionId);
-      if (remaining.length === 0) { const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`; return [{ id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage()] }]; }
+      if (remaining.length === 0) { const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`; return [{ id, title: "Nova conversa", mode: "consulta", createdAt: Date.now(), messages: [createIntroMessage("consulta")] }]; }
       if (activeSessionId === sessionId && remaining[0]) setActiveSessionId(remaining[0].id);
       return remaining;
     });
@@ -484,7 +525,6 @@ export default function Page() {
   async function createUniverse() {
     if (!newUniverseName.trim()) return alert("Nome do universo é obrigatório");
     
-    // 1. Criar Universo
     const { data: uniData, error: uniError } = await supabaseBrowser
       .from("universes")
       .insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null })
@@ -492,7 +532,6 @@ export default function Page() {
     
     if (uniError || !uniData) return alert("Erro ao criar universo.");
 
-    // 2. Criar Mundo Raiz
     const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
     await supabaseBrowser.from("worlds").insert({
       id: rootId,
@@ -503,14 +542,12 @@ export default function Page() {
       ordem: 0
     });
 
-    // Reload e Seleciona
     setUniverses(prev => [...prev, uniData]);
     setSelectedUniverseId(uniData.id);
     setShowUniverseModal(false);
     setNewUniverseName("");
     setNewUniverseDesc("");
     
-    // Cria um chat novo para o novo universo
     newChat();
   }
 
@@ -535,7 +572,7 @@ export default function Page() {
     loadCatalog();
   }, []);
 
-  // Helpers de Catálogo
+  // Helpers de Catálogo (mantidos para o MODO CATÁLOGO)
   const catalogTypes: { id: string; label: string }[] = [
     { id: "all", label: "Todos os tipos" },
     { id: "personagem", label: "Personagens" },
@@ -587,7 +624,8 @@ export default function Page() {
     );
   };
 
-  const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "Or";
+  const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "neste universo";
+
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
   if (view === "loggedOut") return (<div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><form onSubmit={handleLogin} className="border border-neutral-800 rounded-lg p-6 w-[320px] bg-neutral-950/80"><h1 className="text-sm font-semibold mb-2 tracking-[0.18em] uppercase text-neutral-400">AntiVerso Lore Machine</h1><p className="text-[11px] text-neutral-500 mb-4">Acesse com seu e-mail e senha de admin.</p>{authError && <div className="mb-3 text-[11px] text-red-400 bg-red-950/40 border border-red-900 rounded px-2 py-1">{authError}</div>}<div className="space-y-2 mb-3"><div><label className="block text-[11px] text-neutral-500 mb-1">E-mail</label><input type="email" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div><div><label className="block text-[11px] text-neutral-500 mb-1">Senha</label><input type="password" className="w-full rounded border border-neutral-800 bg-black/60 px-2 py-1 text-xs" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div></div><button type="submit" disabled={authSubmitting} className="w-full mt-1 text-[11px] px-3 py-1.5 rounded border border-emerald-500 bg-emerald-600/80 hover:bg-emerald-400 hover:border-emerald-400 hover:text-black transition-colors disabled:opacity-60">{authSubmitting ? "Entrando…" : "Entrar"}</button></form></div>);
@@ -614,7 +652,7 @@ export default function Page() {
         </div>
 
         <div className="px-4 py-4 border-b border-white/10">
-          <button onClick={newChat} className="w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 transition">+ Nova conversa</button>
+          <button onClick={() => newChat(mode)} className="w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 transition">+ Nova conversa</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-xs text-gray-400 space-y-4">
@@ -635,7 +673,8 @@ export default function Page() {
                     const isActive = activeSession?.id === session.id;
                     const isRenaming = renamingSessionId === session.id;
                     const sessionMode: ChatMode = (session.mode as ChatMode) ?? "consulta";
-                    const modeLabel = sessionMode === "consulta" ? "Consulta" : "Criativo";
+                    const personaData = PERSONAS[sessionMode];
+                    const modeLabel = personaData.nome;
                     return (
                       <div key={session.id} className={clsx("group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20", isActive ? "bg-white/10 border-white/30" : "bg-transparent")}>
                         <button className="flex-1 text-left" onClick={() => { setActiveSessionId(session.id); setViewMode("chat"); }}>
@@ -644,7 +683,7 @@ export default function Page() {
                               <div className="text-[11px] font-medium text-gray-100 leading-snug break-words max-w-[200px]">{isRenaming ? (<input className="w-full bg-black/60 border border-white/20 rounded px-1 py-0.5 text-[11px] text-gray-100" value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} onBlur={confirmRenameSession} onKeyDown={(e) => { if (e.key === "Enter") { confirmRenameSession(); } else if (e.key === "Escape") { cancelRenameSession(); } }} autoFocus />) : (session.title)}</div>
                               <div className="text-[10px] text-gray-500 truncate">{new Date(session.createdAt).toLocaleString()}</div>
                             </div>
-                            <span className={clsx("ml-1 flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border", sessionMode === "consulta" ? "border-emerald-400 text-emerald-200 bg-emerald-500/10" : "border-purple-400 text-purple-200 bg-purple-500/10")}>{modeLabel}</span>
+                            <span className={clsx("ml-1 flex-shrink-0 px-2 py-[1px] rounded-full text-[9px] uppercase tracking-wide border", personaData.styles.color, sessionMode === "consulta" ? "border-emerald-400 bg-emerald-500/10" : "border-purple-400 bg-purple-500/10")}>{modeLabel}</span>
                           </div>
                         </button>
                         <div className="flex items-center gap-1 flex-shrink-0"><button className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-200 transition text-[11px]" onClick={(e) => { e.stopPropagation(); startRenameSession(session.id, session.title); }}>✎</button><button className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition text-[13px]" onClick={(e) => { e.stopPropagation(); deleteSession(session.id); }}>×</button></div>
@@ -675,11 +714,11 @@ export default function Page() {
         {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
           <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-full bg-gradient-to-tr from-red-600 via-purple-500 to-blue-500" />
-            <div className="flex flex-col"><span className="text-sm font-medium">Or</span><span className="text-[11px] text-gray-400">Guardião do Universo — {mode === "consulta" ? "Modo consulta" : "Modo criativo"}</span></div>
+            <div className={clsx("h-6 w-6 rounded-full", persona.styles.header)} />
+            <div className="flex flex-col"><span className="text-sm font-medium">{persona.nome}</span><span className="text-[11px] text-gray-400">Guardião do Universo — {persona.titulo}</span></div>
           </div>
           <div className="flex items-center gap-4 text-[11px]">
-            <div className="flex items-center gap-2"><span className="text-gray-400">Modo:</span><button onClick={() => handleModeChange("consulta")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "consulta" ? "bg-emerald-500/20 border-emerald-400 text-emerald-200" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Consulta</button><button onClick={() => handleModeChange("criativo")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "criativo" ? "bg-purple-600/30 border-purple-400 text-purple-100" : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Criativo</button></div>
+            <div className="flex items-center gap-2"><span className="text-gray-400">Mudar para:</span><button onClick={() => handleModeChange("consulta")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "consulta" ? persona.styles.button : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Urizen</button><button onClick={() => handleModeChange("criativo")} className={clsx("px-2 py-1 rounded-full border text-xs", mode === "criativo" ? persona.styles.button : "bg-transparent border-white/20 text-gray-300 hover:bg-white/10")}>Urthona</button></div>
           </div>
         </header>
 
@@ -691,22 +730,20 @@ export default function Page() {
               <div className="space-y-4 max-w-2xl mx-auto">
                 {messages.map((msg) => (
                   <div key={msg.id} className={clsx("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-                    <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : "bg-white/5 text-gray-100 border border-white/10")}>
+                    <div className={clsx("rounded-2xl px-4 py-3 max-w-[80%] text-sm leading-relaxed", msg.role === "user" ? "bg-blue-600 text-white" : persona.styles.bg + " " + persona.styles.color + " border border-white/10")}>
                       {msg.role === "user" ? (<div className="whitespace-pre-wrap">{msg.content}</div>) : (renderAssistantMarkdown(msg.content))}
                     </div>
                   </div>
                 ))}
-                {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>Or está escrevendo…</span></div></div>}
-                {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com Or escrevendo abaixo.</p>}
+                {loading && <div className="flex justify-start"><div className="flex items-center gap-2 text-[11px] text-gray-400 pl-2"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /><span>{persona.nome} está escrevendo…</span></div></div>}
+                {messages.length === 0 && !loading && <p className="text-center text-gray-500 text-sm mt-8">Comece uma conversa com {persona.nome} escrevendo abaixo.</p>}
               </div>
             )}
 
             {/* MODO CATÁLOGO (Opcional, mantido oculto por padrão na UI mas funcional se necessário) */}
             {viewMode === "catalog" && (
                <div className="space-y-3">
-                  {/* (Código do catálogo mantido caso decida reativar) */}
-                  <h2 className="text-sm font-semibold text-gray-100">Catálogo do AntiVerso</h2>
-                  {/* ... */}
+                  {/* ... Catálogo content ... */}
                </div>
             )}
           </div>
@@ -717,7 +754,7 @@ export default function Page() {
           <form onSubmit={(e) => { void onSubmit(e); }} className="max-w-2xl mx-auto flex items-end gap-2">
             <textarea
               className="flex-1 resize-none rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm outline-none focus:border-white/40 max-h-32 min-h-[44px]"
-              placeholder={`Escreva aqui para Or em ${currentUniverseName}...`}
+              placeholder={`Escreva aqui para ${persona.nome} em ${currentUniverseName}...`}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               rows={1}
