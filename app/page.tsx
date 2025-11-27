@@ -169,7 +169,6 @@ export default function Page() {
 
   // --- ESTADOS DE UNIVERSO ---
   const [universes, setUniverses] = useState<Universe[]>([]);
-  // CORREÇÃO: selectedUniverseId é inicializado como null/vazio até ser populado
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>(""); 
   
   // Modal Novo Universo
@@ -242,10 +241,36 @@ export default function Page() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
     if (data && data.length > 0) {
       setUniverses(data);
-      // CORREÇÃO: Define o UniverseId se ainda não estiver definido.
-      if (!selectedUniverseId) setSelectedUniverseId(data[0].id); 
+      // CORREÇÃO: Usa o último universo da sessão, se houver, ou o primeiro carregado.
+      if (!selectedUniverseId) {
+          const lastSessionUni = sessions.find(s => s.universeId)?.universeId;
+          const initialUniId = lastSessionUni && data.some(u => u.id === lastSessionUni) ? lastSessionUni : data[0].id;
+          setSelectedUniverseId(initialUniId); 
+      }
+    } else {
+        setUniverses([]);
+        setSelectedUniverseId("");
     }
   }
+  
+  // Efeito para garantir que o chat ativo seja do universo selecionado
+  useEffect(() => {
+    if (!selectedUniverseId) return;
+    
+    // Filtra chats do novo universo
+    const relevantSessions = sessions.filter(s => s.universeId === selectedUniverseId);
+    
+    if (activeSessionId && !relevantSessions.some(s => s.id === activeSessionId)) {
+        // Se a sessão ativa não está no novo universo, seleciona a primeira do novo universo
+        if (relevantSessions.length > 0) {
+            setActiveSessionId(relevantSessions[0].id);
+        } else {
+            // Se não há sessões para o novo universo, cria uma nova
+            newChat(mode);
+        }
+    }
+  }, [selectedUniverseId, sessions]);
+
 
   useEffect(() => {
     if (!activeSessionId && sessions.length > 0) setActiveSessionId(sessions[0].id);
@@ -295,7 +320,7 @@ export default function Page() {
 
   // Filtro de Sessões (agora considera o universo)
   const filteredSessions = sessions.filter((s) => {
-    // CORREÇÃO: Apenas filtra se houver um selectedUniverseId válido
+    // Apenas filtra se houver um selectedUniverseId válido
     if (selectedUniverseId && s.universeId && s.universeId !== selectedUniverseId) return false;
     
     if (!historySearchTerm.trim()) return true;
@@ -593,7 +618,7 @@ export default function Page() {
         });
 
         if (worldError) {
-             alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS. Erro: " + (worldError?.message || "Erro desconhecido."));
+             alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS no Supabase. Erro: " + (worldError?.message || "Erro desconhecido."));
              return;
         }
 
@@ -700,49 +725,45 @@ export default function Page() {
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-72 border-r border-white/10 bg-black/40">
         
-        {/* SELETOR DE UNIVERSO (NOVO) */}
+        {/* SEÇÃO DE UNIVERSO (REQUISTO 1-5) */}
         <div className="px-4 pt-4 pb-2">
           <label className="text-[10px] uppercase text-zinc-500 font-bold block mb-1">Universo do Chat</label>
           
-          <div className="flex items-center gap-2">
-            <select 
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
-              value={selectedUniverseData?.id || ""}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === "__new__") {
-                  setShowUniverseModal(true);
-                } else {
-                  setSelectedUniverseId(value);
-                }
-              }}
-              disabled={!universes.length && !selectedUniverseId}
-            >
-              {selectedUniverseId ? (
-                <option value={selectedUniverseId}>{selectedUniverseName}</option>
-              ) : (
-                <option value="" disabled>Selecione um Universo</option>
-              )}
-              
-              {universes
-                .filter(u => u.id !== selectedUniverseId)
-                .map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-              
-              <option value="__new__" className="font-bold text-emerald-400">+ Novo Universo...</option>
-            </select>
+          <div className="flex flex-col gap-2">
             
-            {/* Botão de Deletar Universo */}
-            {selectedUniverseId && (
-                <button
-                    onClick={() => deleteUniverse(selectedUniverseId)}
-                    className="p-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900"
-                    title="Deletar Universo"
+            {universes.length === 0 && (
+                <button 
+                  onClick={() => setShowUniverseModal(true)}
+                  className="w-full rounded-md border border-emerald-500 bg-emerald-600/20 px-3 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-600/40 transition"
                 >
-                    ×
+                    + Novo Universo
                 </button>
+            )}
+            
+            {universes.length > 0 && (
+                <select 
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
+                    value={selectedUniverseId || ""}
+                    onChange={(e) => setSelectedUniverseId(e.target.value)}
+                >
+                    {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                </select>
             )}
           </div>
           
+          {selectedUniverseId && (
+            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-zinc-800">
+                <span className="text-xs text-zinc-400 truncate">{selectedUniverseData?.descricao || "Sem descrição."}</span>
+                <button
+                    onClick={() => deleteUniverse(selectedUniverseId)}
+                    className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-xs"
+                    title="Deletar Universo"
+                >
+                    × Deletar
+                </button>
+            </div>
+          )}
+
         </div>
 
         <div className="px-4 py-4 border-b border-white/10">
