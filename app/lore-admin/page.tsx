@@ -69,7 +69,6 @@ function escapeRegExp(str: string): string { return str.replace(/[.*+?^${}()|[\]
 
 // --- COMPRESSÃO DE IMAGEM (CLIENT-SIDE) ---
 async function compressImage(file: File): Promise<File> {
-  // Verifica se estamos no ambiente do navegador (para evitar erro no build do Next.js)
   if (typeof window === 'undefined') return file;
 
   return new Promise((resolve, reject) => {
@@ -124,6 +123,27 @@ async function compressImage(file: File): Promise<File> {
     };
     reader.onerror = (err) => reject(err);
   });
+}
+
+// Componente Auxiliar para Reconciliação (Movido para fora para evitar erro de renderização)
+function FieldChoice({ label, field, comparing, mergeDraft, onSelect }: { label: string; field: keyof FichaFull; comparing: { a: FichaFull; b: FichaFull } | null; mergeDraft: FichaFull | null; onSelect: (field: keyof FichaFull, value: any) => void }) {
+  if (!comparing || !mergeDraft) return null;
+  const valA = comparing.a[field];
+  const valB = comparing.b[field];
+  const cur = mergeDraft[field];
+  
+  // Se forem iguais, não mostra
+  if (valA === valB) return null;
+
+  return (
+    <div className="mb-2 border border-zinc-800 p-2 rounded">
+      <div className="text-[10px] uppercase text-zinc-500 mb-1">{label}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={()=>onSelect(field, valA)} className={`text-xs p-1 rounded border ${cur===valA?"border-emerald-500 bg-emerald-900/20":"border-zinc-700"}`}>A: {String(valA)}</button>
+        <button onClick={()=>onSelect(field, valB)} className={`text-xs p-1 rounded border ${cur===valB?"border-emerald-500 bg-emerald-900/20":"border-zinc-700"}`}>B: {String(valB)}</button>
+      </div>
+    </div>
+  );
 }
 
 function LoreAdminContent() {
@@ -184,7 +204,7 @@ function LoreAdminContent() {
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [comparing, setComparing] = useState<{ a: FichaFull; b: FichaFull } | null>(null);
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
-  const [reconcileProcessing, setReconcileProcessing] = useState(false); // Adicionado estado faltante
+  const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
   // Gerenciamento de Relações e Menções
   const [isManagingRelations, setIsManagingRelations] = useState(false);
@@ -634,19 +654,11 @@ function LoreAdminContent() {
     await fetch("/api/lore/reconcile", {method:"POST", body:JSON.stringify({winnerId:wId, loserId:lId, mergedData:mergeDraft})});
     setComparing(null); openReconcile();
   }
-  function FieldChoice({ label, field }: { label: string; field: keyof FichaFull }) {
-    if(!comparing || !mergeDraft) return null;
-    const valA = comparing.a[field], valB = comparing.b[field], cur = mergeDraft[field];
-    if(valA===valB) return null;
-    return (
-      <div className="mb-2 border border-zinc-800 p-2 rounded">
-        <div className="text-[10px] uppercase text-zinc-500 mb-1">{label}</div>
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={()=>setMergeDraft({...mergeDraft!, [field]: valA})} className={`text-xs p-1 rounded border ${cur===valA?"border-emerald-500 bg-emerald-900/20":"border-zinc-700"}`}>A: {String(valA)}</button>
-          <button onClick={()=>setMergeDraft({...mergeDraft!, [field]: valB})} className={`text-xs p-1 rounded border ${cur===valB?"border-emerald-500 bg-emerald-900/20":"border-zinc-700"}`}>B: {String(valB)}</button>
-        </div>
-      </div>
-    );
+
+  // Seleção de Campo de Reconciliação
+  function handleMergeSelect(field: keyof FichaFull, value: any) {
+    if (!mergeDraft) return;
+    setMergeDraft({ ...mergeDraft, [field]: value });
   }
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-500 flex items-center justify-center">Carregando...</div>;
@@ -976,7 +988,12 @@ function LoreAdminContent() {
       
       {/* MODAL CÓDIGO */}
       {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
-      {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
+      {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1">
+        <FieldChoice label="Título" field="titulo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+        <FieldChoice label="Tipo" field="tipo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+        <FieldChoice label="Resumo" field="resumo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+        <FieldChoice label="Conteúdo" field="conteudo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+      </div></div>)}</main></div></div>)}
     </div>
   );
 }
