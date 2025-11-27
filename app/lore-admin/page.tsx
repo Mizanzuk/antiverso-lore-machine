@@ -68,8 +68,10 @@ type World = { id: string; nome: string; descricao?: string | null; tipo: string
 function escapeRegExp(str: string): string { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 // --- COMPRESSÃO DE IMAGEM (CLIENT-SIDE) ---
-// Reduz imagens grandes para max 1200px e converte para JPEG otimizado (qualidade 0.8)
 async function compressImage(file: File): Promise<File> {
+  // Verifica se estamos no ambiente do navegador (para evitar erro no build do Next.js)
+  if (typeof window === 'undefined') return file;
+
   return new Promise((resolve, reject) => {
     const maxWidth = 1200;
     const maxHeight = 1200;
@@ -84,7 +86,6 @@ async function compressImage(file: File): Promise<File> {
         let width = img.width;
         let height = img.height;
 
-        // Mantém proporção
         if (width > height) {
           if (width > maxWidth) {
             height = Math.round((height * maxWidth) / width);
@@ -102,7 +103,6 @@ async function compressImage(file: File): Promise<File> {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-           // Fallback se canvas não suportado
            resolve(file); 
            return;
         }
@@ -113,7 +113,6 @@ async function compressImage(file: File): Promise<File> {
             resolve(file);
             return;
           }
-          // Retorna arquivo comprimido com mesmo nome base + jpg
           const newFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
             type: "image/jpeg",
             lastModified: Date.now(),
@@ -185,7 +184,7 @@ function LoreAdminContent() {
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [comparing, setComparing] = useState<{ a: FichaFull; b: FichaFull } | null>(null);
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
-  const [reconcileProcessing, setReconcileProcessing] = useState(false);
+  const [reconcileProcessing, setReconcileProcessing] = useState(false); // Adicionado estado faltante
 
   // Gerenciamento de Relações e Menções
   const [isManagingRelations, setIsManagingRelations] = useState(false);
@@ -718,7 +717,7 @@ function LoreAdminContent() {
             <input className="w-full rounded bg-black/40 border border-neutral-800 px-2 py-1.5 text-[11px] mb-2 text-white focus:border-emerald-500 outline-none" placeholder="Buscar por título, código, resumo..." value={fichasSearchTerm} onChange={(e) => setFichasSearchTerm(e.target.value)} />
             
             {/* FILTRO POR EPISÓDIO (Se houver) */}
-            {availableEpisodes.length > 0 && (
+            {selectedWorldData?.has_episodes && availableEpisodes.length > 0 && (
                <div className="mb-2">
                  <select 
                    className="w-full bg-black border border-zinc-800 rounded text-[10px] p-1 text-zinc-300"
@@ -979,5 +978,13 @@ function LoreAdminContent() {
       {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1"><FieldChoice label="Título" field="titulo" /><FieldChoice label="Tipo" field="tipo" /><FieldChoice label="Resumo" field="resumo" /><FieldChoice label="Conteúdo" field="conteudo" /></div></div>)}</main></div></div>)}
     </div>
+  );
+}
+
+export default function LoreAdminPage() {
+  return (
+    <Suspense fallback={<div className="h-screen flex items-center justify-center bg-black text-neutral-500">Carregando...</div>}>
+      <LoreAdminContent />
+    </Suspense>
   );
 }
