@@ -125,14 +125,13 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
-// Componente Auxiliar para Reconciliação (Movido para fora para evitar erro de renderização)
+// Componente Auxiliar para Reconciliação
 function FieldChoice({ label, field, comparing, mergeDraft, onSelect }: { label: string; field: keyof FichaFull; comparing: { a: FichaFull; b: FichaFull } | null; mergeDraft: FichaFull | null; onSelect: (field: keyof FichaFull, value: any) => void }) {
   if (!comparing || !mergeDraft) return null;
   const valA = comparing.a[field];
   const valB = comparing.b[field];
   const cur = mergeDraft[field];
   
-  // Se forem iguais, não mostra
   if (valA === valB) return null;
 
   return (
@@ -156,20 +155,15 @@ function LoreAdminContent() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // UI State
   const [isFocusMode, setIsFocusMode] = useState(false);
 
   // Dados Principais
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
-  
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
-  
   const [fichas, setFichas] = useState<FichaFull[]>([]);
   const [selectedFichaId, setSelectedFichaId] = useState<string | null>(null);
-  
   const [codes, setCodes] = useState<any[]>([]);
   const [relations, setRelations] = useState<Relation[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -182,29 +176,23 @@ function LoreAdminContent() {
   // Forms
   const [universeFormMode, setUniverseFormMode] = useState<UniverseFormMode>("idle");
   const [universeForm, setUniverseForm] = useState({ id:"", nome:"", descricao:"" });
-  
   const [worldFormMode, setWorldFormMode] = useState<WorldFormMode>("idle");
   const [isSavingWorld, setIsSavingWorld] = useState(false);
   const [worldForm, setWorldForm] = useState<Partial<World>>({});
-
   const [fichaFormMode, setFichaFormMode] = useState<FichaFormMode>("idle");
   const [isSavingFicha, setIsSavingFicha] = useState(false);
   const [fichaForm, setFichaForm] = useState<any>({});
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-
   const [codeFormMode, setCodeFormMode] = useState<CodeFormMode>("idle");
   const [isSavingCode, setIsSavingCode] = useState(false);
   const [codeForm, setCodeForm] = useState<any>({});
 
   // Modais Visuais & Reconciliação
-  const [worldViewModal, setWorldViewModal] = useState<any | null>(null);
-  const [fichaViewModal, setFichaViewModal] = useState<any | null>(null);
   const [showReconcile, setShowReconcile] = useState(false);
   const [reconcilePairs, setReconcilePairs] = useState<DuplicatePair[]>([]);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [comparing, setComparing] = useState<{ a: FichaFull; b: FichaFull } | null>(null);
   const [mergeDraft, setMergeDraft] = useState<FichaFull | null>(null);
-  const [reconcileProcessing, setReconcileProcessing] = useState(false);
 
   // Gerenciamento de Relações e Menções
   const [isManagingRelations, setIsManagingRelations] = useState(false);
@@ -255,31 +243,21 @@ function LoreAdminContent() {
     const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
     const list = (data as World[]) || [];
     setWorlds(list);
-
     const urlWorld = searchParams.get("world");
     const targetWorld = list.find(w => w.id === urlWorld);
-    
     if (targetWorld) {
       setSelectedWorldId(targetWorld.id);
     } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
       setSelectedWorldId(null);
     }
-    
     loadFichas(uniId, targetWorld ? targetWorld.id : selectedWorldId);
   }
 
   async function loadFichas(uniId: string, wId: string | null) {
     setError(null);
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
-    
     if (wId) {
-      const { data: rootWorldData } = await supabaseBrowser
-        .from("worlds")
-        .select("id")
-        .eq("universe_id", uniId)
-        .eq("is_root", true)
-        .single();
-        
+      const { data: rootWorldData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId).eq("is_root", true).single();
       if (rootWorldData) {
         query = query.or(`world_id.eq.${wId},world_id.eq.${rootWorldData.id}`);
       } else {
@@ -291,13 +269,10 @@ function LoreAdminContent() {
       if (ids.length > 0) query = query.in("world_id", ids);
       else query = query.eq("id", "0");
     }
-
     const { data, error } = await query;
     if (error) console.error(error);
-    
     const loadedFichas = (data as FichaFull[]) || [];
     setFichas(loadedFichas);
-
     const urlFicha = searchParams.get("ficha");
     if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
       setSelectedFichaId(urlFicha);
@@ -345,17 +320,12 @@ function LoreAdminContent() {
   const renderWikiText = (text: string | null | undefined) => {
     if (!text) return null;
     const currentFichaId = selectedFichaId;
-    const candidates = fichas
-      .filter((f) => f.id !== currentFichaId && f.titulo?.trim())
-      .map((f) => ({ id: f.id, titulo: f.titulo.trim() }));
-
+    const candidates = fichas.filter((f) => f.id !== currentFichaId && f.titulo?.trim()).map((f) => ({ id: f.id, titulo: f.titulo.trim() }));
     if (candidates.length === 0) return text;
     candidates.sort((a, b) => b.titulo.length - a.titulo.length);
-
     const pattern = new RegExp(`\\b(${candidates.map((c) => escapeRegExp(c.titulo)).join("|")})\\b`, "gi");
     const elements: React.ReactNode[] = [];
     let lastIndex = 0;
-
     text.replace(pattern, (match, _group, offset) => {
       if (typeof offset !== "number") return match;
       if (offset > lastIndex) elements.push(text.slice(lastIndex, offset));
@@ -404,7 +374,6 @@ function LoreAdminContent() {
   function startCreateWorld() { setWorldFormMode("create"); setWorldForm({ nome: "", descricao: "", has_episodes: true }); }
   function startEditWorld(w: World) { setWorldFormMode("edit"); setWorldForm(w); }
   function cancelWorldForm() { setWorldFormMode("idle"); setWorldForm({}); }
-  
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
     const payload = { ...worldForm, universe_id: selectedUniverseId };
@@ -418,7 +387,6 @@ function LoreAdminContent() {
     setWorldFormMode("idle");
     if(selectedUniverseId) loadWorlds(selectedUniverseId);
   }
-
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("Tem certeza que deseja deletar este Mundo? Essa ação é irreversível.")) return;
@@ -434,53 +402,32 @@ function LoreAdminContent() {
     const targetWorld = selectedWorldId || rootWorld?.id || worlds[0]?.id;
     setFichaForm({ id:"", titulo:"", tipo:"conceito", world_id: targetWorld, conteudo:"", resumo:"", tags:"", granularidade_data:"indefinido", camada_temporal:"linha_principal" }); 
   }
-
-  function startEditFicha(f: any) { 
-    setFichaFormMode("edit"); 
-    setFichaForm({...f}); 
-  }
-  
+  function startEditFicha(f: any) { setFichaFormMode("edit"); setFichaForm({...f}); }
   function cancelFichaForm() { setFichaFormMode("idle"); setFichaForm({}); }
-  
-  // --- UPLOAD DE IMAGEM OTIMIZADO ---
   async function handleImageUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setIsUploadingImage(true);
     try {
-      // 1. Comprimir imagem no navegador
       const compressedFile = await compressImage(file);
-
-      // 2. Enviar imagem reduzida
       const fileName = `${Date.now()}_${compressedFile.name.replace(/\s+/g, '_')}`;
-      const { data, error } = await supabaseBrowser.storage
-        .from("lore-assets")
-        .upload(fileName, compressedFile);
-
+      const { data, error } = await supabaseBrowser.storage.from("lore-assets").upload(fileName, compressedFile);
       if (error) throw error;
-
-      const { data: publicData } = supabaseBrowser.storage
-        .from("lore-assets")
-        .getPublicUrl(data.path);
-
+      const { data: publicData } = supabaseBrowser.storage.from("lore-assets").getPublicUrl(data.path);
       setFichaForm({ ...fichaForm, imagem_url: publicData.publicUrl });
     } catch (err: any) {
       console.error(err);
-      alert("Erro ao fazer upload da imagem. Verifique se o bucket 'lore-assets' existe e é público.");
+      alert("Erro ao fazer upload da imagem.");
     } finally {
       setIsUploadingImage(false);
     }
   }
-
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
     if (!fichaForm.world_id) { setError("Selecione um Mundo para esta ficha."); return; }
     if (!fichaForm.titulo.trim()) { setError("Ficha precisa de um título."); return; }
-
     setIsSavingFicha(true);
     setError(null);
-
     const payload: any = {
       world_id: fichaForm.world_id,
       titulo: fichaForm.titulo.trim(),
@@ -496,7 +443,6 @@ function LoreAdminContent() {
       imagem_url: fichaForm.imagem_url?.trim() || null,
       updated_at: new Date().toISOString(),
     };
-
     if (payload.ano_diegese && !isNaN(Number(payload.ano_diegese))) payload.ano_diegese = Number(payload.ano_diegese);
     if (payload.ordem_cronologica && !isNaN(Number(payload.ordem_cronologica))) payload.ordem_cronologica = Number(payload.ordem_cronologica);
 
@@ -508,19 +454,16 @@ function LoreAdminContent() {
       const { error } = await supabaseBrowser.from("fichas").update(payload).eq("id", fichaForm.id);
       saveError = error;
     }
-
     setIsSavingFicha(false);
     if (saveError) {
       console.error(saveError);
       setError(`Erro ao salvar Ficha: ${(saveError as any)?.message || JSON.stringify(saveError)}`);
       return;
     }
-
     cancelFichaForm();
     const currentWorld = worlds.find((w) => w.id === selectedWorldId) || null;
     await fetchFichas(selectedUniverseId!, currentWorld ? currentWorld.id : null);
   }
-
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("Tem certeza que deseja apagar esta ficha?")) return;
@@ -531,14 +474,7 @@ function LoreAdminContent() {
   }
 
   async function checkConsistency() {
-    const textToCheck = `
-      [PROPOSTA DE FICHA]
-      Título: ${fichaForm.titulo}
-      Tipo: ${fichaForm.tipo}
-      Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"}
-      Resumo: ${fichaForm.resumo}
-      Conteúdo: ${fichaForm.conteudo}
-    `.trim();
+    const textToCheck = `[PROPOSTA DE FICHA] Título: ${fichaForm.titulo} Tipo: ${fichaForm.tipo} Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"} Resumo: ${fichaForm.resumo} Conteúdo: ${fichaForm.conteudo}`.trim();
     alert("Consultando o Or sobre a coerência...");
     try {
       const res = await fetch("/api/lore/consistency", {
@@ -654,12 +590,10 @@ function LoreAdminContent() {
     await fetch("/api/lore/reconcile", {method:"POST", body:JSON.stringify({winnerId:wId, loserId:lId, mergedData:mergeDraft})});
     setComparing(null); openReconcile();
   }
-
-  // Seleção de Campo de Reconciliação
   function handleMergeSelect(field: keyof FichaFull, value: any) {
-    if (!mergeDraft) return;
-    setMergeDraft({ ...mergeDraft, [field]: value });
+    setMergeDraft((prev: any) => ({ ...prev, [field]: value }));
   }
+
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-500 flex items-center justify-center">Carregando...</div>;
   if (view === "loggedOut") return <div className="min-h-screen bg-black flex items-center justify-center"><form onSubmit={handleLogin} className="p-8 border border-zinc-800 rounded"><input className="block mb-2 bg-black border p-2 text-white" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} /><input type="password" className="block mb-2 bg-black border p-2 text-white" placeholder="Senha" value={password} onChange={e=>setPassword(e.target.value)} /><button className="bg-emerald-600 text-white px-4 py-2">Entrar</button></form></div>;
@@ -893,14 +827,18 @@ function LoreAdminContent() {
                   }}
                 >
                   {/* Mundo Raiz (Universo Global) */}
-                  {rootWorld && (
-                    <option value={rootWorld.id} className="font-bold bg-zinc-900">
-                      ✨ {rootWorld.nome} (Global)
-                    </option>
-                  )}
+                  {/* Encontrar o mundo raiz se existir */}
+                  {(() => {
+                     const rootWorld = worlds.find(w => w.is_root);
+                     return rootWorld ? (
+                      <option value={rootWorld.id} className="font-bold bg-zinc-900">
+                        ✨ {rootWorld.nome} (Global)
+                      </option>
+                     ) : null;
+                  })()}
                   <option disabled>──────────</option>
                   {/* Outros Mundos */}
-                  {childWorlds.map(w => (
+                  {worlds.filter(w => !w.is_root).map(w => (
                     <option key={w.id} value={w.id}>{w.nome}</option>
                   ))}
                   <option disabled>──────────</option>
@@ -989,10 +927,10 @@ function LoreAdminContent() {
       {/* MODAL CÓDIGO */}
       {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1">
-        <FieldChoice label="Título" field="titulo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
-        <FieldChoice label="Tipo" field="tipo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
-        <FieldChoice label="Resumo" field="resumo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
-        <FieldChoice label="Conteúdo" field="conteudo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+      <FieldChoice label="Título" field="titulo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+      <FieldChoice label="Tipo" field="tipo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+      <FieldChoice label="Resumo" field="resumo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
+      <FieldChoice label="Conteúdo" field="conteudo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
       </div></div>)}</main></div></div>)}
     </div>
   );
