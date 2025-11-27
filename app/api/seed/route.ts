@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { embedText } from "@/lib/rag";
 import db from "@/data/AntiVerso_DB_v2.json";
 import bibleChunks from "@/data/BibleChunks_v1.json";
 
@@ -26,7 +25,7 @@ export async function GET() {
 /**
  * POST /api/seed
  * Executa a seed: lê o AntiVerso_DB_v2.json + BibleChunks_v1.json
- * e popula a tabela lore_chunks no Supabase.
+ * e popula a tabela lore_chunks no Supabase (apenas texto, sem embeddings, pois migramos para Fichas).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -167,15 +166,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // --------- INSERÇÃO NO SUPABASE ---------
+    // --------- INSERÇÃO NO SUPABASE (SEM EMBEDDINGS) ---------
+    // ATENÇÃO: Como removemos a dependência de embeddings, este seed agora
+    // serve apenas para popular dados legados textuais, se necessário.
+    // O sistema principal agora usa a tabela 'fichas'.
+    
     let inserted = 0;
 
     for (const chunk of chunks) {
       if (!chunk.content || !chunk.content.trim()) continue;
 
-      const embedding = await embedText(chunk.content);
-      if (!embedding) continue;
-
+      // Inserção simples sem vetor
       const { error } = await supabaseAdmin
         .from("lore_chunks")
         .insert({
@@ -183,7 +184,7 @@ export async function POST(req: NextRequest) {
           source_type: chunk.source_type,
           title: chunk.title,
           content: chunk.content,
-          embedding,
+          // embedding: null // Removido pois não geramos mais
         });
 
       if (error) {
@@ -196,6 +197,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      message: "Seed concluído (Modo Texto - Sem Embeddings)",
       inserted,
     });
   } catch (err) {
