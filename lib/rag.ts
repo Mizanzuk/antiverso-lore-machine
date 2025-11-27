@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabase";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 const STOPWORDS = new Set([
   "a", "as", "o", "os", "um", "uma", "uns", "umas",
@@ -29,54 +29,44 @@ export type LoreChunk = {
   similarity: number;
 };
 
+// Agora aceita o cliente supabase como primeiro argumento
 export async function searchLore(
+  supabase: SupabaseClient,
   query: string,
-  options: { limit?: number; minSimilarity?: number; universeId?: string; userId?: string } = {}
+  options: { limit?: number; minSimilarity?: number; universeId?: string } = {}
 ): Promise<LoreChunk[]> {
-  if (!supabaseAdmin) return [];
-
   const limit = options.limit ?? 8;
   const universeId = options.universeId;
-  const userId = options.userId; // NOVO PARÂMETRO
 
   let results: LoreChunk[] = [];
 
   try {
       let worldIds: string[] = [];
 
-      // 1. Se tiver Universo, busca mundos (COM FILTRO DE USUÁRIO SE DISPONÍVEL)
+      // 1. Se tiver Universo, busca mundos (usando o cliente seguro passado)
       if (universeId) {
-        let wQuery = supabaseAdmin
+        const { data: worlds } = await supabase
             .from("worlds")
             .select("id")
             .eq("universe_id", universeId);
         
-        if (userId) {
-            wQuery = wQuery.eq("user_id", userId); // SEGURANÇA
-        }
-
-        const { data: worlds } = await wQuery;
-        worldIds = worlds?.map(w => w.id) || [];
+        worldIds = worlds?.map((w: any) => w.id) || [];
       }
 
       const term = extractMainKeyword(query);
       if (!term) return [];
 
       // 2. Construir Query nas Fichas
-      let dbQuery = supabaseAdmin
+      // O RLS do banco já vai filtrar pelo user_id automaticamente graças ao cliente seguro
+      let dbQuery = supabase
         .from("fichas")
         .select("id, titulo, resumo, conteudo, tipo, tags, world_id");
-
-      // FILTRO DE USUÁRIO (CRÍTICO)
-      if (userId) {
-        dbQuery = dbQuery.eq("user_id", userId);
-      }
 
       if (worldIds.length > 0) {
         dbQuery = dbQuery.in("world_id", worldIds);
       }
 
-      // Busca Textual
+      // Busca Textual Simples (ilike)
       dbQuery = dbQuery.or(`titulo.ilike.%${term}%,resumo.ilike.%${term}%,tags.ilike.%${term}%,conteudo.ilike.%${term}%`);
       dbQuery = dbQuery.limit(limit);
 
