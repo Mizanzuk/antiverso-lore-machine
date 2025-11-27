@@ -107,7 +107,7 @@ const MAX_SESSIONS = 40;
 
 const STOPWORDS = new Set([
   "de", "da", "do", "das", "dos", "e", "a", "o", "os", "as", "um", "uma", "uns", "umas",
-  "que", "por", "para", "com", "na", "no", "nas", "nos", "em", "se", "sobre", "como",
+  "que", "por", "para", "com", "na", "no", "nas", "nos", "nas", "em", "se", "sobre", "como",
   "qual", "quais", "quando", "onde", "porque", "porquê", "ser", "tem", "ter", "vai",
   "vou", "tá", "tava", "está", "estao", "estão", "quero", "queria", "querer", "novo",
   "nova", "novas", "novos", "historia", "história", "historias", "histórias", "contar",
@@ -766,18 +766,18 @@ export default function Page() {
         </footer>
       </main>
 
-      {/* MODAL NOVO UNIVERSO */}
+      {/* MODAL NOVO UNIVERSO (CORRIGIDO) */}
       {showUniverseModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
+          <form onSubmit={e => { e.preventDefault(); createUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
             <h3 className="text-white font-bold mb-4 text-sm">Novo Universo</h3>
             <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome do Universo" value={newUniverseName} onChange={e=>setNewUniverseName(e.target.value)} autoFocus />
             <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-xs" placeholder="Descrição (opcional)" value={newUniverseDesc} onChange={e=>setNewUniverseDesc(e.target.value)} />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowUniverseModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
-              <button onClick={createUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Criar</button>
+              <button type="button" onClick={() => setShowUniverseModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
+              <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Criar</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
