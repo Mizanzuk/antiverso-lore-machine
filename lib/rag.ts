@@ -3,6 +3,25 @@ import { supabaseAdmin } from "./supabase";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 
+// Lista de palavras comuns para ignorar na busca textual (Stopwords)
+const STOPWORDS = new Set([
+  "a", "as", "o", "os", "um", "uma", "uns", "umas",
+  "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+  "e", "ou", "mas", "que", "se", "por", "para", "com", "sem",
+  "quem", "qual", "quais", "onde", "como", "quando", "porquê", "porque",
+  "é", "são", "foi", "foram", "era", "eram", "está", "estão",
+  "me", "fale", "sobre", "diga", "explique", "mostre", "vida", "historia", "história"
+]);
+
+function extractKeywords(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\sÀ-ÿ]/g, "") // Remove pontuação
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOPWORDS.has(w)) // Ignora palavras curtas e stopwords
+    .join(" | "); // Formato para busca do Postgres (palavra1 | palavra2)
+}
+
 export async function embedText(text: string): Promise<number[] | null> {
   if (!openai) return null;
   try {
@@ -26,12 +45,6 @@ export type LoreChunk = {
   similarity: number;
 };
 
-/**
- * Realiza a busca híbrida:
- * 1. Busca textual nas FICHAS (se universeId estiver presente)
- * 2. Busca vetorial nos CHUNKS (legado/seed)
- * 3. Combina e desduplica os resultados
- */
 export async function searchLore(
   query: string,
   options: { limit?: number; minSimilarity?: number; universeId?: string } = {}
@@ -42,13 +55,12 @@ export async function searchLore(
   const minSimilarity = options.minSimilarity ?? 0.25;
   const universeId = options.universeId;
 
-  // Lista final combinada
   let results: LoreChunk[] = [];
 
-  // --- 1. BUSCA NAS FICHAS (DADOS ESTRUTURADOS DO UNIVERSO) ---
+  // --- 1. BUSCA INTELIGENTE NAS FICHAS (DADOS DO UNIVERSO) ---
   if (universeId) {
     try {
-      // Pega os mundos deste universo
+      // Identifica quais mundos pertencem a este universo
       const { data: worlds } = await supabaseAdmin
         .from("worlds")
         .select("id")
@@ -57,27 +69,45 @@ export async function searchLore(
       const worldIds = worlds?.map(w => w.id) || [];
 
       if (worldIds.length > 0) {
-        // Limpa a query para busca textual (remove caracteres especiais)
-        const cleanQuery = query.replace(/[^\w\s]/gi, '').trim().split(/\s+/).join(" | ");
+        // Extrai apenas as palavras-chave (ex: "Quem é Pedro?" vira "Pedro")
+        const searchTerms = extractKeywords(query);
         
-        if (cleanQuery) {
-          // Busca usando 'ilike' para título (mais garantido para nomes exatos)
-          // E 'textSearch' ou 'ilike' para conteúdo
-          const { data: fichaMatches, error } = await supabaseAdmin
+        if (searchTerms) {
+          // Tenta busca textual (Full Text Search) no Título e Resumo
+          // Isso é muito mais flexível que o 'ilike' exato
+          const { data: textMatches, error } = await supabaseAdmin
             .from("fichas")
             .select("id, titulo, resumo, conteudo, tipo")
             .in("world_id", worldIds)
-            .or(`titulo.ilike.%${query}%,resumo.ilike.%${query}%`) // Procura no Título OU Resumo
+            .textSearch('titulo', searchTerms, { config: 'portuguese', type: 'websearch' })
             .limit(limit);
 
-          if (!error && fichaMatches) {
-            const mappedFichas = fichaMatches.map(f => ({
+          // Se a busca textual não retornar nada, tentamos um 'ilike' mais solto para cada palavra
+          // Isso ajuda caso o Postgres FTS não esteja configurado perfeitamente
+          let fallbackMatches: any[] = [];
+          if (!textMatches || textMatches.length === 0) {
+             const firstKeyword = searchTerms.split(" | ")[0]; // Pega a primeira palavra relevante
+             if (firstKeyword) {
+                 const { data: ilikeData } = await supabaseAdmin
+                  .from("fichas")
+                  .select("id, titulo, resumo, conteudo, tipo")
+                  .in("world_id", worldIds)
+                  .ilike('titulo', `%${firstKeyword}%`)
+                  .limit(limit);
+                 fallbackMatches = ilikeData || [];
+             }
+          }
+
+          const bestMatches = (textMatches && textMatches.length > 0) ? textMatches : fallbackMatches;
+
+          if (bestMatches && bestMatches.length > 0) {
+            const mappedFichas = bestMatches.map(f => ({
               id: f.id,
-              source: "Ficha do Catálogo",
+              source: "Catálogo",
               source_type: f.tipo,
               title: f.titulo,
-              content: `[RESUMO]: ${f.resumo || ""}\n[CONTEÚDO]: ${f.conteudo || ""}`,
-              similarity: 1.0 // Prioridade máxima para fichas encontradas por nome exato
+              content: `[RESUMO]: ${f.resumo || "Sem resumo"}\n[CONTEÚDO]: ${f.conteudo || ""}`,
+              similarity: 1.0 // Forçamos prioridade máxima para fichas encontradas pelo nome
             }));
             results.push(...mappedFichas);
           }
@@ -88,9 +118,8 @@ export async function searchLore(
     }
   }
 
-  // --- 2. BUSCA VETORIAL (DADOS SEMENTE/ANTIGOS) ---
-  // Sempre executamos isso para garantir que conhecimentos gerais (como "Quem é Or") sejam encontrados
-  // mesmo que não estejam cadastrados como fichas no universo atual.
+  // --- 2. BUSCA VETORIAL (MEMÓRIA ANTIGA / BÍBLIA) ---
+  // Continua útil para perguntas conceituais ("O que é o AntiVerso?")
   try {
     const embedding = await embedText(query);
     if (embedding) {
@@ -101,7 +130,6 @@ export async function searchLore(
       });
 
       if (!error && vectorMatches) {
-        // Adiciona apenas se não for duplicata óbvia de título (opcional, aqui vamos apenas adicionar)
         const mappedVector = vectorMatches.map((m: any) => ({
             id: m.id,
             source: m.source,
@@ -117,12 +145,25 @@ export async function searchLore(
     console.error("Erro na busca vetorial:", err);
   }
 
-  // --- 3. ORDENAÇÃO E LIMPEZA ---
-  // Remove duplicatas por ID e ordena por relevância (Fichas exatas primeiro, depois similaridade vetorial)
-  const uniqueResults = Array.from(new Map(results.map(item => [item.id, item])).values());
+  // --- 3. LIMPEZA E RETORNO ---
+  // Remove duplicatas (priorizando a Ficha se houver conflito com Chunk antigo)
+  const uniqueMap = new Map();
+  results.forEach(item => {
+     if (!uniqueMap.has(item.title)) {
+         uniqueMap.set(item.title, item);
+     } else {
+         // Se já tem, mantém o que tem maior score (geralmente a Ficha com 1.0)
+         const existing = uniqueMap.get(item.title);
+         if (item.similarity > existing.similarity) {
+             uniqueMap.set(item.title, item);
+         }
+     }
+  });
   
-  // Ordena: prioridade 1 (>0.9) primeiro, depois decrescente
+  const uniqueResults = Array.from(uniqueMap.values());
+  
+  // Ordena por relevância
   uniqueResults.sort((a, b) => b.similarity - a.similarity);
 
-  return uniqueResults.slice(0, limit + 2); // Retorna um pouco mais para garantir contexto
+  return uniqueResults.slice(0, limit + 3);
 }
