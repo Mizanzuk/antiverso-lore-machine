@@ -1,7 +1,5 @@
 import { supabaseAdmin } from "./supabase";
 
-// Lista de palavras comuns para ignorar na busca textual (Stopwords)
-// Isso ajuda a limpar a query do usuário antes de bater no banco
 const STOPWORDS = new Set([
   "a", "as", "o", "os", "um", "uma", "uns", "umas",
   "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
@@ -15,11 +13,10 @@ const STOPWORDS = new Set([
 function extractMainKeyword(text: string): string {
   const words = text
     .toLowerCase()
-    .replace(/[^\w\sÀ-ÿ]/g, "") // Remove pontuação
+    .replace(/[^\w\sÀ-ÿ]/g, "") 
     .split(/\s+/)
-    .filter(w => w.length > 2 && !STOPWORDS.has(w)); // Filtra stopwords
+    .filter(w => w.length > 2 && !STOPWORDS.has(w)); 
   
-  // Retorna a primeira palavra-chave relevante ou o texto original se falhar
   return words.length > 0 ? words[0] : text.trim();
 }
 
@@ -32,55 +29,55 @@ export type LoreChunk = {
   similarity: number;
 };
 
-/**
- * Realiza a busca EXCLUSIVA nas Fichas (Single Source of Truth).
- * Não utiliza mais vetores/embeddings antigos.
- */
 export async function searchLore(
   query: string,
-  options: { limit?: number; minSimilarity?: number; universeId?: string } = {}
+  options: { limit?: number; minSimilarity?: number; universeId?: string; userId?: string } = {}
 ): Promise<LoreChunk[]> {
   if (!supabaseAdmin) return [];
 
   const limit = options.limit ?? 8;
   const universeId = options.universeId;
+  const userId = options.userId; // NOVO PARÂMETRO
 
   let results: LoreChunk[] = [];
 
   try {
       let worldIds: string[] = [];
 
-      // 1. Se tiver Universo definido, pegamos os mundos dele (incluindo o Raiz)
+      // 1. Se tiver Universo, busca mundos (COM FILTRO DE USUÁRIO SE DISPONÍVEL)
       if (universeId) {
-        const { data: worlds } = await supabaseAdmin
+        let wQuery = supabaseAdmin
             .from("worlds")
             .select("id")
             .eq("universe_id", universeId);
+        
+        if (userId) {
+            wQuery = wQuery.eq("user_id", userId); // SEGURANÇA
+        }
+
+        const { data: worlds } = await wQuery;
         worldIds = worlds?.map(w => w.id) || [];
       }
 
-      // 2. Extrair termo principal de busca
-      // Ex: "Quem é o Pedro?" -> "Pedro"
       const term = extractMainKeyword(query);
-
       if (!term) return [];
 
-      // 3. Construir a Query no Supabase (Fichas)
+      // 2. Construir Query nas Fichas
       let dbQuery = supabaseAdmin
         .from("fichas")
         .select("id, titulo, resumo, conteudo, tipo, tags, world_id");
 
-      // Filtro de Mundo (Se houver universeId, restringe ao escopo do universo)
+      // FILTRO DE USUÁRIO (CRÍTICO)
+      if (userId) {
+        dbQuery = dbQuery.eq("user_id", userId);
+      }
+
       if (worldIds.length > 0) {
         dbQuery = dbQuery.in("world_id", worldIds);
       }
 
-      // 4. Busca Textual "Inteligente"
-      // Procura o termo no Título, Resumo, Tags ou Conteúdo
-      // O 'ilike' garante que ache 'Pedro' mesmo se buscar 'pedro'
+      // Busca Textual
       dbQuery = dbQuery.or(`titulo.ilike.%${term}%,resumo.ilike.%${term}%,tags.ilike.%${term}%,conteudo.ilike.%${term}%`);
-      
-      // Ordenação opcional: poderia priorizar título, mas o banco geralmente retorna na ordem de inserção ou índice
       dbQuery = dbQuery.limit(limit);
 
       const { data: matches, error } = await dbQuery;
@@ -96,9 +93,8 @@ export async function searchLore(
           source: "Ficha Viva",
           source_type: f.tipo,
           title: f.titulo,
-          // Formatamos o conteúdo para o LLM entender a estrutura completa da ficha
           content: `[TIPO]: ${f.tipo}\n[RESUMO]: ${f.resumo || "N/A"}\n[TAGS]: ${f.tags}\n[CONTEÚDO]:\n${f.conteudo || ""}`,
-          similarity: 1.0 // Relevância máxima, pois é dado oficial
+          similarity: 1.0
         }));
       }
 
