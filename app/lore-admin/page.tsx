@@ -420,17 +420,18 @@ function LoreAdminContent() {
     if (worldFormMode === 'create') {
        const slugId = safeName.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
        const { error } = await supabaseBrowser.from("worlds").insert([{ ...payload, id: slugId }]);
-       // Adicione tratamento de erro aqui se necessário
+       if (error) { setError(`Erro ao criar Mundo: ${error.message}`); return; }
     } else {
        const { error } = await supabaseBrowser.from("worlds").update(payload).eq("id", worldForm.id);
-       // Adicione tratamento de erro aqui se necessário
+       if (error) { setError(`Erro ao salvar Mundo: ${error.message}`); return; }
     }
     
     setWorldFormMode("idle");
+    // Força a recarga de TODOS os dados (mundos e fichas)
     if(selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
   }
   
-  // CORREÇÃO 1: Adiciona a exclusão de fichas para resolver o problema de Foreign Key (FK)
+  // CORREÇÃO 1: Adiciona a exclusão em cascata manual para resolver o problema de Foreign Key (FK)
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("ATENÇÃO: Deletar um mundo também deletará TODAS as fichas, códigos e relações vinculadas a ele. Esta ação é irreversível.")) return;
@@ -439,7 +440,6 @@ function LoreAdminContent() {
 
     try {
       // 0. Encontrar todos os IDs de ficha que pertencem a este mundo
-      //    Isso é necessário para deletar as relações e códigos que fazem referência cruzada.
       const { data: fichasData, error: fetchError } = await supabaseBrowser
           .from("fichas")
           .select("id")
@@ -448,7 +448,7 @@ function LoreAdminContent() {
       if (fetchError) throw new Error("Erro ao buscar fichas para exclusão.");
       const fichaIds = fichasData?.map(f => f.id) || [];
       
-      // 1. Limpar Códigos e Relações (para não bloquear a exclusão das fichas)
+      // 1. Limpar Códigos e Relações (necessário para que as fichas possam ser deletadas)
       if (fichaIds.length > 0) {
         // 1a. Deletar Códigos
         const { error: deleteCodesError } = await supabaseBrowser
@@ -458,6 +458,7 @@ function LoreAdminContent() {
         if (deleteCodesError) console.warn("Aviso: Falha ao limpar códigos (ignorando).", deleteCodesError);
 
         // 1b. Deletar Relações (onde a ficha é SOURCE ou TARGET)
+        // Usamos .or() para pegar as relações onde a ficha é fonte OU alvo
         const { error: deleteRelsError } = await supabaseBrowser
             .from("lore_relations")
             .delete()
@@ -475,19 +476,20 @@ function LoreAdminContent() {
         throw new Error("Não foi possível deletar fichas vinculadas. Erro: " + deleteFichasError.message);
       }
       
-      // 3. Deletar o Mundo
+      // 3. Deletar o Mundo (que agora não tem fichas)
       const { error: deleteWorldError } = await supabaseBrowser
         .from("worlds")
         .delete()
         .eq("id", id);
 
       if (deleteWorldError) {
-        throw new Error(deleteWorldError.message);
+        throw new Error("Falha ao deletar mundo. Erro: " + deleteWorldError.message);
       }
 
-      // 4. Atualizar estado (chama o fetchAllData para resolver o problema de visibilidade)
+      // 4. Atualizar estado
       if (selectedWorldId === id) setSelectedWorldId(null);
-      if (selectedUniverseId) fetchAllData(selectedUniverseId, null); // Passando null forçará a seleção para "Tudo"
+      // Força a recarga para aparecer o novo mundo (Teste 5) ou remover o deletado (Teste 3)
+      if (selectedUniverseId) fetchAllData(selectedUniverseId, null); 
 
     } catch (err: any) {
       console.error("Erro ao deletar mundo:", err);
@@ -1055,7 +1057,7 @@ function LoreAdminContent() {
       {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveWorld} className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-lg p-6 shadow-2xl"><h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">{worldFormMode === 'create' ? 'Novo Mundo' : 'Editar Mundo'}</h2><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Nome</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={worldForm.nome || ""} onChange={e=>setWorldForm({...worldForm, nome: e.target.value})} /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-20" value={worldForm.descricao || ""} onChange={e=>setWorldForm({...worldForm, descricao: e.target.value})} /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelWorldForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       
       {/* MODAL CÓDIGO */}
-      {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Detalhes do código..." /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
+      {codeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><form onSubmit={handleSaveCode} className="w-full max-w-md bg-zinc-950 border border-zinc-800 p-6 rounded-lg shadow-2xl"><div className="flex justify-between mb-4"><h2 className="text-sm font-bold text-white uppercase tracking-widest">{codeFormMode === 'create' ? 'Novo Código' : 'Editar Código'}</h2><button type="button" onClick={cancelCodeForm} className="text-xs text-zinc-500 hover:text-white">Fechar</button></div><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Código</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={codeForm.code} onChange={e=>setCodeForm({...codeForm, code: e.target.value})} placeholder="AV1-PS01" /></div><div><label className="text-[10px] uppercase text-zinc-500">Rótulo</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={codeForm.label} onChange={e=>setCodeForm({...codeForm, label: e.target.value})} placeholder="Opcional" /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 p-2 text-xs rounded h-16" value={codeForm.description} onChange={e=>setCodeForm({...codeForm, description: e.target.value})} placeholder="Mais detalhes sobre onde esse código aparece…" /></div></div><div className="flex justify-end gap-2 mt-4"><button type="button" onClick={cancelCodeForm} className="px-3 py-1.5 rounded border border-zinc-700 text-xs hover:bg-zinc-900">Cancelar</button><button type="submit" className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium">Salvar</button></div></form></div>)}
       {showReconcile && (<div className="fixed inset-0 z-50 bg-black flex flex-col"><div className="h-14 border-b border-zinc-800 flex items-center justify-between px-6 bg-zinc-950"><h2 className="text-lg font-bold text-purple-400">⚡ Reconciliação</h2><button onClick={()=>setShowReconcile(false)} className="text-zinc-400 text-sm">Fechar</button></div><div className="flex flex-1 overflow-hidden"><aside className="w-80 border-r border-zinc-800 bg-zinc-950 p-4 overflow-y-auto">{reconcilePairs.map((pair, i)=>(<button key={i} onClick={()=>handleSelectReconcilePair(pair)} className="w-full text-left p-3 mb-2 rounded border border-zinc-800 hover:bg-zinc-900"><div className="text-xs font-bold text-zinc-300">{pair.titulo_a}</div><div className="text-[10px] text-zinc-500">vs</div><div className="text-xs font-bold text-zinc-300">{pair.titulo_b}</div></button>))}</aside><main className="flex-1 p-8 overflow-y-auto">{comparing && mergeDraft && (<div><div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-4"><div><h3 className="text-xl font-bold text-white">Resolvendo Conflito</h3></div><button onClick={()=>executeMerge(comparing.a.id, comparing.b.id)} className="bg-purple-600 text-white px-6 py-2 rounded text-sm font-bold">Confirmar Fusão</button></div><div className="grid gap-1">
       <FieldChoice label="Título" field="titulo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
       <FieldChoice label="Tipo" field="tipo" comparing={comparing} mergeDraft={mergeDraft} onSelect={handleMergeSelect} />
