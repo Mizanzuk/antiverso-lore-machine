@@ -302,7 +302,7 @@ export default function Page() {
         newChatCallback("consulta", selectedUniverseId);
     }
     
-  }, [selectedUniverseId, sessions, view]); // Depende do selectedUniverseId e sessions
+  }, [selectedUniverseId, sessions, view, newChatCallback, activeSessionId]); // Depende do selectedUniverseId e sessions
 
 
   // Persistência Remota (Load)
@@ -519,36 +519,6 @@ export default function Page() {
 
   function scrollToBottom() { const el = viewportRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }
   
-  // Refatorado para criar nova sessão e selecionar o novo UniverseId
-  const newChatCallback = useCallback((newMode: ChatMode = "consulta", uniId: string | null = selectedUniverseId) => {
-    if (!uniId) {
-        alert("Selecione ou crie um Universo para iniciar uma nova conversa.");
-        return;
-    }
-    const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
-    const newSession: ChatSession = { 
-      id, 
-      title: "Nova conversa", 
-      mode: newMode, 
-      createdAt: Date.now(), 
-      messages: [createIntroMessage(newMode)],
-      universeId: uniId // Vincula ao universo atual
-    };
-    setSessions((prev) => { const merged = [newSession, ...prev]; if (merged.length > MAX_SESSIONS) return merged.slice(0, MAX_SESSIONS); return merged; });
-    setActiveSessionId(id); setInput("");
-    setViewMode("chat");
-  }, [selectedUniverseId]);
-  
-  const newChat = (newMode: ChatMode = "consulta") => newChatCallback(newMode, selectedUniverseId);
-
-  // Implementação Requisito 4: Abrir novo chat ao mudar o modo
-  const handleModeChange = (newMode: ChatMode) => { 
-    if (activeSession?.mode === newMode) return; // Não faz nada se o modo for o mesmo
-    
-    // Cria um novo chat com o novo modo, em vez de alterar o atual
-    newChatCallback(newMode, selectedUniverseId);
-  }
-
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!loading && selectedUniverseId) void onSubmit(); } }
   function startRenameSession(sessionId: string, currentTitle: string) { setRenamingSessionId(sessionId); setRenameDraft(currentTitle); }
   function confirmRenameSession() { if (!renamingSessionId) return; const newTitle = renameDraft.trim(); if (!newTitle) { setRenamingSessionId(null); setRenameDraft(""); return; } setSessions((prev) => prev.map((s) => s.id === renamingSessionId ? { ...s, title: newTitle } : s)); setRenamingSessionId(null); setRenameDraft(""); }
