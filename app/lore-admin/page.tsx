@@ -987,5 +987,3 @@ export default function LoreAdminPage() {
     </Suspense>
   );
 }
-
-}
