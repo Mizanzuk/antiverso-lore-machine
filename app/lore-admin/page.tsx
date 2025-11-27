@@ -223,94 +223,98 @@ function LoreAdminContent() {
   }
   async function handleLogout() { await supabaseBrowser.auth.signOut(); setView("loggedOut"); setEmail(""); setPassword(""); }
 
-  // --- DATA LOADERS ---
+  // --- DATA LOADERS (COMBINADOS EM UMA CHAMADA À API PARA BURLAR RLS) ---
+  const fetchAllData = useCallback(async (uniId: string, currentWorldId: string | null) => {
+    if (!uniId) return;
+    setIsLoadingData(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('universeId', uniId);
+      
+      const res = await fetch(`/api/catalog?${params.toString()}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Erro de rede desconhecido' }));
+        throw new Error(errorData.error || `Falha ao carregar dados do catálogo (Status: ${res.status})`);
+      }
+      
+      const data = await res.json();
+
+      const loadedWorlds = (data.worlds || []) as World[];
+      const loadedFichas = (data.entities || []) as FichaFull[];
+      
+      setWorlds(loadedWorlds);
+      setFichas(loadedFichas);
+
+      // Lógica de seleção
+      let effectiveWorldId = currentWorldId;
+      const urlWorld = searchParams.get("world");
+      
+      if (urlWorld && loadedWorlds.some(w => w.id === urlWorld)) {
+        effectiveWorldId = urlWorld;
+      } else if (effectiveWorldId && !loadedWorlds.some(w => w.id === effectiveWorldId)) {
+        effectiveWorldId = null; 
+      }
+      
+      setSelectedWorldId(effectiveWorldId);
+
+      // Carregar detalhes da ficha se houver ID na URL
+      const urlFicha = searchParams.get("ficha");
+      if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
+        setSelectedFichaId(urlFicha);
+        // Os detalhes da ficha (códigos/relações) ainda precisam ser carregados separadamente
+        loadDetails(urlFicha); 
+      } else {
+         setSelectedFichaId(null);
+         setCodes([]);
+         setRelations([]);
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Erro inesperado ao carregar dados.");
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [searchParams]);
+
+
   async function loadUniverses() {
     setIsLoadingData(true);
     const { data } = await supabaseBrowser.from("universes").select("*").order("nome");
     if (data) {
       setUniverses(data);
       const urlUni = searchParams.get("universe");
+      
+      let initialUniId = null;
+
       if (urlUni && data.find(u => u.id === urlUni)) {
-        handleSelectUniverse(urlUni);
-      } else if (data.length > 0 && !selectedUniverseId) {
-        // CORREÇÃO DE SELEÇÃO: Se for o primeiro load, pega o primeiro universo e carrega o resto.
-        const defaultUniId = data[0].id;
-        setSelectedUniverseId(defaultUniId);
-        loadWorlds(defaultUniId);
-        // Não chama loadFichas aqui, loadWorlds vai chamar
+        initialUniId = urlUni;
+      } else if (data.length > 0) {
+        initialUniId = data[0].id;
+      }
+
+      setSelectedUniverseId(initialUniId);
+      if(initialUniId) {
+          // Aqui chamamos o fetchAllData, que substitui loadWorlds e loadFichas
+          await fetchAllData(initialUniId, searchParams.get("world"));
       }
     }
     setIsLoadingData(false);
   }
 
+  // MOCK das funções anteriores, que agora usam fetchAllData
   async function loadWorlds(uniId: string) {
-    // 1. Carregar todos os mundos do universo
-    const { data } = await supabaseBrowser.from("worlds").select("*").eq("universe_id", uniId).order("ordem");
-    const list = (data as World[]) || [];
-    setWorlds(list);
-
-    // 2. Determinar qual mundo deve ser o selecionado
-    const urlWorld = searchParams.get("world");
-    const targetWorld = list.find(w => w.id === urlWorld);
-    
-    let effectiveWorldId = selectedWorldId;
-    
-    if (targetWorld) {
-        effectiveWorldId = targetWorld.id;
-    } else if (selectedWorldId && !list.find(w => w.id === selectedWorldId)) {
-        // Se o mundo selecionado não existe mais no novo universo, deseleciona.
-        effectiveWorldId = null; 
-    }
-    
-    // CORREÇÃO: Força a seleção a NULL se não for um mundo válido para carregar 'Antiverso (Tudo)'
-    setSelectedWorldId(effectiveWorldId); 
-
-    // 3. Carregar fichas com base no mundo efetivo.
-    loadFichas(uniId, effectiveWorldId);
+      await fetchAllData(uniId, null);
   }
-
   async function loadFichas(uniId: string, wId: string | null) {
-    setError(null);
-    let query = supabaseBrowser.from("fichas").select("*").order("titulo");
-    
-    if (wId) {
-      // Se há um worldId específico selecionado (filtro por mundo)
-      const { data: rootWorldData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId).eq("is_root", true).single();
-      
-      // CORREÇÃO DA LÓGICA DE FILTRO: Se o mundo selecionado é o mundo raiz, 
-      // ou se nenhum mundo está selecionado (wId === null), carrega todas as fichas do universo.
-      if (wId === rootWorldData?.id || wId === null) {
-          const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
-          const ids = wData?.map((w:any) => w.id) || [];
-          if (ids.length > 0) query = query.in("world_id", ids);
-          else query = query.eq("id", "0");
-      } else {
-          // Filtra por um mundo filho específico
-          query = query.eq("world_id", wId);
-      }
-    } else if (uniId) {
-        // Se wId é null (Antiverso - Tudo), carrega todas as fichas do universo
-        const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
-        const ids = wData?.map((w:any) => w.id) || [];
-        if (ids.length > 0) query = query.in("world_id", ids);
-        else query = query.eq("id", "0");
-    } else {
-        // Não há universo selecionado, não carrega nada
-        query = query.eq("id", "0");
-    }
-    
-    const { data, error } = await query;
-    if (error) console.error(error);
-    const loadedFichas = (data as FichaFull[]) || [];
-    setFichas(loadedFichas);
-    const urlFicha = searchParams.get("ficha");
-    if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
-      setSelectedFichaId(urlFicha);
-      loadDetails(urlFicha);
-    }
+      // Esta função deve ser chamada apenas para re-filtrar no cliente, 
+      // mas como o filtro é simples, podemos fazer o full fetch novamente
+      await fetchAllData(uniId, wId);
   }
 
   async function loadDetails(fichaId: string) {
+    // Estas chamadas ainda são feitas no cliente, pois são pequenas e específicas
     const { data: cData } = await supabaseBrowser.from("codes").select("*").eq("ficha_id", fichaId).order("code");
     setCodes(cData || []);
     const { data: rData } = await supabaseBrowser.from("lore_relations").select(`*, source:source_ficha_id(id, titulo, tipo), target:target_ficha_id(id, titulo, tipo)`).or(`source_ficha_id.eq.${fichaId},target_ficha_id.eq.${fichaId}`);
@@ -331,14 +335,16 @@ function LoreAdminContent() {
     setSelectedFichaId(null);
     setSelectedEpisodeFilter("");
     updateUrl(id, null, null);
-    loadWorlds(id);
+    // Chama o novo fetch para atualizar todos os dados
+    fetchAllData(id, null); 
   }
   function handleSelectWorld(id: string | null) {
     setSelectedWorldId(id);
     setSelectedFichaId(null);
     setSelectedEpisodeFilter("");
     updateUrl(selectedUniverseId, id, null);
-    if (selectedUniverseId) loadFichas(selectedUniverseId, id);
+    // O filtro de fichas agora é feito no useMemo abaixo, 
+    // mas a seleção do mundo é suficiente para re-renderizar.
   }
   function handleSelectFicha(id: string) {
     setSelectedFichaId(id);
@@ -492,7 +498,7 @@ function LoreAdminContent() {
     }
     cancelFichaForm();
     const currentWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-    await loadFichas(selectedUniverseId!, currentWorld ? currentWorld.id : null);
+    await fetchAllData(selectedUniverseId!, currentWorld ? currentWorld.id : null); // Chama o fetch completo
   }
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
@@ -500,7 +506,7 @@ function LoreAdminContent() {
     await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
     await supabaseBrowser.from("fichas").delete().eq("id", id);
     if (selectedFichaId === id) setSelectedFichaId(null);
-    if (selectedUniverseId) loadFichas(selectedUniverseId, selectedWorldId);
+    if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); // Chama o fetch completo
   }
 
   async function checkConsistency() {
@@ -538,24 +544,44 @@ function LoreAdminContent() {
      return Array.from(eps).sort((a,b) => parseInt(a)-parseInt(b));
   }, [fichas]);
 
-  const filteredFichas = fichas.filter(f => {
-    if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes(f.tipo)) return false;
-    if (selectedEpisodeFilter) {
-       if (f.episodio !== selectedEpisodeFilter) {
-          const codeEp = f.codigo?.match(/[A-Z]+(\d+)-/)?.[1];
-          if (codeEp !== selectedEpisodeFilter) return false;
-       }
+  // Filtro de Fichas na Coluna do Meio
+  const filteredFichas = useMemo(() => {
+    let list = fichas;
+
+    // 1. Filtragem por Mundo
+    if (selectedWorldId) {
+        list = list.filter(f => f.world_id === selectedWorldId);
     }
+    
+    // 2. Filtragem por Tipo
+    if (fichaFilterTipos.length > 0) {
+        list = list.filter(f => fichaFilterTipos.includes(f.tipo));
+    }
+    
+    // 3. Filtragem por Episódio
+    if (selectedEpisodeFilter) {
+       list = list.filter(f => {
+          if (f.episodio === selectedEpisodeFilter) return true;
+          const codeEp = f.codigo?.match(/[A-Z]+(\d+)-/)?.[1];
+          return codeEp === selectedEpisodeFilter;
+       });
+    }
+
+    // 4. Filtragem por Termo de Busca
     if (fichasSearchTerm.trim().length > 0) {
       const q = fichasSearchTerm.toLowerCase();
-      const inTitulo = (f.titulo || "").toLowerCase().includes(q);
-      const inResumo = (f.resumo || "").toLowerCase().includes(q);
-      const inCodigo = (f.codigo || "").toLowerCase().includes(q);
-      const inTags = (f.tags || "").toLowerCase().includes(q);
-      if (!inTitulo && !inResumo && !inCodigo && !inTags) return false;
+      list = list.filter(f => {
+        const inTitulo = (f.titulo || "").toLowerCase().includes(q);
+        const inResumo = (f.resumo || "").toLowerCase().includes(q);
+        const inCodigo = (f.codigo || "").toLowerCase().includes(q);
+        const inTags = (f.tags || "").toLowerCase().includes(q);
+        return inTitulo || inResumo || inCodigo || inTags;
+      });
     }
-    return true;
-  });
+
+    return list;
+  }, [fichas, selectedWorldId, fichaFilterTipos, selectedEpisodeFilter, fichasSearchTerm]);
+
 
   function toggleFilterTipo(tipo: string) {
     const t = tipo.toLowerCase();
