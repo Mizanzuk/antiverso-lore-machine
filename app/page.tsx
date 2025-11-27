@@ -40,6 +40,7 @@ type World = {
 type Universe = {
   id: string;
   nome: string;
+  descricao?: string | null;
 };
 
 type LoreEntity = {
@@ -178,6 +179,11 @@ export default function Page() {
   const [newUniverseName, setNewUniverseName] = useState("");
   const [newUniverseDesc, setNewUniverseDesc] = useState("");
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
+  
+  // Modal Editar Universo (Requisito 6)
+  const [showEditUniModal, setShowEditUniModal] = useState(false);
+  const [editUniForm, setEditUniForm] = useState({ id: "", nome: "", descricao: "" });
+
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -255,7 +261,7 @@ export default function Page() {
       
       // Força a criação de um novo chat para o universo selecionado (Requisito 2)
       if (initialUniId && !sessions.some(s => s.universeId === initialUniId)) {
-          newChat("consulta", initialUniId);
+          newChatCallback("consulta", initialUniId);
       }
       
     } else {
@@ -281,10 +287,16 @@ export default function Page() {
         setActiveSessionId(relevantSessions[0].id);
     } else if (!activeIsRelevant && selectedUniverseId) {
         // Se mudou de universo e não tem sessões, cria uma nova
-        newChat(mode, selectedUniverseId);
+        // CORREÇÃO: Cria nova sessão, mas apenas se o usuário tiver feito login
+        if (view === "loggedIn") {
+            newChatCallback(mode, selectedUniverseId);
+        } else {
+            // Se não está logado, a sidebar deve mostrar que não há chats
+            setActiveSessionId(null);
+        }
     }
     
-  }, [selectedUniverseId, sessions, mode]); // Depende do selectedUniverseId e sessions
+  }, [selectedUniverseId, sessions, mode, view]); // Depende do selectedUniverseId e sessions
 
 
   // Persistência Local
@@ -436,7 +448,7 @@ export default function Page() {
 
       const systemPrompt = mode === "consulta" ? systemPromptConsulta : systemPromptCriativo;
       
-      const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
+      const contextMessages = trimMessagesForStorage([...messages, newUserMessage]);
       const payloadMessages = [{ role: "system" as const, content: systemPrompt }, ...contextMessages].map((m) => ({ role: m.role, content: m.content }));
 
       const res = await fetch("/api/chat", { 
@@ -751,29 +763,52 @@ export default function Page() {
                     <select 
                         className="w-full bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500 appearance-none pr-8"
                         value={selectedUniverseId || ""}
-                        onChange={(e) => setSelectedUniverseId(e.target.value)}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "__new__") {
+                                setShowUniverseModal(true);
+                                // Força o seletor a reverter para o valor atual para evitar o dead click
+                                e.target.value = selectedUniverseId || universes[0]?.id || "";
+                            } else {
+                                setSelectedUniverseId(value);
+                            }
+                        }}
                     >
                         {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                        <option value="__new__" className="font-bold text-emerald-400">+ Novo Universo...</option>
                     </select>
                     <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none text-zinc-400">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4"></path></svg>
                     </div>
                 </div>
             )}
-            
           </div>
           
           {/* Requisito 3 & 8: Descrição e Botão Deletar/Editar */}
           {selectedUniverseId && (
             <div className="flex items-start justify-between gap-2 mt-2 pt-2 border-t border-zinc-800">
                 <span className="text-xs text-zinc-400 truncate">{selectedUniverseData?.descricao || "Sem descrição."}</span>
-                <button
-                    onClick={() => deleteUniverse(selectedUniverseId)}
-                    className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-xs"
-                    title="Deletar Universo"
-                >
-                    × Deletar
-                </button>
+                <div className="flex gap-1">
+                    <button
+                        onClick={() => { 
+                            if (selectedUniverseData) {
+                                setEditUniForm({ id: selectedUniverseId, nome: selectedUniverseData.nome, descricao: selectedUniverseData.descricao || "" });
+                                setShowEditUniModal(true); 
+                            }
+                        }}
+                        className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 text-[11px]"
+                        title="Editar Universo"
+                    >
+                        ✎
+                    </button>
+                    <button
+                        onClick={() => deleteUniverse(selectedUniverseId)}
+                        className="flex-shrink-0 p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-[11px]"
+                        title="Deletar Universo"
+                    >
+                        ×
+                    </button>
+                </div>
             </div>
           )}
 
