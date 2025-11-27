@@ -534,6 +534,7 @@ function LoreAdminContent() {
 
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
+  const selectedWorldData = worlds.find(w => w.id === selectedWorldId); // Correção aplicada aqui!
   const rootWorld = worlds.find(w => w.is_root);
   const childWorlds = worlds.filter(w => !w.is_root);
 
