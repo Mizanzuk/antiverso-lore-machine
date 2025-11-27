@@ -83,6 +83,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Detecta o modo baseado no prompt do sistema que o frontend enviou
+    // O frontend envia uma mensagem system inicial contendo "MODO CRIATIVO" ou "MODO CONSULTA"
+    const systemMessageFromFrontend = messages.find(m => m.role === "system")?.content || "";
+    const isCreativeMode = systemMessageFromFrontend.includes("MODO CRIATIVO");
+
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
 
@@ -90,9 +95,8 @@ export async function POST(req: NextRequest) {
     // Envolvemos em try/catch para que falhas na busca não derrubem o chat inteiro
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
-      // 'as any' é usado aqui para evitar erro de TypeScript caso o arquivo lib/rag.ts
-      // ainda não tenha sido atualizado com a tipagem do universeId, mas funciona em runtime.
-      const searchOptions: any = { limit: 8, universeId }; 
+      // Aumentamos o limite para 10 para ter mais contexto para checagem de consistência
+      const searchOptions: any = { limit: 10, universeId, minSimilarity: 0.35 }; 
       
       const loreResults = await searchLore(userQuestion, searchOptions);
       
@@ -100,7 +104,7 @@ export async function POST(req: NextRequest) {
         loreContext = loreResults
           .map(
             (chunk: any, idx: number) =>
-              `### Trecho Relacionado ${idx + 1} — ${chunk.title} [fonte: ${chunk.source}]\n${chunk.content}`
+              `[FATO ESTABELECIDO ${idx + 1}] — ${chunk.title} [fonte: ${chunk.source} / tipo: ${chunk.source_type}]\n${chunk.content}`
           )
           .join("\n\n");
       }
@@ -111,7 +115,28 @@ export async function POST(req: NextRequest) {
     // 2. Busca de Regras Globais do Universo Selecionado
     const globalRules = await fetchGlobalRules(universeId);
 
-    // 3. Montagem do System Prompt
+    // 3. Definição das Instruções de Comportamento (Protocolo de Coerência - Opção C)
+    let specificInstructions = "";
+
+    if (isCreativeMode) {
+      specificInstructions = `
+VOCÊ ESTÁ EM MODO CRIATIVO, MAS COM O PROTOCOLO DE COERÊNCIA ATIVO.
+Você é livre para expandir o universo, sugerir ideias e criar novos elementos, PORÉM:
+1. Você deve checar RIGOROSAMENTE as datas, status de vida/morte e regras nos [FATOS ESTABELECIDOS] acima.
+2. Se o usuário sugerir algo que contradiz um fato existente (ex: usar um personagem que já morreu naquela data, contradizer uma regra mágica), você deve AVISAR o usuário sobre a inconsistência antes de prosseguir.
+3. Exemplo de alerta ideal: "Essa é uma ideia interessante, mas note que [Personagem X] morreu em 2010, e sua cena se passa em 2015. Podemos situar isso antes, ou talvez seja um flashback?"
+4. Se não houver contradição, flua livremente com a criatividade.
+      `;
+    } else {
+      specificInstructions = `
+VOCÊ ESTÁ EM MODO CONSULTA ESTRITA.
+Responda APENAS com base nos [FATOS ESTABELECIDOS] e nas [LEIS IMUTÁVEIS].
+Não invente informações que não estão no texto.
+Se a informação não estiver disponível, diga explicitamente que "isso ainda não está definido nos arquivos".
+      `;
+    }
+
+    // 4. Montagem do System Prompt Final
     const contextMessage: Message = {
       role: "system",
       content: [
@@ -121,19 +146,21 @@ export async function POST(req: NextRequest) {
         globalRules, // Injeção das regras do universo
         "",
         "### CONTEXTO ESPECÍFICO ENCONTRADO (RAG)",
-        "Use estes dados para responder à pergunta atual (se relevante):",
+        "Use estes dados como verdade absoluta para responder à pergunta atual:",
         loreContext,
         "",
-        "Se a pergunta for sobre algo não listado aqui, use sua criatividade (se estiver em modo criativo) ou diga que não sabe (se estiver em modo consulta).",
+        "### INSTRUÇÕES DE COMPORTAMENTO",
+        specificInstructions
       ].join("\n"),
     };
 
-    // 4. Chamada ao Modelo (Streaming)
-    // IMPORTANTE: Usar gpt-4o-mini ou gpt-3.5-turbo. "gpt-4.1-mini" não existe.
+    // 5. Chamada ao Modelo (Streaming)
+    // IMPORTANTE: Usar gpt-4o-mini.
+    // Ajustamos a temperatura: 0.7 para criativo (mas controlado pelo prompt), 0.2 para consulta (precisão).
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
       messages: [contextMessage, ...messages],
-      temperature: 0.7,
+      temperature: isCreativeMode ? 0.7 : 0.2,
       stream: true, // Habilita streaming
     });
 
