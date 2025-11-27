@@ -177,9 +177,13 @@ export default function TimelinePage() {
         if (error) throw error;
 
         const list = (data || []) as World[];
-        const playableWorlds = list.filter(w => !w.is_root);
-
-        setWorlds(playableWorlds);
+        
+        // CORREÇÃO: Removendo o filtro de 'playableWorlds'. 
+        // Vamos deixar todos os mundos aparecerem, mas o botão "Antiverso (Completo)" 
+        // já cuida da lógica do is_root.
+        // O filtro original era: const playableWorlds = list.filter(w => !w.is_root);
+        // Agora apenas definimos todos os mundos carregados
+        setWorlds(list); 
         // Não reseta selectedWorldId aqui para manter o estado se possível
       } catch (err) {
         console.error(err);
@@ -473,7 +477,9 @@ export default function TimelinePage() {
 
             <div className="h-px bg-zinc-800 my-2"></div>
 
-            {worlds.map((w) => (
+            {worlds
+              .filter(w => !w.is_root) // Filtra para mostrar apenas os mundos "filhos" aqui.
+              .map((w) => (
               <button
                 key={w.id}
                 onClick={() => { setSelectedWorldId(w.id); setSelectedEvent(null); }}
