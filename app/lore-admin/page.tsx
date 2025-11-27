@@ -87,12 +87,9 @@ function FieldChoice({ label, field, comparing, mergeDraft, onSelect }: { label:
   );
 }
 
-// Mock de compressImage (mantido para evitar dependências não resolvidas)
 async function compressImage(file: File): Promise<File> {
-  // Apenas retorna o arquivo original para o mock do contexto.
   return file;
 }
-
 
 function LoreAdminContent() {
   const router = useRouter();
@@ -102,6 +99,7 @@ function LoreAdminContent() {
   const [view, setView] = useState<ViewState>("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [userId, setUserId] = useState<string|null>(null); // NEW USER ID STATE
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -157,34 +155,48 @@ function LoreAdminContent() {
       setView("loading");
       const { data: { session }, error } = await supabaseBrowser.auth.getSession();
       if (error || !session) { setView("loggedOut"); return; }
+      setUserId(session.user.id); // GUARDAR USER ID
       setView("loggedIn");
-      loadUniverses();
     };
     checkSession();
   }, []);
+
+  // Efeito separado para carregar dados apenas quando tiver userId
+  useEffect(() => {
+    if (userId && view === "loggedIn") {
+        loadUniverses();
+    }
+  }, [userId, view]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault(); setIsSubmitting(true); setError(null);
     const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
     setIsSubmitting(false);
     if (error) setError(error.message);
-    else { setView("loggedIn"); loadUniverses(); }
+    else { 
+        if (data.session) setUserId(data.session.user.id);
+        setView("loggedIn"); 
+        // loadUniverses() será chamado pelo useEffect acima
+    }
   }
-  async function handleLogout() { await supabaseBrowser.auth.signOut(); setView("loggedOut"); setEmail(""); setPassword(""); }
+  async function handleLogout() { await supabaseBrowser.auth.signOut(); setView("loggedOut"); setEmail(""); setPassword(""); setUserId(null); }
 
-  // --- DATA LOADERS (COMBINADOS EM UMA CHAMADA À API PARA BURLAR RLS) ---
+  // --- DATA LOADERS ---
   const fetchAllData = useCallback(async (uniId: string, currentWorldId: string | null) => {
-    if (!uniId) return;
+    if (!uniId || !userId) return; // Segurança extra
     setIsLoadingData(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       params.set('universeId', uniId);
       
-      const res = await fetch(`/api/catalog?${params.toString()}`);
+      const res = await fetch(`/api/catalog?${params.toString()}`, {
+         headers: { 'x-user-id': userId } // HEADER IMPORTANTE
+      });
+
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Erro de rede desconhecido' }));
-        throw new Error(errorData.error || `Falha ao carregar dados do catálogo (Status: ${res.status})`);
+        throw new Error(errorData.error || `Falha ao carregar dados (Status: ${res.status})`);
       }
       
       const data = await res.json();
@@ -195,7 +207,6 @@ function LoreAdminContent() {
       setWorlds(loadedWorlds);
       setFichas(loadedFichas);
 
-      // Lógica de seleção
       let effectiveWorldId = currentWorldId;
       const urlWorld = searchParams.get("world");
       
@@ -207,11 +218,9 @@ function LoreAdminContent() {
       
       setSelectedWorldId(effectiveWorldId);
 
-      // Carregar detalhes da ficha se houver ID na URL
       const urlFicha = searchParams.get("ficha");
       if (urlFicha && loadedFichas.some(f => f.id === urlFicha)) {
         setSelectedFichaId(urlFicha);
-        // Os detalhes da ficha (códigos/relações) ainda precisam ser carregados separadamente
         loadDetails(urlFicha); 
       } else {
          setSelectedFichaId(null);
@@ -225,11 +234,13 @@ function LoreAdminContent() {
     } finally {
       setIsLoadingData(false);
     }
-  }, [searchParams]);
+  }, [searchParams, userId]);
 
 
   async function loadUniverses() {
+    if(!userId) return;
     setIsLoadingData(true);
+    // Aqui usamos o cliente browser, que já respeita RLS automaticamente (pois tem sessão)
     const { data } = await supabaseBrowser.from("universes").select("*").order("nome");
     if (data) {
       setUniverses(data);
@@ -245,25 +256,13 @@ function LoreAdminContent() {
 
       setSelectedUniverseId(initialUniId);
       if(initialUniId) {
-          // Aqui chamamos o fetchAllData, que substitui loadWorlds e loadFichas
           await fetchAllData(initialUniId, searchParams.get("world"));
       }
     }
     setIsLoadingData(false);
   }
 
-  // MOCK das funções anteriores, que agora usam fetchAllData
-  async function loadWorlds(uniId: string) {
-      await fetchAllData(uniId, null);
-  }
-  async function loadFichas(uniId: string, wId: string | null) {
-      // Esta função deve ser chamada apenas para re-filtrar no cliente, 
-      // mas como o filtro é simples, podemos fazer o full fetch novamente
-      await fetchAllData(uniId, wId);
-  }
-
   async function loadDetails(fichaId: string) {
-    // Estas chamadas ainda são feitas no cliente, pois são pequenas e específicas
     const { data: cData } = await supabaseBrowser.from("codes").select("*").eq("ficha_id", fichaId).order("code");
     setCodes(cData || []);
     const { data: rData } = await supabaseBrowser.from("lore_relations").select(`*, source:source_ficha_id(id, titulo, tipo), target:target_ficha_id(id, titulo, tipo)`).or(`source_ficha_id.eq.${fichaId},target_ficha_id.eq.${fichaId}`);
@@ -284,7 +283,6 @@ function LoreAdminContent() {
     setSelectedFichaId(null);
     setSelectedEpisodeFilter("");
     updateUrl(id, null, null);
-    // Chama o novo fetch para atualizar todos os dados
     fetchAllData(id, null); 
   }
   function handleSelectWorld(id: string | null) {
@@ -292,8 +290,6 @@ function LoreAdminContent() {
     setSelectedFichaId(null);
     setSelectedEpisodeFilter("");
     updateUrl(selectedUniverseId, id, null);
-    // O filtro de fichas agora é feito no useMemo abaixo, 
-    // mas a seleção do mundo é suficiente para re-renderizar.
   }
   function handleSelectFicha(id: string) {
     setSelectedFichaId(id);
@@ -360,7 +356,6 @@ function LoreAdminContent() {
   function startEditWorld(w: World) { setWorldFormMode("edit"); setWorldForm(w); }
   function cancelWorldForm() { setWorldFormMode("idle"); setWorldForm({}); }
   
-  // CORREÇÃO 2: Força o reload do catálogo completo para resolver o problema do "Teste 4" não aparecer
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
     const payload = { ...worldForm, universe_id: selectedUniverseId };
@@ -376,11 +371,9 @@ function LoreAdminContent() {
     }
     
     setWorldFormMode("idle");
-    // Força a recarga de TODOS os dados (mundos e fichas)
     if(selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
   }
   
-  // CORREÇÃO 1: Adiciona a exclusão em cascata manual para resolver o problema de Foreign Key (FK)
   async function handleDeleteWorld(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("ATENÇÃO: Deletar um mundo também deletará TODAS as fichas, códigos e relações vinculadas a ele. Esta ação é irreversível.")) return;
@@ -388,61 +381,24 @@ function LoreAdminContent() {
     setError(null);
 
     try {
-      // 0. Encontrar todos os IDs de ficha que pertencem a este mundo
-      const { data: fichasData, error: fetchError } = await supabaseBrowser
-          .from("fichas")
-          .select("id")
-          .eq("world_id", id);
-      
-      if (fetchError) throw new Error("Erro ao buscar fichas para exclusão.");
+      // Exclusão em cascata manual para garantir limpeza
+      const { data: fichasData } = await supabaseBrowser.from("fichas").select("id").eq("world_id", id);
       const fichaIds = fichasData?.map(f => f.id) || [];
       
-      // 1. Limpar Códigos e Relações (necessário para que as fichas possam ser deletadas)
       if (fichaIds.length > 0) {
-        // 1a. Deletar Códigos
-        const { error: deleteCodesError } = await supabaseBrowser
-            .from("codes")
-            .delete()
-            .in("ficha_id", fichaIds);
-        if (deleteCodesError) console.warn("Aviso: Falha ao limpar códigos (ignorando).", deleteCodesError);
-
-        // 1b. Deletar Relações (onde a ficha é SOURCE ou TARGET)
-        const { error: deleteRelsError } = await supabaseBrowser
-            .from("lore_relations")
-            .delete()
-            .or(`source_ficha_id.in.(${fichaIds.join(',')}),target_ficha_id.in.(${fichaIds.join(',')})`);
-        if (deleteRelsError) console.warn("Aviso: Falha ao limpar relações (ignorando).", deleteRelsError);
+        await supabaseBrowser.from("codes").delete().in("ficha_id", fichaIds);
+        await supabaseBrowser.from("lore_relations").delete().or(`source_ficha_id.in.(${fichaIds.join(',')}),target_ficha_id.in.(${fichaIds.join(',')})`);
       }
       
-      // 2. Deletar Fichas (que agora não têm dependências)
-      const { error: deleteFichasError } = await supabaseBrowser
-        .from("fichas")
-        .delete()
-        .eq("world_id", id);
+      await supabaseBrowser.from("fichas").delete().eq("world_id", id);
+      await supabaseBrowser.from("worlds").delete().eq("id", id);
 
-      if (deleteFichasError) {
-        throw new Error("Não foi possível deletar fichas vinculadas. Erro: " + deleteFichasError.message);
-      }
-      
-      // 3. Deletar o Mundo (que agora não tem fichas)
-      const { error: deleteWorldError } = await supabaseBrowser
-        .from("worlds")
-        .delete()
-        .eq("id", id);
-
-      if (deleteWorldError) {
-        throw new Error("Falha ao deletar mundo. Erro: " + deleteWorldError.message);
-      }
-
-      // 4. Atualizar estado
       if (selectedWorldId === id) setSelectedWorldId(null);
-      // Força a recarga para aparecer o novo mundo (Teste 5) ou remover o deletado (Teste 3)
       if (selectedUniverseId) fetchAllData(selectedUniverseId, null); 
 
     } catch (err: any) {
       console.error("Erro ao deletar mundo:", err);
       setError("Erro ao deletar Mundo: " + err.message);
-      
     }
   }
 
@@ -455,12 +411,12 @@ function LoreAdminContent() {
   }
   function startEditFicha(f: any) { setFichaFormMode("edit"); setFichaForm({...f}); }
   function cancelFichaForm() { setFichaFormMode("idle"); setFichaForm({}); }
+  
   async function handleImageUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingImage(true);
     try {
-      // @ts-ignore
       const compressedFile = await compressImage(file);
       const fileName = `${Date.now()}_${compressedFile.name.replace(/\s+/g, '_')}`;
       const { data, error } = await supabaseBrowser.storage.from("lore-assets").upload(fileName, compressedFile);
@@ -474,6 +430,7 @@ function LoreAdminContent() {
       setIsUploadingImage(false);
     }
   }
+
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
     if (!fichaForm.world_id) { setError("Selecione um Mundo para esta ficha."); return; }
@@ -514,7 +471,7 @@ function LoreAdminContent() {
     }
     cancelFichaForm();
     const currentWorld = worlds.find((w) => w.id === selectedWorldId) || null;
-    await fetchAllData(selectedUniverseId!, currentWorld ? currentWorld.id : null); // Chama o fetch completo
+    await fetchAllData(selectedUniverseId!, currentWorld ? currentWorld.id : null); 
   }
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
@@ -522,10 +479,9 @@ function LoreAdminContent() {
     await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
     await supabaseBrowser.from("fichas").delete().eq("id", id);
     if (selectedFichaId === id) setSelectedFichaId(null);
-    if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); // Chama o fetch completo
+    if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
   }
 
-  // MUDANÇA: Altera a referência ao Or para Urizen
   async function checkConsistency() {
     const textToCheck = `[PROPOSTA DE FICHA] Título: ${fichaForm.titulo} Tipo: ${fichaForm.tipo} Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"} Resumo: ${fichaForm.resumo} Conteúdo: ${fichaForm.conteudo}`.trim();
     alert("Consultando Urizen, a Lei, sobre a coerência...");
@@ -536,7 +492,6 @@ function LoreAdminContent() {
         body: JSON.stringify({ input: textToCheck, universeId: selectedUniverseId })
       });
       const data = await res.json();
-      // MUDANÇA: Altera o título do relatório para Urizen
       if (data.analysis) alert("RELATÓRIO DE URIZEN:\n\n" + data.analysis);
       else alert("Erro ao analisar. Tente novamente.");
     } catch (err) {
@@ -562,21 +517,17 @@ function LoreAdminContent() {
      return Array.from(eps).sort((a,b) => parseInt(a)-parseInt(b));
   }, [fichas]);
 
-  // Filtro de Fichas na Coluna do Meio
   const filteredFichas = useMemo(() => {
     let list = fichas;
 
-    // 1. Filtragem por Mundo
     if (selectedWorldId) {
         list = list.filter(f => f.world_id === selectedWorldId);
     }
     
-    // 2. Filtragem por Tipo
     if (fichaFilterTipos.length > 0) {
         list = list.filter(f => fichaFilterTipos.includes(f.tipo));
     }
     
-    // 3. Filtragem por Episódio
     if (selectedEpisodeFilter) {
        list = list.filter(f => {
           if (f.episodio === selectedEpisodeFilter) return true;
@@ -585,7 +536,6 @@ function LoreAdminContent() {
        });
     }
 
-    // 4. Filtragem por Termo de Busca
     if (fichasSearchTerm.trim().length > 0) {
       const q = fichasSearchTerm.toLowerCase();
       list = list.filter(f => {
@@ -608,7 +558,7 @@ function LoreAdminContent() {
 
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
-  const selectedWorldData = worlds.find(w => w.id === selectedWorldId); // Correção do bug anterior
+  const selectedWorldData = worlds.find(w => w.id === selectedWorldId); 
   const rootWorld = worlds.find(w => w.is_root);
   const childWorlds = worlds.filter(w => !w.is_root);
 
@@ -701,7 +651,6 @@ function LoreAdminContent() {
                     const value = e.target.value;
                     if (value === "__new__") {
                       startCreateUniverse();
-                      // CORREÇÃO: Força o seletor a voltar ao ID atual.
                       e.target.value = selectedUniverseId || universes[0]?.id || "";
                     } else {
                       handleSelectUniverse(value);
@@ -725,7 +674,6 @@ function LoreAdminContent() {
               <h2 className="text-[10px] uppercase tracking-[0.18em] text-neutral-500 font-bold">Mundos</h2>
               <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
             </div>
-            {/* CORREÇÃO: Renderiza apenas mundos FILHOS */}
             <div className="flex-1 overflow-auto space-y-1 pr-1">
               {childWorlds.map((w) => (
                 <div key={w.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} onClick={() => handleSelectWorld(w.id)}>
@@ -882,7 +830,7 @@ function LoreAdminContent() {
         </section>
       </main>
 
-      {/* MODAL UNIVERSO (CORRIGIDO) */}
+      {/* MODAL UNIVERSO */}
       {universeFormMode !== 'idle' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <form onSubmit={e => { e.preventDefault(); saveUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-96">
@@ -897,6 +845,8 @@ function LoreAdminContent() {
         </div>
       )}
       
+      {/* MODAL DE EDIÇÃO DE FICHA E MUNDO... */}
+      {/* ... (Resto dos modais, igual ao código anterior) ... */}
       {/* MODAL DE EDIÇÃO DE FICHA */}
       {fichaFormMode !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -1034,4 +984,145 @@ export default function LoreAdminPage() {
       <LoreAdminContent />
     </Suspense>
   );
+}
+
+}
+
+{
+type: uploaded file
+fileName: mizanzuk/antiverso-lore-machine/Mizanzuk-antiverso-lore-machine-490d0e7bc22f5ead87327842c2bfd089bb1a9b37/lib/supabaseBrowser.ts
+fullContent:
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("⚠️ Erro Crítico: Variáveis de ambiente do Supabase não encontradas no navegador.");
+}
+
+// Exportação NOMEADA correta para evitar o erro "Element type is invalid"
+export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey);
+
+}
+
+Excelente notícia! Se o Catálogo (Lore-Admin) parou de mostrar o "lixo", significa que a API já está bloqueando acessos sem credenciais. Isso é ótimo.
+
+Porém, como você observou, **"não aparecer nada"** no Admin pode ser porque a página do Admin (`/lore-admin`) ainda não está enviando a "carteirinha" (`x-user-id`) para a API, então a API recusa o pedido e a lista volta vazia.
+
+Para finalizar a segurança e garantir que **Urizen/Urthona** (o Chat) e o **Admin** funcionem apenas com os seus dados, precisamos atualizar mais 3 arquivos cruciais.
+
+Aqui estão os códigos para finalizar a blindagem do sistema:
+
+### 1. Atualizar `lib/rag.ts`
+Este é o "cérebro" da busca. Vamos garantir que ele só busque fichas que tenham o seu `user_id`.
+
+```typescript
+import { supabaseAdmin } from "./supabase";
+
+const STOPWORDS = new Set([
+  "a", "as", "o", "os", "um", "uma", "uns", "umas",
+  "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+  "e", "ou", "mas", "que", "se", "por", "para", "com", "sem",
+  "quem", "qual", "quais", "onde", "como", "quando", "porquê", "porque",
+  "é", "são", "foi", "foram", "era", "eram", "está", "estão",
+  "me", "fale", "sobre", "diga", "explique", "mostre", "vida", "historia", "história",
+  "existe", "existem", "sabe", "conhece"
+]);
+
+function extractMainKeyword(text: string): string {
+  const words = text
+    .toLowerCase()
+    .replace(/[^\w\sÀ-ÿ]/g, "") 
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOPWORDS.has(w)); 
+  
+  // Retorna a primeira palavra-chave relevante ou o texto original se falhar
+  return words.length > 0 ? words[0] : text.trim();
+}
+
+export type LoreChunk = {
+  id: string;
+  source: string;
+  source_type: string;
+  title: string;
+  content: string;
+  similarity: number;
+};
+
+export async function searchLore(
+  query: string,
+  options: { limit?: number; minSimilarity?: number; universeId?: string; userId?: string } = {}
+): Promise<LoreChunk[]> {
+  if (!supabaseAdmin) return [];
+
+  const limit = options.limit ?? 8;
+  const universeId = options.universeId;
+  const userId = options.userId; // NOVO PARÂMETRO
+
+  let results: LoreChunk[] = [];
+
+  try {
+      let worldIds: string[] = [];
+
+      // 1. Se tiver Universo, busca mundos (COM FILTRO DE USUÁRIO SE DISPONÍVEL)
+      if (universeId) {
+        let wQuery = supabaseAdmin
+            .from("worlds")
+            .select("id")
+            .eq("universe_id", universeId);
+        
+        if (userId) {
+            wQuery = wQuery.eq("user_id", userId); // SEGURANÇA
+        }
+
+        const { data: worlds } = await wQuery;
+        worldIds = worlds?.map(w => w.id) || [];
+      }
+
+      const term = extractMainKeyword(query);
+      if (!term) return [];
+
+      // 2. Construir Query nas Fichas
+      let dbQuery = supabaseAdmin
+        .from("fichas")
+        .select("id, titulo, resumo, conteudo, tipo, tags, world_id");
+
+      // FILTRO DE USUÁRIO (CRÍTICO)
+      if (userId) {
+        dbQuery = dbQuery.eq("user_id", userId);
+      }
+
+      if (worldIds.length > 0) {
+        dbQuery = dbQuery.in("world_id", worldIds);
+      }
+
+      // Busca Textual
+      dbQuery = dbQuery.or(`titulo.ilike.%${term}%,resumo.ilike.%${term}%,tags.ilike.%${term}%,conteudo.ilike.%${term}%`);
+      dbQuery = dbQuery.limit(limit);
+
+      const { data: matches, error } = await dbQuery;
+
+      if (error) {
+        console.error("Erro na busca de fichas:", error);
+        return [];
+      }
+
+      if (matches && matches.length > 0) {
+        results = matches.map((f: any) => ({
+          id: f.id,
+          source: "Ficha Viva",
+          source_type: f.tipo,
+          title: f.titulo,
+          content: `[TIPO]: ${f.tipo}\n[RESUMO]: ${f.resumo || "N/A"}\n[TAGS]: ${f.tags}\n[CONTEÚDO]:\n${f.conteudo || ""}`,
+          similarity: 1.0
+        }));
+      }
+
+  } catch (err) {
+    console.error("Erro fatal na busca:", err);
+    return [];
+  }
+
+  return results;
 }
