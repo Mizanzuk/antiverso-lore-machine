@@ -397,6 +397,45 @@ function LoreAdminContent() {
     if (selectedUniverseId) loadFichas(selectedUniverseId, selectedWorldId);
   }
 
+  // --- NOVO: PROTOCOLO DE COERÊNCIA MANUAL ---
+  async function checkConsistency() {
+    // Monta um texto único com tudo o que você preencheu
+    const textToCheck = `
+      [PROPOSTA DE FICHA]
+      Título: ${fichaForm.titulo}
+      Tipo: ${fichaForm.tipo}
+      Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"}
+      Resumo: ${fichaForm.resumo}
+      Conteúdo: ${fichaForm.conteudo}
+    `.trim();
+
+    // Avisa que está pensando
+    alert("Consultando o Or sobre a coerência...");
+
+    try {
+      const res = await fetch("/api/lore/consistency", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          input: textToCheck, 
+          universeId: selectedUniverseId 
+        })
+      });
+      
+      const data = await res.json();
+      
+      // Mostra o resultado
+      if (data.analysis) {
+        alert("RELATÓRIO DO OR:\n\n" + data.analysis);
+      } else {
+        alert("Erro ao analisar. Tente novamente.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro na requisição de coerência.");
+    }
+  }
+
   // Helpers UI
   function getTypeLabel(typeValue: string) {
     const found = LORE_TYPES.find(t => t.value === typeValue);
@@ -803,7 +842,11 @@ function LoreAdminContent() {
               <div><label className="text-[10px] uppercase text-zinc-500">Aparece Em</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={fichaForm.aparece_em || ""} onChange={e=>setFichaForm({...fichaForm, aparece_em: e.target.value})} /></div>
               <div><label className="text-[10px] uppercase text-zinc-500">Código (Opcional)</label><input className="w-full bg-black border border-zinc-800 p-2 text-xs rounded font-mono" value={fichaForm.codigo || ""} onChange={e=>setFichaForm({...fichaForm, codigo: e.target.value})} /></div>
             </div>
-            <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button><button type="submit" disabled={isUploadingImage} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingFicha ? "Salvando..." : "Salvar"}</button></div>
+            <div className="flex justify-end gap-2 mt-6">
+               <button type="button" onClick={checkConsistency} className="px-4 py-2 rounded text-xs font-bold border border-purple-500 text-purple-400 hover:bg-purple-900/20">🕵️ Verificar Coerência</button>
+               <button type="button" onClick={cancelFichaForm} className="px-4 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-900">Cancelar</button>
+               <button type="submit" disabled={isUploadingImage} className="px-4 py-2 rounded bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{isSavingFicha ? "Salvando..." : "Salvar"}</button>
+            </div>
           </form>
         </div>
       )}
