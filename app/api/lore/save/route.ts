@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -108,14 +108,15 @@ function normalizeEpisode(unitNumber: string): string {
   return String(parseInt(onlyDigits, 10));
 }
 
+// Helpers que usam o supabase client passado
 async function generateAutomaticCode(opts: {
   fichaId: string;
   world: WorldRow;
   tipo: string;
   unitNumber: string;
-  userId: string; // NOVO
+  supabase: any;
 }): Promise<string | null> {
-  const { fichaId, world, tipo, unitNumber, userId } = opts;
+  const { fichaId, world, tipo, unitNumber, supabase } = opts;
 
   const worldPrefix = getWorldPrefix(world);
   const normalizedTipo = tipo
@@ -136,10 +137,10 @@ async function generateAutomaticCode(opts: {
     basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
   }
 
-  const { data: existing } = await supabaseAdmin!
+  // RLS cuida de filtrar apenas os códigos do usuário
+  const { data: existing } = await supabase
     .from("codes")
     .select("code")
-    .eq("user_id", userId) // FILTRO DE SEGURANÇA
     .ilike("code", `${basePrefix}%`);
 
   let nextNumber = 1;
@@ -159,15 +160,14 @@ async function generateAutomaticCode(opts: {
 
   const finalCode = appendSequence ? `${basePrefix}${nextNumber}` : basePrefix;
 
-  await supabaseAdmin!.from("codes").insert({
+  await supabase.from("codes").insert({
     ficha_id: fichaId,
     code: finalCode,
     label: "",
     description: "",
-    user_id: userId, // VINCULA AO USUÁRIO
   });
 
-  await supabaseAdmin!.from("fichas").update({ codigo: finalCode }).eq("id", fichaId);
+  await supabase.from("fichas").update({ codigo: finalCode }).eq("id", fichaId);
 
   return finalCode;
 }
@@ -177,50 +177,46 @@ async function applyCodeForFicha(opts: {
   world: WorldRow;
   tipo: string;
   unitNumber: string;
-  userId: string;
+  supabase: any;
   manualCode?: string | null;
 }): Promise<string | null> {
-  const { fichaId, world, tipo, unitNumber, manualCode, userId } = opts;
+  const { fichaId, world, tipo, unitNumber, manualCode, supabase } = opts;
   const trimmed = (manualCode ?? "").trim();
 
   if (trimmed.length > 0) {
-    await supabaseAdmin!.from("codes").insert({
+    await supabase.from("codes").insert({
       ficha_id: fichaId,
       code: trimmed,
       label: "",
       description: "",
-      user_id: userId,
     });
-    await supabaseAdmin!.from("fichas").update({ codigo: trimmed }).eq("id", fichaId);
+    await supabase.from("fichas").update({ codigo: trimmed }).eq("id", fichaId);
     return trimmed;
   }
 
-  return generateAutomaticCode({ fichaId, world, tipo, unitNumber, userId });
+  return generateAutomaticCode({ fichaId, world, tipo, unitNumber, supabase });
 }
 
-// Salvar relações (Wiki) com User ID
-async function saveRelations(sourceFichaId: string, relacoes: any[], userId: string) {
+async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: any) {
   if (!relacoes || relacoes.length === 0) return;
 
   for (const rel of relacoes) {
     const alvoTitulo = rel.alvo_titulo;
     if (!alvoTitulo) continue;
 
-    // Busca ficha alvo apenas dentro das fichas DO USUÁRIO
-    const { data: targetFicha } = await supabaseAdmin!
+    // Busca ficha alvo apenas dentro das fichas DO USUÁRIO (RLS)
+    const { data: targetFicha } = await supabase
       .from("fichas")
       .select("id")
-      .eq("user_id", userId)
       .ilike("titulo", alvoTitulo)
       .maybeSingle();
 
     if (targetFicha) {
-      await supabaseAdmin!.from("lore_relations").insert({
+      await supabase.from("lore_relations").insert({
         source_ficha_id: sourceFichaId,
         target_ficha_id: targetFicha.id,
         tipo_relacao: rel.tipo || "relacionado_a",
         descricao: `Gerado automaticamente via extração.`,
-        user_id: userId,
       });
     }
   }
@@ -230,17 +226,11 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], userId: str
 
 export async function POST(req: NextRequest) {
   try {
-    if (!supabaseAdmin) {
-      return NextResponse.json(
-        { error: "Supabase Admin não configurado no servidor." },
-        { status: 500 },
-      );
-    }
+    const supabase = createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    // 1. SEGURANÇA: Identificar usuário via Header
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
+    if (authError || !user) {
+      return NextResponse.json({ error: "Acesso negado." }, { status: 401 });
     }
 
     const body = await req.json();
@@ -255,12 +245,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Verificar se o Mundo pertence ao Usuário
-    const { data: worldRow } = await supabaseAdmin!
+    // Verificar se o Mundo pertence ao Usuário (RLS vai falhar se não pertencer)
+    const { data: worldRow } = await supabase
       .from("worlds")
       .select("*")
       .eq("id", worldId)
-      .eq("user_id", userId) // Garante propriedade
       .single();
 
     if (!worldRow) {
@@ -279,12 +268,13 @@ export async function POST(req: NextRequest) {
       const tagsStr = (ficha.tags || []).join(", ");
       const isEvento = tipoNormalizado === "evento";
 
-      // 3. Inserir com user_id
-      const { data: inserted, error: insertError } = await supabaseAdmin!
+      // user_id é injetado automaticamente pelo Supabase via default, ou podemos passar explicitamente.
+      // Como RLS está ativo, o insert só funciona se formos o dono.
+      const { data: inserted, error: insertError } = await supabase
         .from("fichas")
         .insert({
           world_id: world.id,
-          user_id: userId, // IMPORTANTE
+          // user_id: user.id, // O banco já deve ter default auth.uid(), mas pode passar se quiser
           titulo,
           slug,
           tipo: tipoNormalizado,
@@ -309,19 +299,19 @@ export async function POST(req: NextRequest) {
 
       const fichaId = (inserted as any).id as string;
 
-      // Gera código (passando userId)
+      // Gera código
       const finalCode = await applyCodeForFicha({
         fichaId,
         world,
         tipo: tipoNormalizado,
         unitNumber,
         manualCode: ficha.codigo,
-        userId,
+        supabase,
       });
 
-      // Salva relações (passando userId)
+      // Salva relações
       if (ficha.meta && ficha.meta.relacoes) {
-        await saveRelations(fichaId, ficha.meta.relacoes, userId);
+        await saveRelations(fichaId, ficha.meta.relacoes, supabase);
       }
 
       saved.push({ fichaId, titulo, codigo: finalCode });
