@@ -169,13 +169,14 @@ export default function Page() {
 
   // --- ESTADOS DE UNIVERSO ---
   const [universes, setUniverses] = useState<Universe[]>([]);
-  const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
+  // CORREÇÃO: selectedUniverseId é inicializado como null/vazio até ser populado
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string>(""); 
   
   // Modal Novo Universo
   const [showUniverseModal, setShowUniverseModal] = useState(false);
   const [newUniverseName, setNewUniverseName] = useState("");
   const [newUniverseDesc, setNewUniverseDesc] = useState("");
-  const [isCreatingUniverse, setIsCreatingUniverse] = useState(false); // Novo estado
+  const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
     if (typeof window !== "undefined") {
@@ -183,11 +184,9 @@ export default function Page() {
         const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          // CORREÇÃO: Mapeia o modo para criar a mensagem de introdução correta
           if (Array.isArray(parsed) && parsed.length > 0) {
              return parsed.map((s: ChatSession) => ({
                 ...s,
-                // Garantir que a intro message reflita a nova persona/modo
                 messages: s.messages.map(m => m.id === "intro" ? createIntroMessage(s.mode || "consulta") : m)
              })) as ChatSession[];
           }
@@ -243,7 +242,8 @@ export default function Page() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
     if (data && data.length > 0) {
       setUniverses(data);
-      if (!selectedUniverseId) setSelectedUniverseId(data[0].id);
+      // CORREÇÃO: Define o UniverseId se ainda não estiver definido.
+      if (!selectedUniverseId) setSelectedUniverseId(data[0].id); 
     }
   }
 
@@ -295,11 +295,9 @@ export default function Page() {
 
   // Filtro de Sessões (agora considera o universo)
   const filteredSessions = sessions.filter((s) => {
-    // Se a sessão tem universeId, só mostra se bater com o selecionado
-    if (s.universeId && s.universeId !== selectedUniverseId) return false;
-    // Se não tem universeId (legado), mostra apenas se estivermos no primeiro universo (padrão)
-    if (!s.universeId && selectedUniverseId && universes.length > 0 && selectedUniverseId !== universes[0].id) return false;
-
+    // CORREÇÃO: Apenas filtra se houver um selectedUniverseId válido
+    if (selectedUniverseId && s.universeId && s.universeId !== selectedUniverseId) return false;
+    
     if (!historySearchTerm.trim()) return true;
     const q = normalize(historySearchTerm);
     const inTitle = normalize(s.title).includes(q);
@@ -364,7 +362,10 @@ export default function Page() {
   async function onSubmit(e?: FormEvent) {
     if (e) e.preventDefault();
     const value = input.trim();
-    if (!value || loading || !activeSession) return;
+    if (!value || loading || !activeSession || !selectedUniverseId) {
+        if (!selectedUniverseId) alert("Selecione ou crie um Universo para iniciar o Chat.");
+        return;
+    }
 
     if (typingIntervalRef.current !== null) {
       window.clearInterval(typingIntervalRef.current);
@@ -482,6 +483,10 @@ export default function Page() {
   function scrollToBottom() { const el = viewportRef.current; if (!el) return; el.scrollTop = el.scrollHeight; }
   
   function newChat(newMode: ChatMode = "consulta") {
+    if (!selectedUniverseId) {
+        alert("Selecione ou crie um Universo para iniciar uma nova conversa.");
+        return;
+    }
     const id = typeof crypto !== "undefined" ? crypto.randomUUID() : `session-${Date.now()}`;
     const newSession: ChatSession = { 
       id, 
@@ -512,6 +517,42 @@ export default function Page() {
   function startRenameSession(sessionId: string, currentTitle: string) { setRenamingSessionId(sessionId); setRenameDraft(currentTitle); }
   function confirmRenameSession() { if (!renamingSessionId) return; const newTitle = renameDraft.trim(); if (!newTitle) { setRenamingSessionId(null); setRenameDraft(""); return; } setSessions((prev) => prev.map((s) => s.id === renamingSessionId ? { ...s, title: newTitle } : s)); setRenamingSessionId(null); setRenameDraft(""); }
   function cancelRenameSession() { setRenamingSessionId(null); setRenameDraft(""); }
+  
+  // Lógica de Deletar Universo
+  async function deleteUniverse(uniId: string) {
+    if (!uniId) return;
+
+    const a = Math.floor(Math.random() * 10), b = Math.floor(Math.random() * 10);
+    const currentUni = universes.find(u => u.id === uniId);
+    
+    if (!confirm(`ATENÇÃO: Apagar o universo "${currentUni?.nome}" deletará TODOS os mundos, fichas e histórico de chat vinculados a ele.\nTem certeza?`)) return;
+
+    const ans = prompt(`Confirmação de segurança: quanto é ${a} + ${b}?`);
+    if (ans !== String(a + b)) {
+        alert("Captcha incorreto. Deleção abortada.");
+        return;
+    }
+
+    try {
+        // 1. Deletar mundos e fichas (incluindo o Mundo Raiz) - O Supabase deve lidar com as FKs em cascata
+        await supabaseBrowser.from("worlds").delete().eq("universe_id", uniId);
+        
+        // 2. Deletar o registro de Universo
+        const { error: uniError } = await supabaseBrowser.from("universes").delete().eq("id", uniId);
+        if (uniError) throw uniError;
+
+        // 3. Limpar sessões locais que pertencem a este universo
+        setSessions(prev => prev.filter(s => s.universeId !== uniId));
+        
+        // 4. Recarregar Universos
+        loadUniverses();
+
+    } catch (e: any) {
+        alert("Falha ao deletar Universo. Verifique as permissões de RLS. Erro: " + e.message);
+    }
+  }
+
+
   function deleteSession(sessionId: string) {
     const ok = window.confirm("Tem certeza que quer excluir esta conversa?"); if (!ok) return;
     setSessions((prev) => {
@@ -552,8 +593,7 @@ export default function Page() {
         });
 
         if (worldError) {
-             alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS no Supabase. Erro: " + (worldError?.message || "Erro desconhecido."));
-             // Não retornamos para forçar a atualização, mas a UI deve refletir o erro.
+             alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS. Erro: " + (worldError?.message || "Erro desconhecido."));
              return;
         }
 
@@ -649,6 +689,7 @@ export default function Page() {
   };
 
   const currentUniverseName = universes.find(u => u.id === selectedUniverseId)?.nome || "neste universo";
+  const selectedUniverseData = universes.find(u => u.id === selectedUniverseId);
 
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-100 flex items-center justify-center"><div className="text-xs text-neutral-500">Carregando…</div></div>;
@@ -662,40 +703,79 @@ export default function Page() {
         {/* SELETOR DE UNIVERSO (NOVO) */}
         <div className="px-4 pt-4 pb-2">
           <label className="text-[10px] uppercase text-zinc-500 font-bold block mb-1">Universo do Chat</label>
-          <select 
-            className="w-full bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
-            value={selectedUniverseId}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === "__new__") {
-                setShowUniverseModal(true);
-                // CORREÇÃO: Força o seletor a voltar ao ID atual.
-                e.target.value = selectedUniverseId || universes[0]?.id || "";
-              } else {
-                setSelectedUniverseId(value);
-              }
-            }}
-          >
-            {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-            <option value="__new__">+ Novo Universo...</option>
-          </select>
+          
+          <div className="flex items-center gap-2">
+            <select 
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded text-xs p-2 text-white outline-none focus:border-emerald-500"
+              value={selectedUniverseData?.id || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === "__new__") {
+                  setShowUniverseModal(true);
+                } else {
+                  setSelectedUniverseId(value);
+                }
+              }}
+              disabled={!universes.length && !selectedUniverseId}
+            >
+              {selectedUniverseId ? (
+                <option value={selectedUniverseId}>{selectedUniverseName}</option>
+              ) : (
+                <option value="" disabled>Selecione um Universo</option>
+              )}
+              
+              {universes
+                .filter(u => u.id !== selectedUniverseId)
+                .map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              
+              <option value="__new__" className="font-bold text-emerald-400">+ Novo Universo...</option>
+            </select>
+            
+            {/* Botão de Deletar Universo */}
+            {selectedUniverseId && (
+                <button
+                    onClick={() => deleteUniverse(selectedUniverseId)}
+                    className="p-2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900"
+                    title="Deletar Universo"
+                >
+                    ×
+                </button>
+            )}
+          </div>
+          
         </div>
 
         <div className="px-4 py-4 border-b border-white/10">
-          <button onClick={() => newChat(mode)} className="w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 transition">+ Nova conversa</button>
+          <button 
+            onClick={() => newChat(mode)} 
+            className="w-full rounded-md border border-white/20 bg-white/5 px-3 py-2 text-sm hover:bg-white/10 transition disabled:opacity-50"
+            disabled={!selectedUniverseId}
+          >
+            + Nova conversa
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-xs text-gray-400 space-y-4">
           <div>
             <p className="font-semibold text-gray-200 text-[11px] uppercase tracking-wide">Lore Machine</p>
-            <p className="mt-1">Este ambiente é fechado e usa apenas os dados do Universo selecionado.</p>
+            {selectedUniverseId ? (
+                <p className="mt-1">Este ambiente está focado em **{currentUniverseName}**.</p>
+            ) : (
+                <p className="mt-1 text-red-400 font-semibold">Crie ou selecione um Universo para começar.</p>
+            )}
           </div>
 
           {/* Histórico */}
-          <div>
+          <div className={clsx({"opacity-50": !selectedUniverseId})}>
             <p className="font-semibold text-gray-300 text-[11px] uppercase tracking-wide mb-1">Histórico</p>
-            {filteredSessions.length === 0 && <p className="text-gray-500 text-[11px]">Nenhuma conversa.</p>}
-            {filteredSessions.length > 0 && (
+            
+            {!selectedUniverseId && (
+                <p className="text-gray-500 text-[11px]">Nenhum Universo Selecionado.</p>
+            )}
+
+            {selectedUniverseId && filteredSessions.length === 0 && <p className="text-gray-500 text-[11px]">Nenhuma conversa neste Universo.</p>}
+            
+            {selectedUniverseId && filteredSessions.length > 0 && (
               <>
                 <input className="mb-2 w-full bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[11px] text-gray-200" placeholder="Buscar no histórico..." value={historySearchTerm} onChange={(e) => setHistorySearchTerm(e.target.value)} />
                 <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
