@@ -5,11 +5,16 @@ const EMBEDDING_MODEL = "text-embedding-3-small";
 
 export async function embedText(text: string): Promise<number[] | null> {
   if (!openai) return null;
-  const res = await openai.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: text,
-  });
-  return res.data[0].embedding;
+  try {
+    const res = await openai.embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: text,
+    });
+    return res.data[0].embedding;
+  } catch (e) {
+    console.error("Erro ao gerar embedding:", e);
+    return null;
+  }
 }
 
 export type LoreChunk = {
@@ -21,6 +26,12 @@ export type LoreChunk = {
   similarity: number;
 };
 
+/**
+ * Realiza a busca híbrida:
+ * 1. Busca textual nas FICHAS (se universeId estiver presente)
+ * 2. Busca vetorial nos CHUNKS (legado/seed)
+ * 3. Combina e desduplica os resultados
+ */
 export async function searchLore(
   query: string,
   options: { limit?: number; minSimilarity?: number; universeId?: string } = {}
@@ -31,66 +42,87 @@ export async function searchLore(
   const minSimilarity = options.minSimilarity ?? 0.25;
   const universeId = options.universeId;
 
-  const embedding = await embedText(query);
-  if (!embedding) return [];
+  // Lista final combinada
+  let results: LoreChunk[] = [];
 
-  // Chama a função RPC. Se universeId for fornecido, filtramos.
-  // Precisamos atualizar a função RPC no banco para aceitar esse filtro,
-  // ou filtrar no código (menos eficiente, mas funciona para MVP).
-  // A melhor abordagem agora, sem mudar SQL complexo, é filtrar no client side 
-  // se a tabela lore_chunks tiver metadados de universo, mas ela NÃO TEM ainda.
-  
-  // CORREÇÃO CRÍTICA: A busca atual usa 'lore_chunks' (tabela legada do seed) ou 'fichas'?
-  // O sistema novo usa a tabela 'fichas'. A função 'match_lore_chunks' busca na tabela antiga.
-  // Vamos assumir que você quer buscar nas FICHAS reais do sistema novo.
-
-  // Se a busca for vetorial nas fichas, precisamos garantir que as fichas tenham embeddings.
-  // Como seu sistema de "Extração" não gera embeddings nas fichas (apenas salva texto),
-  // o RAG atual provavelmente está olhando para a tabela 'lore_chunks' que foi populada via Seed antigo.
-  
-  // SE você quer isolamento real agora, o ideal é buscar texto direto nas FICHAS do universo.
-  // Busca textual simples (ilike) nas fichas do universo selecionado:
-  
+  // --- 1. BUSCA NAS FICHAS (DADOS ESTRUTURADOS DO UNIVERSO) ---
   if (universeId) {
-    // 1. Pegar mundos do universo
-    const { data: worlds } = await supabaseAdmin.from("worlds").select("id").eq("universe_id", universeId);
-    const worldIds = worlds?.map(w => w.id) || [];
+    try {
+      // Pega os mundos deste universo
+      const { data: worlds } = await supabaseAdmin
+        .from("worlds")
+        .select("id")
+        .eq("universe_id", universeId);
+        
+      const worldIds = worlds?.map(w => w.id) || [];
 
-    if (worldIds.length === 0) return [];
+      if (worldIds.length > 0) {
+        // Limpa a query para busca textual (remove caracteres especiais)
+        const cleanQuery = query.replace(/[^\w\s]/gi, '').trim().split(/\s+/).join(" | ");
+        
+        if (cleanQuery) {
+          // Busca usando 'ilike' para título (mais garantido para nomes exatos)
+          // E 'textSearch' ou 'ilike' para conteúdo
+          const { data: fichaMatches, error } = await supabaseAdmin
+            .from("fichas")
+            .select("id, titulo, resumo, conteudo, tipo")
+            .in("world_id", worldIds)
+            .or(`titulo.ilike.%${query}%,resumo.ilike.%${query}%`) // Procura no Título OU Resumo
+            .limit(limit);
 
-    // 2. Buscar fichas nesses mundos que contenham termos da query (Busca Textual Simples por enquanto)
-    // Isso substitui o RAG vetorial antigo que não tem conhecimento de universo.
-    const { data: textMatches } = await supabaseAdmin
-      .from("fichas")
-      .select("id, titulo, conteudo, tipo")
-      .in("world_id", worldIds)
-      .textSearch("conteudo", query.split(" ").join(" | "), { type: "websearch", config: "portuguese" })
-      .limit(limit);
-
-    if (textMatches && textMatches.length > 0) {
-      return textMatches.map(m => ({
-        id: m.id,
-        source: "Ficha",
-        source_type: m.tipo,
-        title: m.titulo,
-        content: m.conteudo || "",
-        similarity: 1 // Fake similarity
-      }));
+          if (!error && fichaMatches) {
+            const mappedFichas = fichaMatches.map(f => ({
+              id: f.id,
+              source: "Ficha do Catálogo",
+              source_type: f.tipo,
+              title: f.titulo,
+              content: `[RESUMO]: ${f.resumo || ""}\n[CONTEÚDO]: ${f.conteudo || ""}`,
+              similarity: 1.0 // Prioridade máxima para fichas encontradas por nome exato
+            }));
+            results.push(...mappedFichas);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Erro na busca de fichas:", err);
     }
-    return [];
   }
 
-  // Fallback para o sistema antigo se não tiver universo definido (comportamento legado)
-  const { data, error } = await supabaseAdmin.rpc("match_lore_chunks", {
-    query_embedding: embedding,
-    match_count: limit,
-    similarity_threshold: minSimilarity,
-  });
+  // --- 2. BUSCA VETORIAL (DADOS SEMENTE/ANTIGOS) ---
+  // Sempre executamos isso para garantir que conhecimentos gerais (como "Quem é Or") sejam encontrados
+  // mesmo que não estejam cadastrados como fichas no universo atual.
+  try {
+    const embedding = await embedText(query);
+    if (embedding) {
+      const { data: vectorMatches, error } = await supabaseAdmin.rpc("match_lore_chunks", {
+        query_embedding: embedding,
+        match_count: limit,
+        similarity_threshold: minSimilarity,
+      });
 
-  if (error || !data) {
-    console.error("Erro ao buscar lore:", error);
-    return [];
+      if (!error && vectorMatches) {
+        // Adiciona apenas se não for duplicata óbvia de título (opcional, aqui vamos apenas adicionar)
+        const mappedVector = vectorMatches.map((m: any) => ({
+            id: m.id,
+            source: m.source,
+            source_type: m.source_type,
+            title: m.title,
+            content: m.content,
+            similarity: m.similarity
+        }));
+        results.push(...mappedVector);
+      }
+    }
+  } catch (err) {
+    console.error("Erro na busca vetorial:", err);
   }
 
-  return data as LoreChunk[];
+  // --- 3. ORDENAÇÃO E LIMPEZA ---
+  // Remove duplicatas por ID e ordena por relevância (Fichas exatas primeiro, depois similaridade vetorial)
+  const uniqueResults = Array.from(new Map(results.map(item => [item.id, item])).values());
+  
+  // Ordena: prioridade 1 (>0.9) primeiro, depois decrescente
+  uniqueResults.sort((a, b) => b.similarity - a.similarity);
+
+  return uniqueResults.slice(0, limit + 2); // Retorna um pouco mais para garantir contexto
 }
