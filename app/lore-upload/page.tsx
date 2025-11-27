@@ -203,6 +203,10 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
+  // --- PROTOCOLO DE COERÊNCIA (NOVOS ESTADOS) ---
+  const [isCheckingConsistency, setIsCheckingConsistency] = useState(false);
+  const [consistencyReport, setConsistencyReport] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 1. CARREGAR UNIVERSOS (NOVO)
@@ -489,6 +493,46 @@ export default function LoreUploadPage() {
     }
   }
 
+  // --- PROTOCOLO DE COERÊNCIA (FUNÇÃO DE CHECK) ---
+  async function handleCheckConsistency() {
+    if (suggestedFichas.length === 0) return;
+    
+    setIsCheckingConsistency(true);
+    setConsistencyReport(null);
+
+    // Montamos um "Resumo Executivo" do que está sendo proposto para entrar no banco
+    const proposalText = suggestedFichas.map(f => `
+      - [PROPOSTA] ${f.titulo} (${f.tipo}):
+        Resumo: ${f.resumo}
+        Data: ${f.descricao_data || f.ano_diegese || "N/A"}
+        Status: ${f.meta?.status || "Ativo"}
+    `).join("\n");
+
+    try {
+      const res = await fetch("/api/lore/consistency", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          input: proposalText, 
+          universeId: selectedUniverseId 
+        })
+      });
+
+      const data = await res.json();
+      
+      if (data.analysis) {
+        setConsistencyReport(data.analysis);
+      } else {
+        setConsistencyReport("O Or não encontrou inconsistências óbvias.");
+      }
+    } catch (err) {
+      console.error(err);
+      setConsistencyReport("Erro ao conectar com o Módulo de Coerência.");
+    } finally {
+      setIsCheckingConsistency(false);
+    }
+  }
+
   async function handleSaveFichas() {
     setError(null);
     setSuccessMessage(null);
@@ -708,8 +752,50 @@ export default function LoreUploadPage() {
             </div>
 
             {suggestedFichas.length > 0 && (
-              <div className="pt-3 flex justify-center">
-                <button onClick={handleSaveFichas} disabled={isSaving} className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium">{isSaving ? "Salvando fichas..." : "Salvar fichas"}</button>
+              <div className="pt-6 space-y-4 border-t border-zinc-800 mt-6">
+    
+                {/* ÁREA DE VERIFICAÇÃO DE COERÊNCIA (NOVO) */}
+                <div className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                      🛡️ Protocolo de Coerência
+                    </h3>
+                    <button
+                      onClick={handleCheckConsistency}
+                      disabled={isCheckingConsistency}
+                      className="px-3 py-1.5 text-xs bg-purple-900/30 text-purple-200 border border-purple-500/50 rounded hover:bg-purple-900/50 transition-colors disabled:opacity-50"
+                    >
+                      {isCheckingConsistency ? "Analisando Linha do Tempo..." : "Verificar Conflitos"}
+                    </button>
+                  </div>
+                  
+                  <p className="text-xs text-zinc-500 mb-3">
+                    Antes de salvar, peça para o Or verificar se estas novas fichas contradizem fatos estabelecidos (datas de morte, regras de mundo, locais destruídos).
+                  </p>
+
+                  {consistencyReport && (
+                    <div className={`text-xs p-3 rounded border leading-relaxed whitespace-pre-wrap ${
+                      consistencyReport.includes("ALERTA") || consistencyReport.includes("INCONSISTÊNCIA")
+                        ? "bg-red-950/30 border-red-800 text-red-200" // Estilo de Erro
+                        : "bg-emerald-950/30 border-emerald-800 text-emerald-200" // Estilo de Sucesso
+                    }`}>
+                      <strong>Relatório do Or:</strong>
+                      <br/>
+                      {consistencyReport}
+                    </div>
+                  )}
+                </div>
+
+                {/* BOTÃO DE SALVAR ORIGINAL */}
+                <div className="flex justify-center">
+                  <button 
+                    onClick={handleSaveFichas} 
+                    disabled={isSaving} 
+                    className="w-full md:w-auto px-8 py-3 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all transform hover:scale-105"
+                  >
+                    {isSaving ? "Salvando fichas..." : "CONFIRMAR E SALVAR FICHAS"}
+                  </button>
+                </div>
               </div>
             )}
           </section>
