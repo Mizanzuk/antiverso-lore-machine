@@ -3,9 +3,6 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Gera um slug seguro a partir de um título.
- */
 function makeSlug(title: string | null | undefined): string {
   const base =
     (title ?? "")
@@ -22,38 +19,39 @@ function makeSlug(title: string | null | undefined): string {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const worldId = searchParams.get("worldId");
-  const universeId = searchParams.get("universeId"); // NOVO: Captura o universeId
+  const universeId = searchParams.get("universeId");
   const camada = searchParams.get("camada_temporal");
+  
+  // 1. SEGURANÇA
+  const userId = req.headers.get("x-user-id");
 
-  if (!supabaseAdmin) {
+  if (!supabaseAdmin || !userId) {
     return NextResponse.json(
-      { success: false, error: "Supabase não configurado." },
-      { status: 500 }
+      { success: false, error: "Acesso negado ou Supabase off." },
+      { status: 401 }
     );
   }
 
   let query = supabaseAdmin
     .from("fichas")
     .select(
-      "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at"
+      "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at, user_id"
     )
     .eq("tipo", "evento")
+    .eq("user_id", userId) // FILTRO OBRIGATÓRIO
     .order("data_inicio", { ascending: true, nullsFirst: true })
     .order("created_at", { ascending: true });
 
   if (worldId) {
-    // Se worldId é fornecido, filtra por ele.
     query = query.eq("world_id", worldId);
   } else if (universeId) {
-    // Se universeId é fornecido (e não há worldId), buscamos todos os world_ids desse universo.
     try {
-      // Busca todos os mundos do universo (incluindo o Mundo Teste se ele estiver no mesmo universo ou não tiver universoId)
+      // Busca mundos do universo QUE PERTENCEM AO USUÁRIO
       let worldsQuery = supabaseAdmin
         .from("worlds")
-        .select("id");
-        
-      // Filtra pelo universeId para carregar os mundos filhos
-      worldsQuery = worldsQuery.eq("universe_id", universeId);
+        .select("id")
+        .eq("universe_id", universeId)
+        .eq("user_id", userId); // SEGURANÇA
 
       const { data: worldsData, error: worldsError } = await worldsQuery;
 
@@ -61,24 +59,15 @@ export async function GET(req: NextRequest) {
 
       const worldIds = worldsData?.map((w) => w.id) || [];
       
-      // Adiciona o Mundo "Teste" manualmente se ele for o caso (assumindo o ID 'teste'
-      // ou um padrão específico para mundos que foram criados fora da estrutura de universos)
-      // *NOTA: Este é um patch de segurança. O ideal seria ter todos os mundos com universe_id correto.*
-      if (!worldIds.includes("teste")) {
-          worldIds.push("teste");
-      }
-      
       if (worldIds.length > 0) {
-        // Filtra os eventos de todas as fichas que pertencem a algum mundo desse conjunto.
         query = query.in("world_id", worldIds);
       } else {
-        // Não há mundos no universo, retorna vazio.
         return NextResponse.json({ success: true, error: null, events: [] });
       }
     } catch (err) {
-      console.error("Erro ao buscar mundos por universo:", err);
+      console.error("Erro ao buscar mundos:", err);
       return NextResponse.json(
-        { success: false, error: "Erro ao buscar mundos para filtragem." },
+        { success: false, error: "Erro ao filtrar mundos." },
         { status: 500 }
       );
     }
@@ -91,7 +80,6 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("Erro ao buscar eventos da timeline:", error);
     return NextResponse.json(
       { success: false, error: error.message, events: [] },
       { status: 400 }
@@ -120,18 +108,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!supabaseAdmin) {
-    return NextResponse.json(
-      { success: false, error: "Supabase não configurado." },
-      { status: 500 }
-    );
+  const userId = req.headers.get("x-user-id");
+  if (!supabaseAdmin || !userId) {
+    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
   }
 
   const body = await req.json();
   const { ficha_id, ...fields } = body || {};
 
-  // Se vier ficha_id, é update (edição)
   if (ficha_id) {
+    // UPDATE
     const updateData: any = {
       titulo: fields.titulo ?? "",
       resumo: fields.resumo ?? "",
@@ -140,67 +126,44 @@ export async function POST(req: NextRequest) {
       camada_temporal: fields.camada_temporal ?? "",
       descricao_data: fields.descricao_data ?? "",
       granularidade_data: fields.granularidade_data ?? "",
+      data_inicio: fields.data_inicio || null,
+      data_fim: fields.data_fim || null,
     };
-
-    updateData.data_inicio =
-      fields.data_inicio && fields.data_inicio !== ""
-        ? fields.data_inicio
-        : null;
-    updateData.data_fim =
-      fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
     const { error } = await supabaseAdmin
       .from("fichas")
       .update(updateData)
-      .eq("id", ficha_id);
+      .eq("id", ficha_id)
+      .eq("user_id", userId); // GARANTE PROPRIEDADE
 
     if (error) {
-      console.error("Erro ao atualizar evento:", error);
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
-
     return NextResponse.json({ success: true, error: null, mode: "update" });
   }
 
-  // Sem ficha_id → criação
+  // CREATE
   if (!fields.world_id) {
-    return NextResponse.json(
-      { success: false, error: "world_id é obrigatório para criar evento" },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: "world_id obrigatório" }, { status: 400 });
   }
 
-  const titulo: string = fields.titulo ?? "";
-  // Aqui estava o erro: makeSlug() vazio. Agora passamos 'titulo'.
-  const slug = makeSlug(titulo);
+  const slug = makeSlug(fields.titulo ?? "");
   
-  const conteudo: string =
-    (fields.conteudo as string | undefined) ??
-    (fields.resumo as string | undefined) ??
-    "";
-
   const insertData: any = {
     world_id: fields.world_id,
+    user_id: userId, // VINCULA AO DONO
     tipo: "evento",
-    titulo,
+    titulo: fields.titulo ?? "",
     slug,
     resumo: fields.resumo ?? "",
-    conteudo,
+    conteudo: fields.conteudo ?? fields.resumo ?? "",
     episodio: fields.episodio ?? "",
     camada_temporal: fields.camada_temporal ?? "",
     descricao_data: fields.descricao_data ?? "",
     granularidade_data: fields.granularidade_data ?? "",
+    data_inicio: fields.data_inicio || null,
+    data_fim: fields.data_fim || null,
   };
-
-  insertData.data_inicio =
-    fields.data_inicio && fields.data_inicio !== ""
-      ? fields.data_inicio
-      : null;
-  insertData.data_fim =
-    fields.data_fim && fields.data_fim !== "" ? fields.data_fim : null;
 
   const { data, error } = await supabaseAdmin
     .from("fichas")
@@ -209,11 +172,7 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
-    console.error("Erro ao criar evento:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: error.message }, { status: 400 });
   }
 
   return NextResponse.json({
@@ -225,32 +184,23 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!supabaseAdmin) {
-    return NextResponse.json(
-      { success: false, error: "Supabase não configurado." },
-      { status: 500 }
-    );
+  const userId = req.headers.get("x-user-id");
+  if (!supabaseAdmin || !userId) {
+    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
   }
   
   const { searchParams } = new URL(req.url);
   const fichaId = searchParams.get("ficha_id");
 
-  if (!fichaId) {
-    return NextResponse.json(
-      { success: false, error: "ficha_id é obrigatório" },
-      { status: 400 }
-    );
-  }
+  if (!fichaId) return NextResponse.json({ success: false }, { status: 400 });
 
-  const { error } = await supabaseAdmin.from("fichas").delete().eq("id", fichaId);
+  const { error } = await supabaseAdmin
+    .from("fichas")
+    .delete()
+    .eq("id", fichaId)
+    .eq("user_id", userId); // GARANTE PROPRIEDADE
 
-  if (error) {
-    console.error("Erro ao deletar evento:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 400 }
-    );
-  }
+  if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
 
   return NextResponse.json({ success: true, error: null });
 }
