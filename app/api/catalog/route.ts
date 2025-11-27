@@ -29,9 +29,9 @@ export async function GET() {
 
     // 2. CORREÇÃO CRÍTICA: Buscar as fichas da tabela 'fichas' (que tem a RLS e user_id)
     const { data: entities, error: entitiesError } = await client
-      .from("fichas") // <--- CORRIGIDO: Era "lore_entities"
+      .from("fichas") // <--- CORRIGIDO: A tabela real de dados é 'fichas'
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo, user_id" // Selecionando campos que existem em 'fichas'
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo, user_id" // Selecionando os campos que existem na tabela 'fichas'
       )
       .order("titulo", { ascending: true })
       .limit(500);
