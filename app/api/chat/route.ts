@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
 
-// --- NOVAS PERSONAS ---
 const PERSONAS = {
   consulta: {
     nome: "Urizen",
@@ -23,38 +22,39 @@ const PERSONAS = {
   }
 };
 
-// --- VALIDAÇÃO DE UUID ---
 function isValidUUID(uuid: any): boolean {
   if (typeof uuid !== 'string') return false;
   const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return regex.test(uuid);
 }
 
-// --- BUSCA DE REGRAS GLOBAIS ---
-async function fetchGlobalRules(universeId?: string): Promise<string> {
+async function fetchGlobalRules(universeId?: string, userId?: string): Promise<string> {
   if (!supabaseAdmin || !universeId || !isValidUUID(universeId)) {
     return "";
   }
 
   try {
-    // Busca o mundo raiz (is_root) deste universo
-    const { data: rootWorld, error: worldError } = await supabaseAdmin
+    // Busca o mundo raiz com segurança
+    let query = supabaseAdmin
       .from("worlds")
       .select("id")
       .eq("universe_id", universeId)
-      .eq("is_root", true)
-      .maybeSingle();
+      .eq("is_root", true);
+    
+    if (userId) query = query.eq("user_id", userId);
+
+    const { data: rootWorld, error: worldError } = await query.maybeSingle();
 
     if (worldError || !rootWorld) return "";
 
-    // Busca regras vinculadas ao mundo raiz
-    const { data: rules, error: rulesError } = await supabaseAdmin
+    // Busca regras
+    const { data: rules } = await supabaseAdmin
       .from("fichas")
       .select("titulo, conteudo, tipo")
       .eq("world_id", rootWorld.id)
       .in("tipo", ["regra_de_mundo", "epistemologia", "conceito"]);
 
-    if (rulesError || !rules || rules.length === 0) return "";
+    if (!rules || rules.length === 0) return "";
 
     const rulesText = rules
       .map((f) => `- [${f.tipo.toUpperCase()}] ${f.titulo}: ${f.conteudo}`)
@@ -77,6 +77,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "OPENAI_API_KEY não configurada." }, { status: 500 });
     }
 
+    // Captura o User ID do header (enviado pelo frontend seguro)
+    const userId = req.headers.get("x-user-id") || undefined;
+
     const body = await req.json().catch(() => null);
     const messages = (body?.messages ?? []) as Message[];
     const universeId = body?.universeId as string | undefined;
@@ -85,22 +88,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nenhuma mensagem válida." }, { status: 400 });
     }
 
-    // Detecta o modo (Consulta vs Criativo) baseado na última mensagem de sistema enviada pelo frontend
     const systemMessageFromFrontend = messages.find(m => m.role === "system")?.content || "";
-    // O frontend agora injeta a instrução com o nome da persona e o modo (ex: "Você é Urizen, o Lei...")
     const isCreativeMode = systemMessageFromFrontend.includes("MODO CRIATIVO");
     const currentPersona = isCreativeMode ? PERSONAS.criativo : PERSONAS.consulta;
     
-    // Remove a mensagem de sistema do frontend antes do RAG/LLM para não poluir
     const conversationMessages = messages.filter(m => m.role !== "system");
     const lastUser = [...conversationMessages].reverse().find((m) => m.role === "user");
     const userQuestion = lastUser?.content ?? "Resuma a conversa.";
     
-
-    // 1. Busca Contextual (Fichas)
+    // 1. Busca Contextual (COM USER_ID)
     let loreContext = "Nenhum trecho específico encontrado.";
     try {
-      const loreResults = await searchLore(userQuestion, { limit: 10, universeId });
+      const loreResults = await searchLore(userQuestion, { 
+        limit: 10, 
+        universeId,
+        userId // Passando a credencial
+      });
       
       if (loreResults && loreResults.length > 0) {
         loreContext = loreResults
@@ -113,31 +116,28 @@ export async function POST(req: NextRequest) {
       console.error("Erro na busca RAG:", ragError);
     }
 
-    // 2. Busca de Regras Globais do Universo
-    const globalRules = await fetchGlobalRules(universeId);
+    // 2. Busca de Regras Globais (COM USER_ID)
+    const globalRules = await fetchGlobalRules(universeId, userId);
 
-    // 3. Definição do Comportamento (Protocolo de Coerência)
     let specificInstructions = "";
     if (isCreativeMode) {
       specificInstructions = `
 VOCÊ É ${currentPersona.nome}. VOCÊ ESTÁ EM MODO CRIATIVO, MAS COM O PROTOCOLO DE COERÊNCIA ATIVO.
 Você é livre para expandir o universo, mas DEVE checar datas, status de vida/morte e regras nos [FATOS ESTABELECIDOS].
-Se o usuário sugerir algo que contradiz um fato (ex: personagem morto agindo), AVISE sobre a inconsistência.
-Se não houver contradição, seja criativo e expanda a narrativa.
-      `;
+Se o usuário sugerir algo que contradiz um fato, AVISE sobre a inconsistência.
+`;
     } else {
       specificInstructions = `
 VOCÊ É ${currentPersona.nome}. VOCÊ ESTÁ EM MODO CONSULTA ESTRITA.
 Responda APENAS com base nos [FATOS ESTABELECIDOS] e nas [LEIS IMUTÁVEIS].
-Não invente. Se a informação não estiver no contexto, diga que não sabe ou que ainda não foi definida.
-      `;
+Não invente. Se a informação não estiver no contexto, diga que não sabe.
+`;
     }
 
-    // 4. Montagem do Prompt de Sistema Final
     const contextMessage: Message = {
       role: "system",
       content: [
-        `Você é ${currentPersona.nome}, o ${currentPersona.titulo} deste Universo.`, // Nova descrição da persona
+        `Você é ${currentPersona.nome}, o ${currentPersona.titulo} deste Universo.`, 
         `Sua função é atuar como ${currentPersona.descricao}.`,
         "",
         globalRules,
@@ -150,10 +150,9 @@ Não invente. Se a informação não estiver no contexto, diga que não sabe ou 
       ].join("\n"),
     };
 
-    // 5. Geração e Streaming
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini", 
-      messages: [contextMessage, ...conversationMessages], // Usa conversationMessages limpas
+      messages: [contextMessage, ...conversationMessages], 
       temperature: isCreativeMode ? 0.7 : 0.2,
       stream: true,
     });
