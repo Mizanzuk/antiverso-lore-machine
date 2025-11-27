@@ -193,9 +193,25 @@ function LoreAdminContent() {
     setError(null);
     let query = supabaseBrowser.from("fichas").select("*").order("titulo");
     
+    // Se um mundo específico foi selecionado
     if (wId) {
-      query = query.eq("world_id", wId);
+      // HERANÇA: Busca fichas do mundo selecionado OU do mundo raiz (Universo)
+      // Precisamos descobrir o ID do mundo raiz deste universo
+      const { data: rootWorldData } = await supabaseBrowser
+        .from("worlds")
+        .select("id")
+        .eq("universe_id", uniId)
+        .eq("is_root", true)
+        .single();
+        
+      if (rootWorldData) {
+        // Sintaxe OR do Supabase: world_id.eq.ID1,world_id.eq.ID2
+        query = query.or(`world_id.eq.${wId},world_id.eq.${rootWorldData.id}`);
+      } else {
+        query = query.eq("world_id", wId);
+      }
     } else {
+      // Se "Todos" (null) foi selecionado, busca tudo do universo
       const { data: wData } = await supabaseBrowser.from("worlds").select("id").eq("universe_id", uniId);
       const ids = wData?.map((w:any) => w.id) || [];
       if (ids.length > 0) query = query.in("world_id", ids);
@@ -346,10 +362,30 @@ function LoreAdminContent() {
   function startCreateFicha() { 
     if(!selectedUniverseId) return alert("Selecione um universo.");
     setFichaFormMode("create"); 
-    const targetWorld = selectedWorldId || worlds.find(w => w.is_root)?.id || worlds[0]?.id;
-    setFichaForm({ id:"", titulo:"", tipo:"conceito", world_id: targetWorld, conteudo:"", resumo:"", tags:"", granularidade_data:"indefinido", camada_temporal:"linha_principal" }); 
+    
+    // Padrão: Se tem um mundo selecionado, usa ele. 
+    // Se não (está em "Todos"), tenta usar o Mundo Raiz.
+    const rootWorld = worlds.find(w => w.is_root);
+    const targetWorld = selectedWorldId || rootWorld?.id || worlds[0]?.id;
+    
+    setFichaForm({ 
+      id:"", 
+      titulo:"", 
+      tipo:"conceito", 
+      world_id: targetWorld, 
+      conteudo:"", 
+      resumo:"", 
+      tags:"", 
+      granularidade_data:"indefinido", 
+      camada_temporal:"linha_principal" 
+    }); 
   }
-  function startEditFicha(f: any) { setFichaFormMode("edit"); setFichaForm({...f}); }
+
+  function startEditFicha(f: any) { 
+    setFichaFormMode("edit"); 
+    setFichaForm({...f}); 
+  }
+  
   function cancelFichaForm() { setFichaFormMode("idle"); setFichaForm({}); }
   
   // NOVO: UPLOAD DE IMAGEM
@@ -381,11 +417,64 @@ function LoreAdminContent() {
 
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
-    const payload = { ...fichaForm, updated_at: new Date().toISOString() };
-    if (fichaFormMode === 'create') await supabaseBrowser.from("fichas").insert([payload]);
-    else await supabaseBrowser.from("fichas").update(payload).eq("id", fichaForm.id);
-    setFichaFormMode("idle");
-    if (selectedUniverseId) loadFichas(selectedUniverseId, selectedWorldId);
+    
+    // Validação básica
+    if (!fichaForm.world_id) {
+      setError("Selecione um Mundo para esta ficha.");
+      return;
+    }
+    if (!fichaForm.titulo.trim()) {
+      setError("Ficha precisa de um título.");
+      return;
+    }
+
+    setIsSavingFicha(true);
+    setError(null);
+
+    const payload: any = {
+      world_id: fichaForm.world_id, // Usa o valor do dropdown
+      titulo: fichaForm.titulo.trim(),
+      slug: fichaForm.slug?.trim() || null,
+      tipo: fichaForm.tipo?.trim() || null,
+      resumo: fichaForm.resumo?.trim() || null,
+      conteudo: fichaForm.conteudo?.trim() || null,
+      tags: fichaForm.tags?.trim() || null,
+      ano_diegese: fichaForm.ano_diegese ? String(fichaForm.ano_diegese).trim() : null,
+      ordem_cronologica: fichaForm.ordem_cronologica ? String(fichaForm.ordem_cronologica).trim() : null,
+      aparece_em: fichaForm.aparece_em?.trim() || null,
+      codigo: fichaForm.codigo?.trim() || null,
+      imagem_url: fichaForm.imagem_url?.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Ajuste tipos numéricos
+    if (payload.ano_diegese && !isNaN(Number(payload.ano_diegese))) payload.ano_diegese = Number(payload.ano_diegese);
+    if (payload.ordem_cronologica && !isNaN(Number(payload.ordem_cronologica))) payload.ordem_cronologica = Number(payload.ordem_cronologica);
+
+    let saveError = null;
+
+    if (fichaFormMode === "create") {
+      const { error } = await supabaseBrowser.from("fichas").insert([payload]);
+      saveError = error;
+    } else {
+      const { error } = await supabaseBrowser
+        .from("fichas")
+        .update(payload)
+        .eq("id", fichaForm.id);
+      saveError = error;
+    }
+
+    setIsSavingFicha(false);
+
+    if (saveError) {
+      console.error(saveError);
+      setError(`Erro ao salvar Ficha: ${(saveError as any)?.message || JSON.stringify(saveError)}`);
+      return;
+    }
+
+    cancelFichaForm();
+    // Recarrega com o filtro atual da esquerda (para ver se a ficha aparece ou sumiu para outro mundo)
+    await fetchFichas(selectedUniverseId!, selectedWorldId);
   }
 
   async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
@@ -399,7 +488,6 @@ function LoreAdminContent() {
 
   // --- NOVO: PROTOCOLO DE COERÊNCIA MANUAL ---
   async function checkConsistency() {
-    // Monta um texto único com tudo o que você preencheu
     const textToCheck = `
       [PROPOSTA DE FICHA]
       Título: ${fichaForm.titulo}
@@ -409,7 +497,6 @@ function LoreAdminContent() {
       Conteúdo: ${fichaForm.conteudo}
     `.trim();
 
-    // Avisa que está pensando
     alert("Consultando o Or sobre a coerência...");
 
     try {
@@ -424,7 +511,6 @@ function LoreAdminContent() {
       
       const data = await res.json();
       
-      // Mostra o resultado
       if (data.analysis) {
         alert("RELATÓRIO DO OR:\n\n" + data.analysis);
       } else {
@@ -447,7 +533,6 @@ function LoreAdminContent() {
      const eps = new Set<string>();
      fichas.forEach(f => {
        if (f.episodio) eps.add(f.episodio);
-       // Tenta extrair do código se não tiver no campo episódio
        if (!f.episodio && f.codigo) {
           const m = f.codigo.match(/[A-Z]+(\d+)-/);
           if (m) eps.add(m[1]);
@@ -457,26 +542,19 @@ function LoreAdminContent() {
   }, [fichas]);
 
   const filteredFichas = fichas.filter(f => {
-    // Filtro de Tipo
     if (fichaFilterTipos.length > 0 && !fichaFilterTipos.includes(f.tipo)) return false;
-
-    // Filtro de Episódio
     if (selectedEpisodeFilter) {
        if (f.episodio !== selectedEpisodeFilter) {
-          // Fallback: tenta verificar o código se o campo episodio estiver vazio
           const codeEp = f.codigo?.match(/[A-Z]+(\d+)-/)?.[1];
           if (codeEp !== selectedEpisodeFilter) return false;
        }
     }
-
-    // Busca Turbinada (Título, Código, Resumo, Tags)
     if (fichasSearchTerm.trim().length > 0) {
       const q = fichasSearchTerm.toLowerCase();
       const inTitulo = (f.titulo || "").toLowerCase().includes(q);
       const inResumo = (f.resumo || "").toLowerCase().includes(q);
       const inCodigo = (f.codigo || "").toLowerCase().includes(q);
       const inTags = (f.tags || "").toLowerCase().includes(q);
-      
       if (!inTitulo && !inResumo && !inCodigo && !inTags) return false;
     }
     return true;
@@ -490,6 +568,10 @@ function LoreAdminContent() {
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
   const selectedWorldData = worlds.find(w => w.id === selectedWorldId);
+
+  // Helpers para Dropdown de Mundo
+  const rootWorld = worlds.find(w => w.is_root);
+  const childWorlds = worlds.filter(w => !w.is_root);
 
   // --- MENTIONS ---
   function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>, field: "conteudo" | "resumo") {
@@ -611,7 +693,7 @@ function LoreAdminContent() {
               <button onClick={startCreateWorld} className="text-[10px] px-2 py-0.5 rounded border border-neutral-800 hover:border-emerald-500 text-neutral-400 hover:text-white transition-colors">+</button>
             </div>
             <div className="flex-1 overflow-auto space-y-1 pr-1">
-              {worlds.filter(w => !w.is_root).map((w) => (
+              {childWorlds.map((w) => (
                 <div key={w.id} className={`group relative border rounded px-3 py-2 text-[11px] cursor-pointer transition-all ${selectedWorldId === w.id ? "border-emerald-500/50 bg-emerald-500/10 text-white" : "border-transparent hover:bg-neutral-900 text-neutral-400"}`} onClick={() => handleSelectWorld(w.id)}>
                   <div className="flex items-center justify-between pr-6"><span className="font-medium truncate">{w.nome}</span></div>
                   <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5 z-10">
@@ -684,6 +766,10 @@ function LoreAdminContent() {
                 <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-emerald-600 font-bold mb-2"><span>{selectedFicha.tipo}</span>{selectedFicha.slug && <span className="text-neutral-600 font-normal lowercase">/ {selectedFicha.slug}</span>}</div>
                 <h1 className="text-3xl font-bold text-white mb-3">{selectedFicha.titulo}</h1>
                 {selectedFicha.resumo && <p className="text-lg text-neutral-400 italic leading-relaxed">{renderWikiText(selectedFicha.resumo)}</p>}
+                {/* Display World Name in View Mode */}
+                <div className="mt-3 inline-flex items-center px-2.5 py-0.5 rounded bg-neutral-800/60 text-[10px] font-mono text-neutral-400 border border-neutral-700/50">
+                   🌎 {worlds.find(w => w.id === selectedFicha.world_id)?.nome || "Mundo Desconhecido"}
+                </div>
               </div>
               
               <div className="flex justify-end gap-2 mb-6">
@@ -777,6 +863,38 @@ function LoreAdminContent() {
           <form onSubmit={handleSaveFicha} className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-h-[90vh] overflow-y-auto shadow-2xl relative">
             <h2 className="text-sm font-bold text-white mb-4 uppercase tracking-widest">Editar Ficha</h2>
             <div className="grid gap-4">
+              
+              {/* SELEÇÃO DE MUNDO (NOVO) */}
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase text-zinc-500">Mundo de Origem</label>
+                <select 
+                  className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white focus:border-emerald-500"
+                  value={fichaForm.world_id || ""}
+                  onChange={(e) => {
+                    if (e.target.value === "create_new_world") {
+                      startCreateWorld();
+                    } else {
+                      setFichaForm({ ...fichaForm, world_id: e.target.value });
+                    }
+                  }}
+                >
+                  {/* Mundo Raiz (Universo Global) */}
+                  {rootWorld && (
+                    <option value={rootWorld.id} className="font-bold bg-zinc-900">
+                      ✨ {rootWorld.nome} (Global)
+                    </option>
+                  )}
+                  <option disabled>──────────</option>
+                  {/* Outros Mundos */}
+                  {childWorlds.map(w => (
+                    <option key={w.id} value={w.id}>{w.nome}</option>
+                  ))}
+                  <option disabled>──────────</option>
+                  <option value="create_new_world" className="text-emerald-400">+ Novo Mundo...</option>
+                </select>
+                <p className="text-[9px] text-zinc-500">Defina onde esta ficha existe primariamente. Use "Global" para entidades que existem em todos os mundos.</p>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] uppercase text-zinc-500">Tipo</label>
                 <select className="w-full bg-black border border-zinc-800 p-2 text-xs rounded" value={LORE_TYPES.some(t => t.value === fichaForm.tipo) ? fichaForm.tipo : "novo"} onChange={(e) => { const val = e.target.value; if (val === "novo") { const custom = prompt("Digite o nome da nova categoria:"); if (custom) setFichaForm({...fichaForm, tipo: custom.toLowerCase().trim()}); } else { setFichaForm({...fichaForm, tipo: val}); } }}>
