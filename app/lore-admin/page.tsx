@@ -438,9 +438,34 @@ function LoreAdminContent() {
     setError(null);
 
     try {
-      // 1. Deletar Fichas associadas (necessário para FK)
-      // Nota: A exclusão em cascata deve cuidar de codes e relations, mas forçamos a exclusão 
-      // das Fichas para que o mundo possa ser deletado.
+      // 0. Encontrar todos os IDs de ficha que pertencem a este mundo
+      //    Isso é necessário para deletar as relações e códigos que fazem referência cruzada.
+      const { data: fichasData, error: fetchError } = await supabaseBrowser
+          .from("fichas")
+          .select("id")
+          .eq("world_id", id);
+      
+      if (fetchError) throw new Error("Erro ao buscar fichas para exclusão.");
+      const fichaIds = fichasData?.map(f => f.id) || [];
+      
+      // 1. Limpar Códigos e Relações (para não bloquear a exclusão das fichas)
+      if (fichaIds.length > 0) {
+        // 1a. Deletar Códigos
+        const { error: deleteCodesError } = await supabaseBrowser
+            .from("codes")
+            .delete()
+            .in("ficha_id", fichaIds);
+        if (deleteCodesError) console.warn("Aviso: Falha ao limpar códigos (ignorando).", deleteCodesError);
+
+        // 1b. Deletar Relações (onde a ficha é SOURCE ou TARGET)
+        const { error: deleteRelsError } = await supabaseBrowser
+            .from("lore_relations")
+            .delete()
+            .or(`source_ficha_id.in.(${fichaIds.join(',')}),target_ficha_id.in.(${fichaIds.join(',')})`);
+        if (deleteRelsError) console.warn("Aviso: Falha ao limpar relações (ignorando).", deleteRelsError);
+      }
+      
+      // 2. Deletar Fichas (que agora não têm dependências)
       const { error: deleteFichasError } = await supabaseBrowser
         .from("fichas")
         .delete()
@@ -450,7 +475,7 @@ function LoreAdminContent() {
         throw new Error("Não foi possível deletar fichas vinculadas. Erro: " + deleteFichasError.message);
       }
       
-      // 2. Deletar o Mundo
+      // 3. Deletar o Mundo
       const { error: deleteWorldError } = await supabaseBrowser
         .from("worlds")
         .delete()
@@ -460,9 +485,9 @@ function LoreAdminContent() {
         throw new Error(deleteWorldError.message);
       }
 
-      // 3. Atualizar estado
+      // 4. Atualizar estado (chama o fetchAllData para resolver o problema de visibilidade)
       if (selectedWorldId === id) setSelectedWorldId(null);
-      if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
+      if (selectedUniverseId) fetchAllData(selectedUniverseId, null); // Passando null forçará a seleção para "Tudo"
 
     } catch (err: any) {
       console.error("Erro ao deletar mundo:", err);
