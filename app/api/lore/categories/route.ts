@@ -131,7 +131,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Primeiro, deletar todas as fichas desta categoria
-    const { error: deleteF ichasError } = await supabaseAdmin
+    const { error: deleteFichasError } = await supabaseAdmin
       .from("fichas")
       .delete()
       .eq("tipo", slug);
