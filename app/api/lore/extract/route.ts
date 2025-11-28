@@ -124,7 +124,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
   
     try {
       const completion = await openai!.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: "gpt-4o",
         temperature: 0.4, // Levemente aumentado para favorecer geração de tags criativas
         max_tokens: 4000,
         messages: [
