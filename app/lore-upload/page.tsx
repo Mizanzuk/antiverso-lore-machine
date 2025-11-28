@@ -47,7 +47,13 @@ function getTypePrefix(tipo: string): string { const key = (tipo || "").toLowerC
 
 export default function LoreUploadPage() {
   const [universes, setUniverses] = useState<Universe[]>([]);
-  const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string>(() => {
+    // Tentar carregar do localStorage ao inicializar
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("selectedUniverseId") || "";
+    }
+    return "";
+  });
   const [userId, setUserId] = useState<string | null>(null);
 
   const [worlds, setWorlds] = useState<World[]>([]);
