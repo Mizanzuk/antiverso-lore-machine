@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica para o fallback
+import { supabaseAdmin } from "@/lib/supabase"; 
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +12,15 @@ type IncomingFicha = {
   tags?: string[];
   aparece_em?: string;
   codigo?: string;
+  
+  // NOVOS CAMPOS
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
-  generalidade_data?: string | null;
+  granularidade_data?: string | null;
   camada_temporal?: string | null;
+  ano_diegese?: number | null; // Mantido por compatibilidade
+
   meta?: {
     relacoes?: {
       tipo: string;
@@ -109,7 +113,6 @@ function normalizeEpisode(unitNumber: string): string {
   return String(parseInt(onlyDigits, 10));
 }
 
-// Helpers que usam o supabase client passado
 async function generateAutomaticCode(opts: {
   fichaId: string;
   world: WorldRow;
@@ -138,7 +141,6 @@ async function generateAutomaticCode(opts: {
     basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
   }
 
-  // Busca códigos existentes para calcular o próximo número
   const { data: existing } = await supabase
     .from("codes")
     .select("code")
@@ -205,7 +207,6 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: a
     const alvoTitulo = rel.alvo_titulo;
     if (!alvoTitulo) continue;
 
-    // Busca ficha alvo
     const { data: targetFicha } = await supabase
       .from("fichas")
       .select("id")
@@ -227,25 +228,20 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: a
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Inicializa cliente padrão (Cookies)
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // 2. Lógica de Fallback para Autenticação
     let clientToUse = supabase;
     let userId = user?.id;
 
     if (!userId) {
-        // Se cookie falhar, tenta pegar o ID do header enviado pelo frontend
         const headerUserId = req.headers.get("x-user-id");
         if (headerUserId) {
-            // Se tiver ID no header, usa o cliente ADMIN (Service Role)
-            // Isso permite salvar os dados mesmo sem cookie de sessão ativo
             if (supabaseAdmin) {
                 clientToUse = supabaseAdmin;
                 userId = headerUserId;
             } else {
-                console.warn("⚠️ Supabase Admin não inicializado. Operação pode falhar.");
+                console.warn("⚠️ Supabase Admin não inicializado.");
             }
         }
     }
@@ -266,8 +262,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verificar se o Mundo existe
-    // Usamos clientToUse para garantir que funcione com Admin ou Cookie
     const { data: worldRow, error: worldError } = await clientToUse
       .from("worlds")
       .select("*")
@@ -289,9 +283,16 @@ export async function POST(req: NextRequest) {
       const tipoNormalizado = (ficha.tipo || "conceito").toLowerCase().trim();
       const slug = slugify(titulo);
       const tagsStr = (ficha.tags || []).join(", ");
-      const isEvento = tipoNormalizado === "evento";
+      
+      // Lógica de Ano Diegético (Legado ou extraído do ano da data_inicio)
+      let anoDiegeseFinal = ficha.ano_diegese;
+      if (!anoDiegeseFinal && ficha.data_inicio) {
+          try {
+              anoDiegeseFinal = new Date(ficha.data_inicio).getFullYear();
+          } catch {}
+      }
 
-      // Inserção da Ficha
+      // Mapeamento dos novos campos do PDF
       const insertData: any = {
           world_id: world.id,
           titulo,
@@ -300,15 +301,16 @@ export async function POST(req: NextRequest) {
           resumo: ficha.resumo ?? "",
           conteudo: ficha.conteudo ?? "",
           tags: tagsStr,
-          descricao_data: isEvento ? ficha.descricao_data : null,
-          data_inicio: isEvento ? ficha.data_inicio : null,
-          data_fim: isEvento ? ficha.data_fim : null,
-          granularidade_data: isEvento ? (ficha as any).granularidade_data : null,
-          camada_temporal: isEvento ? ficha.camada_temporal : null,
           aparece_em: ficha.aparece_em,
           episodio: normalizeEpisode(unitNumber),
-          // Se estiver usando Supabase Admin, pode ser útil forçar o user_id se a tabela não tiver default
-          // user_id: userId 
+          
+          // Novos Campos Temporais
+          descricao_data: ficha.descricao_data || null,
+          data_inicio: ficha.data_inicio || null,
+          data_fim: ficha.data_fim || null,
+          granularidade_data: ficha.granularidade_data || 'vago',
+          camada_temporal: ficha.camada_temporal || 'linha_principal',
+          ano_diegese: anoDiegeseFinal || null,
       };
 
       const { data: inserted, error: insertError } = await clientToUse
@@ -324,7 +326,6 @@ export async function POST(req: NextRequest) {
 
       const fichaId = (inserted as any).id as string;
 
-      // Gera código (Passando o clientToUse)
       const finalCode = await applyCodeForFicha({
         fichaId,
         world,
@@ -334,7 +335,6 @@ export async function POST(req: NextRequest) {
         supabase: clientToUse,
       });
 
-      // Salva relações (Passando o clientToUse)
       if (ficha.meta && ficha.meta.relacoes) {
         await saveRelations(fichaId, ficha.meta.relacoes, clientToUse);
       }
