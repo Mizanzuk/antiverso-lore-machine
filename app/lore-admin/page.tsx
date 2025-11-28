@@ -277,7 +277,6 @@ function LoreAdminContent() {
   }
 
   // --- ACTIONS ---
-  // ... (Universe Actions - iguais) ...
   async function saveUniverse() {
     if (!universeForm.nome.trim()) return alert("Nome obrigatório");
     if (universeFormMode === "create") {
@@ -527,10 +526,22 @@ function LoreAdminContent() {
                         </div>
                         <div className="text-[10px] text-zinc-500 line-clamp-2 mt-1">{f.resumo}</div>
                         
-                        {/* BOTÕES DE AÇÃO NO HOVER */}
-                        <div className="absolute top-2 right-2 hidden group-hover:flex gap-1 bg-black/80 rounded p-0.5">
-                            <button onClick={(e) => { e.stopPropagation(); setFichaForm({...f}); setFichaFormMode("edit"); }} className="p-1 hover:bg-zinc-700 rounded text-zinc-300" title="Editar">✏️</button>
-                            <button onClick={(e) => handleDeleteFicha(f.id, e)} className="p-1 hover:bg-red-900/50 rounded text-red-400" title="Excluir">❌</button>
+                        {/* BOTÕES DE AÇÃO COM ÍCONES SUTIS */}
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setFichaForm({...f}); setFichaFormMode("edit"); }} 
+                                className="text-zinc-500 hover:text-zinc-200 transition text-[11px]" 
+                                title="Editar"
+                            >
+                                ✎
+                            </button>
+                            <button 
+                                onClick={(e) => handleDeleteFicha(f.id, e)} 
+                                className="text-zinc-500 hover:text-red-400 transition text-[13px]" 
+                                title="Excluir"
+                            >
+                                ×
+                            </button>
                         </div>
                     </div> 
                 ))}
@@ -571,7 +582,7 @@ function LoreAdminContent() {
 
                         <div><h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-zinc-300 leading-loose whitespace-pre-wrap font-serif">{renderWikiText(selectedFicha?.conteudo || selectedFicha?.resumo)}</div></div>
                         <div className="grid grid-cols-2 gap-4 pt-6 border-t border-zinc-900">
-                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha?.id ? rel.target : rel.source; return other ? (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => handleSelectFicha(other.id)}>{other.titulo}</span></div>) : null; })}</div>
+                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha?.id ? rel.target : rel.source; return other ? (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => { setSelectedFichaId(other.id); loadFichaDetails(other.id); }}>{other.titulo}</span></div>) : null; })}</div>
                             <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Dados</h4><div className="space-y-1"><div className="text-xs flex justify-between"><span className="text-zinc-500">Tags</span><span className="text-zinc-300 text-right">{selectedFicha?.tags}</span></div></div></div>
                         </div>
                     </div>
