@@ -26,6 +26,7 @@ type ExtractedFicha = {
   tags: string[];
   ano_diegese: number | null;
   aparece_em: string;
+  // NOVOS CAMPOS DO PDF
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
@@ -63,17 +64,30 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
 
 async function processChunk(text: string, chunkIndex: number, totalChunks: number): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
+    
+    // Prompt atualizado com a lógica do PDF: separar eventos por camada temporal
     const systemPrompt = `
   Você é o Motor de Lore do AntiVerso.
-  Sua tarefa é ler o texto e extrair FICHAS DE LORE estruturadas.
+  Sua tarefa é ler o texto e extrair FICHAS DE LORE estruturadas em JSON.
   
   TIPOS PERMITIDOS: ${typeInstructions}
   
-  DIRETRIZES:
-  1. AGRESSIVIDADE TEMPORAL: Crie fichas de TIPO "evento" para datas específicas.
-  2. PERSONAGENS: Foque na personalidade.
-  3. LOCAIS: Não ignore locais genéricos.
-  4. RELAÇÕES: Conecte personagens e locais.
+  DIRETRIZES FUNDAMENTAIS:
+  1. TODO MOMENTO É UM EVENTO: Se o texto cita uma data ou momento específico, crie uma ficha de TIPO "evento".
+  2. CAMADAS TEMPORAIS (CRUCIAL):
+     - Se o fato acontece na história (ex: acidente, morte), use camada_temporal: "linha_principal".
+     - Se é alguém contando/lembrando (ex: email, entrevista), use camada_temporal: "relato" ou "flashback".
+     - Se é a data de lançamento da mídia (ex: podcast vai ao ar), use camada_temporal: "publicacao".
+     - Se for sonho ou alucinação, use camada_temporal: "sonho_visao".
+  
+  3. DATAS (Preencha com precisão):
+     - data_inicio: Formato YYYY-MM-DD. Se for vago (ex: "anos 90"), use o primeiro dia (1990-01-01).
+     - data_fim: Só use se for um intervalo (ex: "entre 2003 e 2005").
+     - granularidade_data: "dia", "mes", "ano", "decada", "vago".
+     - descricao_data: A frase original do texto (ex: "numa noite fria de 2014").
+  
+  4. PERSONAGENS E LOCAIS:
+     - Extraia fichas separadas para eles. Foque na personalidade e descrição.
   
   FORMATO JSON: { "fichas": [...] }
   `.trim();
@@ -104,17 +118,15 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
 function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
     const map = new Map<string, ExtractedFicha>();
     for (const f of allFichas) {
-      // FIX: Adicionada verificação de segurança (|| "") para evitar crash se a IA não retornar título/tipo
       const safeTitulo = (f.titulo || "").toLowerCase().trim();
       const safeTipo = (f.tipo || "conceito").toLowerCase().trim();
 
-      if (!safeTitulo) continue; // Pula se não tiver título
+      if (!safeTitulo) continue; 
 
       const key = `${safeTipo}-${safeTitulo}`;
       
       if (map.has(key)) {
         const existing = map.get(key)!;
-        // Check de segurança para conteudo
         const safeConteudo = f.conteudo || "";
         const existingConteudo = existing.conteudo || "";
 
@@ -129,14 +141,16 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
           const existingRels = existing.meta?.relacoes || [];
           existing.meta = { ...existing.meta, relacoes: [...existingRels, ...f.meta.relacoes] };
         }
+        // Prioriza datas mais específicas se houver conflito
         if (!existing.data_inicio && f.data_inicio) {
            existing.data_inicio = f.data_inicio;
+           existing.data_fim = f.data_fim;
            existing.ano_diegese = f.ano_diegese;
            existing.descricao_data = f.descricao_data;
            existing.granularidade_data = f.granularidade_data;
+           existing.camada_temporal = f.camada_temporal;
         }
       } else {
-        // Garante que a ficha nova tenha campos seguros antes de entrar no mapa
         f.titulo = f.titulo || "Sem Título";
         f.tipo = f.tipo || "conceito";
         f.conteudo = f.conteudo || "";
@@ -216,7 +230,7 @@ export async function POST(req: NextRequest) {
     // 3. DEDUPLICAÇÃO
     const uniqueFichas = deduplicateFichas(allRawFichas);
 
-    // 4. FICHA DO ROTEIRO
+    // 4. FICHA DO ROTEIRO (Metadata do arquivo em si)
     const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
     const tituloDoc = documentName?.trim() || "Roteiro Processado";
     
@@ -236,7 +250,6 @@ export async function POST(req: NextRequest) {
     // 5. RETORNO
     const cleanFichas = uniqueFichas.map(f => ({
       ...f,
-      // FIX: Adicionada verificação de segurança aqui também para evitar erro 500 no retorno
       titulo: (f.titulo || "").trim(),
       tipo: (f.tipo || "conceito").toLowerCase().trim(),
       meta: { ...f.meta, relacoes: f.meta?.relacoes || [] }
