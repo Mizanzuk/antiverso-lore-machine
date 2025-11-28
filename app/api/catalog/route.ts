@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     let clientToUse = supabase;
     let userId = user?.id;
 
+    // Fallback de segurança para modo Admin
     if (!userId) {
         const headerUserId = req.headers.get("x-user-id");
         if (headerUserId && supabaseAdmin) {
@@ -42,13 +43,17 @@ export async function GET(req: NextRequest) {
 
     const { data: worlds, error: worldsError } = await worldsQuery;
 
-    if (worldsError) console.error("Erro ao buscar worlds:", worldsError.message);
+    if (worldsError) {
+        console.error("Erro ao buscar worlds:", worldsError.message);
+        // Não retorna erro fatal aqui para tentar carregar o resto se possível, 
+        // mas idealmente mundos são necessários.
+    }
 
-    // 2. Busca Fichas
+    // 2. Busca Fichas (CORRIGIDO: Removido ordem_cronologica)
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, ordem_cronologica, tags, codigo"
+        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, tags, codigo" // <--- REMOVIDO ordem_cronologica
       )
       .order("titulo", { ascending: true })
       .limit(2000);
@@ -62,31 +67,37 @@ export async function GET(req: NextRequest) {
 
     const { data: entities, error: entitiesError } = await entitiesQuery;
 
-    if (entitiesError) console.error("Erro ao buscar fichas:", entitiesError.message);
+    if (entitiesError) {
+        console.error("Erro ao buscar fichas:", entitiesError.message);
+        // Se der erro na busca de fichas, retorna array vazio para não quebrar a página
+    }
 
     // 3. Busca Categorias (DINÂMICO)
-    const { data: categories, error: catError } = await clientToUse
-      .from("lore_categories")
-      .select("slug, label")
-      .order("label", { ascending: true });
-
-    if (catError) console.error("Erro ao buscar categorias:", catError.message);
-
-    // Mapeia para o formato esperado pelo front { id, label }
-    const types = categories?.map((c: any) => ({
-        id: c.slug,
-        label: c.label
-    })) || [];
+    // Tenta buscar, se a tabela não existir (ainda não rodou SQL), usa fallback silencioso
+    let types: {id: string, label: string}[] = [];
+    try {
+        const { data: categories, error: catError } = await clientToUse
+          .from("lore_categories")
+          .select("slug, label")
+          .order("label", { ascending: true });
+        
+        if (!catError && categories) {
+            types = categories.map((c: any) => ({ id: c.slug, label: c.label }));
+        }
+    } catch (e) {
+        console.warn("Tabela lore_categories não encontrada ou erro de acesso.");
+    }
 
     return NextResponse.json({
       worlds: worlds ?? [],
       entities: entities ?? [],
       types,
     });
+
   } catch (err: any) {
-    console.error("Erro inesperado em /api/catalog:", err);
+    console.error("Erro CRÍTICO em /api/catalog:", err);
     return NextResponse.json(
-      { error: "Erro ao carregar catálogo." },
+      { error: "Erro interno no servidor: " + err.message },
       { status: 500 }
     );
   }
