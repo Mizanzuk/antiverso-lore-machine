@@ -102,7 +102,12 @@ export default function LoreUploadPage() {
       const { data } = await supabaseBrowser.from("universes").select("id, nome").order("nome");
       if (data) {
         setUniverses(data);
-        if (data.length > 0) setSelectedUniverseId(data[0].id);
+        if (data.length > 0) {
+          const savedUniId = typeof window !== "undefined" ? localStorage.getItem("selectedUniverseId") : null;
+          const initialUniId = (savedUniId && data.some(u => u.id === savedUniId)) ? savedUniId : data[0].id;
+          setSelectedUniverseId(initialUniId);
+          if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", initialUniId);
+        }
       }
     }
     fetchUniverses();
@@ -391,7 +396,7 @@ export default function LoreUploadPage() {
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => setSelectedUniverseId(e.target.value)}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => { setSelectedUniverseId(e.target.value); if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", e.target.value); }}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
             <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
             <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} /></div>
           </section>
