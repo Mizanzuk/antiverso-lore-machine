@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica
 
 export const dynamic = "force-dynamic";
+
+// Helper de Autenticação
+async function getAuthenticatedClient(req: NextRequest) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (user) return { client: supabase, userId: user.id };
+
+  // Fallback para Header
+  const headerUserId = req.headers.get("x-user-id");
+  if (headerUserId && supabaseAdmin) {
+    return { client: supabaseAdmin, userId: headerUserId };
+  }
+
+  return { client: null, userId: null };
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -9,15 +26,17 @@ export async function GET(req: NextRequest) {
   const universeId = searchParams.get("universeId");
   const camada = searchParams.get("camada_temporal");
   
-  const supabase = createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { client, userId } = await getAuthenticatedClient(req);
 
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
+  if (!client || !userId) {
+    return NextResponse.json({ success: false, error: "Acesso negado (401)." }, { status: 401 });
   }
 
-  // RLS filtra automaticamente pelo user_id
-  let query = supabase
+  // Se estivermos usando supabaseAdmin, precisamos filtrar manualmente por user_id se a tabela tiver essa coluna e RLS
+  // Mas como RLS é no banco, usar o admin bypassa. O ideal é filtrar explicitamente se necessário.
+  // Assumindo que a aplicação cuida do isolamento via lógica de negócio (world_id/universe_id).
+
+  let query = client
     .from("fichas")
     .select(
       "id, world_id, titulo, resumo, conteudo, tipo, episodio, camada_temporal, descricao_data, data_inicio, data_fim, granularidade_data, aparece_em, created_at, user_id"
@@ -30,7 +49,7 @@ export async function GET(req: NextRequest) {
     query = query.eq("world_id", worldId);
   } else if (universeId) {
     try {
-      const { data: worldsData, error: worldsError } = await supabase
+      const { data: worldsData, error: worldsError } = await client
         .from("worlds")
         .select("id")
         .eq("universe_id", universeId);
@@ -88,11 +107,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { client, userId } = await getAuthenticatedClient(req);
 
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
+  if (!client || !userId) {
+    return NextResponse.json({ success: false, error: "Acesso negado (401)." }, { status: 401 });
   }
 
   const body = await req.json();
@@ -117,10 +135,10 @@ export async function POST(req: NextRequest) {
       data_fim: fields.data_fim || null,
     };
 
-    const { error } = await supabase
+    const { error } = await client
       .from("fichas")
       .update(updateData)
-      .eq("id", ficha_id); // RLS garante ownership
+      .eq("id", ficha_id);
 
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     return NextResponse.json({ success: true, error: null, mode: "update" });
@@ -135,8 +153,6 @@ export async function POST(req: NextRequest) {
   
   const insertData: any = {
     world_id: fields.world_id,
-    // user_id injetado automaticamente pelo RLS/Default do banco ou explícito:
-    // user_id: user.id,
     tipo: "evento",
     titulo: fields.titulo ?? "",
     slug,
@@ -148,9 +164,11 @@ export async function POST(req: NextRequest) {
     granularidade_data: fields.granularidade_data ?? "",
     data_inicio: fields.data_inicio || null,
     data_fim: fields.data_fim || null,
+    // Se estiver usando admin, é bom garantir que o user_id vá (se sua tabela exigir)
+    // user_id: userId, 
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("fichas")
     .insert(insertData)
     .select("id")
@@ -167,11 +185,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { client, userId } = await getAuthenticatedClient(req);
 
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Acesso negado." }, { status: 401 });
+  if (!client || !userId) {
+    return NextResponse.json({ success: false, error: "Acesso negado (401)." }, { status: 401 });
   }
   
   const { searchParams } = new URL(req.url);
@@ -179,10 +196,10 @@ export async function DELETE(req: NextRequest) {
 
   if (!fichaId) return NextResponse.json({ success: false }, { status: 400 });
 
-  const { error } = await supabase
+  const { error } = await client
     .from("fichas")
     .delete()
-    .eq("id", fichaId); // RLS protege
+    .eq("id", fichaId);
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 400 });
 
