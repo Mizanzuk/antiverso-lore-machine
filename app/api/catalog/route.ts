@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
-    // 2. Busca Fichas (AGORA COM TODOS OS CAMPOS)
+    // 2. Busca Fichas (AGORA COM TODOS OS CAMPOS NECESSÁRIOS)
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(`
