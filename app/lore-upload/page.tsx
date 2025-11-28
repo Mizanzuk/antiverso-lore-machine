@@ -4,10 +4,6 @@ import { useEffect, useState, ChangeEvent, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// ... (MANTENHA AS CONSTANTES LORE_TYPES, CAMADAS_TEMPORAIS, TIPOS E FUNÇÕES AUXILIARES IGUAIS AO ARQUIVO ORIGINAL)
-// Vou omitir as constantes e tipos para focar na lógica alterada, você pode manter o topo do seu arquivo.
-// A alteração principal é na função handleCheckConsistency
-
 const LORE_TYPES = [
   { value: "personagem", label: "Personagem" },
   { value: "local", label: "Local" },
@@ -31,9 +27,10 @@ const CAMADAS_TEMPORAIS = [
   { value: "mundo_alternativo", label: "Mundo Alternativo" },
   { value: "historico_antigo", label: "Histórico / Antigo" },
   { value: "outro", label: "Outro" },
+  { value: "relato", label: "Relato / Memória" },
+  { value: "publicacao", label: "Publicação" },
 ];
 
-// ... (TIPOS: Universe, World, SuggestedFicha, etc. MANTENHA IGUAL)
 type Universe = { id: string; nome: string; };
 type World = { id: string; nome: string | null; descricao?: string | null; ordem?: number | null; prefixo?: string | null; has_episodes?: boolean | null; descricao_longa?: string | null; universe_id?: string | null; is_root?: boolean; };
 type SuggestedFicha = { id: string; tipo: string; titulo: string; resumo: string; conteudo: string; tags: string; aparece_em: string; codigo?: string; ano_diegese?: number | null; descricao_data?: string; data_inicio?: string; data_fim?: string; granularidade_data?: string; camada_temporal?: string; meta?: any; };
@@ -41,7 +38,6 @@ type ApiFicha = { tipo?: string; titulo?: string; resumo?: string; conteudo?: st
 type ExtractResponse = { fichas: ApiFicha[]; };
 type CatalogResponse = { worlds: World[]; entities: ApiFicha[]; types: { id: string; label: string }[]; };
 
-// ... (HELPER FUNCTIONS: createEmptyFicha, normalizeEpisode, getWorldPrefix - MANTENHA IGUAL)
 function createEmptyFicha(id: string): SuggestedFicha { return { id, tipo: "conceito", titulo: "", resumo: "", conteudo: "", tags: "", aparece_em: "", codigo: "", ano_diegese: null, descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "indefinido", camada_temporal: "linha_principal", meta: {}, }; }
 function normalizeEpisode(raw: string): string | null { if (!raw) return null; const trimmed = raw.trim(); if (!trimmed) return null; if (/^\d+$/.test(trimmed)) { return trimmed.padStart(2, "0"); } return trimmed; }
 function getWorldPrefix(world: World | null): string { if (!world) return ""; if (world.prefixo && world.prefixo.trim()) { return world.prefixo.trim(); } const nome = (world.nome || world.id || "").toUpperCase(); const cleaned = nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9\s]/g, " ").trim(); if (!cleaned) return ""; if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV"; if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC"; if (cleaned.startsWith("EVANGELHO DE OR")) return "EO"; if (cleaned.startsWith("CULTO DE OR")) return "CO"; if (cleaned.startsWith("ANTIVERSO")) return "ANT"; if (cleaned.startsWith("ARIS")) return "ARIS"; const words = cleaned.split(/\s+/).filter(Boolean); if (words.length === 1) { return words[0].slice(0, 3).toUpperCase(); } const initials = words.map((p) => p[0]).join(""); return initials.slice(0, 4).toUpperCase(); }
@@ -212,7 +208,10 @@ export default function LoreUploadPage() {
         const conteudo = rawFicha.conteudo?.trim() || base.conteudo;
         const tagsArray = rawFicha.tags || [];
         const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
+        
+        // CORREÇÃO DA VARIÁVEL ano_diegese
         const anoDiegese = typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
+        
         const descricaoData = rawFicha.descricao_data?.trim() || "";
         const dataInicio = rawFicha.data_inicio?.trim() || "";
         const dataFim = rawFicha.data_fim?.trim() || "";
@@ -232,16 +231,32 @@ export default function LoreUploadPage() {
           const typePrefix = getTypePrefix(tipo);
           if (typePrefix === "RT") { codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`; } else { if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1; const count = typeCounters[typePrefix]++; const counterStr = String(count).padStart(2, "0"); codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`; }
         }
-        return { ...base, tipo, titulo, resumo, conteudo, tags: tagsString, aparece_em: appearsEmValue, codigo: codigoGerado, ano_diegese, descricao_data: descricaoData, data_inicio: dataInicio, data_fim: dataFim, granularidade_data: granularidadeData, camada_temporal: camadaTemporal, meta: meta };
+        
+        return { 
+            ...base, 
+            tipo, 
+            titulo, 
+            resumo, 
+            conteudo, 
+            tags: tagsString, 
+            aparece_em: appearsEmValue, 
+            codigo: codigoGerado, 
+            ano_diegese: anoDiegese, 
+            descricao_data: descricaoData, 
+            data_inicio: dataInicio, 
+            data_fim: dataFim, 
+            granularidade_data: granularidadeData, 
+            camada_temporal: camadaTemporal, 
+            meta: meta 
+        };
       });
       setSuggestedFichas(mapped);
       setSuccessMessage(`Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`);
     } catch (err) { console.error("Erro inesperado ao extrair fichas:", err); setError("Erro inesperado ao extrair fichas."); } finally { setIsExtracting(false); }
   }
 
-  // CORREÇÃO CRÍTICA AQUI: Adicionado header x-user-id
   async function handleCheckConsistency() {
-    if (suggestedFichas.length === 0 || !userId) return; // check userId
+    if (suggestedFichas.length === 0 || !userId) return;
     
     setIsCheckingConsistency(true);
     setConsistencyReport(null);
@@ -251,7 +266,7 @@ export default function LoreUploadPage() {
     try {
       const res = await fetch("/api/lore/consistency", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": userId }, // HEADER ADICIONADO
+        headers: { "Content-Type": "application/json", "x-user-id": userId },
         body: JSON.stringify({ input: proposalText, universeId: selectedUniverseId })
       });
       const data = await res.json();
