@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     let clientToUse = supabase;
     let userId = user?.id;
 
+    // Fallback de segurança para modo Admin
     if (!userId) {
         const headerUserId = req.headers.get("x-user-id");
         if (headerUserId && supabaseAdmin) {
@@ -21,7 +22,10 @@ export async function GET(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
+      return NextResponse.json(
+        { error: "Usuário não identificado." },
+        { status: 401 }
+      );
     }
 
     const { searchParams } = new URL(req.url);
@@ -43,14 +47,27 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
-    // 2. Busca Fichas (AGORA COM TODOS OS CAMPOS NECESSÁRIOS)
+    // 2. Busca Fichas (QUERY COMPLETA SEM RESUMOS)
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(`
-        id, slug, tipo, titulo, resumo, conteudo, 
-        world_id, ano_diegese, tags, codigo, 
-        imagem_url, aparece_em, 
-        data_inicio, data_fim, granularidade_data, camada_temporal, descricao_data, 
+        id, 
+        slug, 
+        tipo, 
+        titulo, 
+        resumo, 
+        conteudo, 
+        world_id, 
+        ano_diegese, 
+        tags, 
+        codigo, 
+        imagem_url, 
+        aparece_em, 
+        data_inicio, 
+        data_fim, 
+        granularidade_data, 
+        camada_temporal, 
+        descricao_data, 
         episodio
       `)
       .order("titulo", { ascending: true })
@@ -69,19 +86,19 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar fichas:", entitiesError.message);
     }
 
-    // 3. Busca Categorias
+    // 3. Busca Categorias (Dinâmico do Banco)
     let types: {id: string, label: string}[] = [];
     try {
-        const { data: categories } = await clientToUse
+        const { data: categories, error: catError } = await clientToUse
           .from("lore_categories")
           .select("slug, label")
           .order("label", { ascending: true });
         
-        if (categories) {
+        if (!catError && categories) {
             types = categories.map((c: any) => ({ id: c.slug, label: c.label }));
         }
     } catch (e) {
-        // Fallback silencioso
+        console.warn("Tabela lore_categories não encontrada ou erro de acesso.");
     }
 
     return NextResponse.json({
@@ -92,6 +109,9 @@ export async function GET(req: NextRequest) {
 
   } catch (err: any) {
     console.error("Erro CRÍTICO em /api/catalog:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Erro interno no servidor: " + err.message },
+      { status: 500 }
+    );
   }
 }
