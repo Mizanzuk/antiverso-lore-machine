@@ -66,19 +66,31 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
   ⚠️ MODO DE ALTA COMPLETUDE:
   - Quebre o texto em várias fichas.
   - Gere TAGS ricas e RELAÇÕES entre os personagens.
+  - Preencha SEMPRE os campos "resumo" E "conteudo" para cada ficha.
   
   TIPOS PERMITIDOS: ${typeInstructions}
   
+  ### DIFERENÇA ENTRE RESUMO E CONTEÚDO:
+  - **resumo**: Uma frase curta (máximo 2 linhas) para visualização rápida. Exemplo: "Filho de Maria que explorou a caverna."
+  - **conteudo**: Texto COMPLETO e DETALHADO sobre a ficha. Inclua TODOS os detalhes relevantes extraídos do texto original. Use o símbolo @ para criar links para outras fichas. Exemplo: "João é filho de @Maria e inimigo declarado de @Pedro. Ele explorou a @Caverna_Escura em 1999, sentindo muito medo durante toda a jornada."
+  
+  ### COMO USAR O SÍMBOLO @ PARA CRIAR LINKS:
+  - Sempre que mencionar outra ficha no campo "conteudo", use @NomeDaFicha
+  - Substitua espaços por underscore (_). Exemplo: "Caverna Escura" vira @Caverna_Escura
+  - Isso criará links clicáveis automáticos entre as fichas no sistema
+  
   ### EXEMPLO DE COMPORTAMENTO ESPERADO (Siga este padrão):
-  Texto: "Em 1999, João (filho de Maria e inimigo de Pedro) entrou na Caverna Escura sentindo medo."
+  Texto: "Em 1999, João (filho de Maria e inimigo de Pedro) entrou na Caverna Escura sentindo medo. A caverna era conhecida por ser um local perigoso e subterrâneo."
+  
   Saída JSON:
   {
     "fichas": [
       { 
         "tipo": "personagem", 
         "titulo": "João", 
-        "resumo": "Filho de Maria que explorou a caverna.", 
-        "tags": ["medo", "exploração", "família", "protagonista"],
+        "resumo": "Filho de Maria que explorou a caverna em 1999.", 
+        "conteudo": "João é filho de @Maria e inimigo declarado de @Pedro. Em 1999, ele entrou na @Caverna_Escura, um local conhecido por ser perigoso. Durante a exploração, João sentiu muito medo, mas seguiu em frente com coragem.",
+        "tags": ["medo", "exploração", "família", "protagonista", "coragem"],
         "meta": { 
            "relacoes": [
               { "tipo": "filho_de", "alvo_titulo": "Maria" },
@@ -87,35 +99,73 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
         }
       },
       { 
+        "tipo": "personagem", 
+        "titulo": "Maria", 
+        "resumo": "Mãe de João.",
+        "conteudo": "Maria é a mãe de @João. Ela é mencionada como parte da família dele.",
+        "tags": ["família", "mãe", "personagem_secundário"],
+        "meta": { 
+           "relacoes": [
+              { "tipo": "mae_de", "alvo_titulo": "João" }
+           ] 
+        }
+      },
+      { 
+        "tipo": "personagem", 
+        "titulo": "Pedro", 
+        "resumo": "Inimigo de João.",
+        "conteudo": "@Pedro é descrito como inimigo declarado de @João. A natureza exata de sua inimizade não é detalhada no texto.",
+        "tags": ["antagonista", "conflito", "personagem_secundário"],
+        "meta": { 
+           "relacoes": [
+              { "tipo": "inimigo_de", "alvo_titulo": "João" }
+           ] 
+        }
+      },
+      { 
         "tipo": "local", 
         "titulo": "Caverna Escura", 
-        "resumo": "Local perigoso explorado por João.",
-        "tags": ["perigo", "subterrâneo", "escuro"]
+        "resumo": "Local perigoso e subterrâneo explorado por João.",
+        "conteudo": "A Caverna Escura é um local conhecido por ser perigoso e subterrâneo. Foi explorada por @João em 1999, que sentiu muito medo durante a jornada. O ambiente escuro e ameaçador torna este local um cenário de tensão na narrativa.",
+        "tags": ["perigo", "subterrâneo", "escuro", "cenário", "tensão"]
       },
       { 
         "tipo": "evento", 
         "titulo": "Exploração da Caverna", 
+        "resumo": "João entra na Caverna Escura em 1999.",
+        "conteudo": "Em 1999, @João entrou na @Caverna_Escura pela primeira vez. Este evento marcante foi caracterizado pelo medo intenso que João sentiu, mas também por sua determinação em explorar o local perigoso. A exploração representa um momento crucial na jornada do personagem.",
         "data_inicio": "1999-01-01", 
         "granularidade_data": "ano",
         "descricao_data": "Em 1999", 
         "camada_temporal": "linha_principal", 
-        "tags": ["incidente", "1999"],
-        "resumo": "Momento em que João entra na caverna." 
+        "tags": ["incidente", "1999", "exploração", "momento_crucial", "medo"]
       }
     ]
   }
 
   ### SUAS DIRETRIZES:
-  1. **PERSONAGENS & RELAÇÕES (CRUCIAL):**
+  1. **RESUMO vs CONTEÚDO (OBRIGATÓRIO):**
+     - SEMPRE preencha AMBOS os campos para cada ficha
+     - "resumo": 1-2 frases curtas
+     - "conteudo": Texto completo e detalhado com links usando @
+  
+  2. **PERSONAGENS & RELAÇÕES (CRUCIAL):**
      - Se Personagem A interage, menciona ou é parente de Personagem B, preencha 'meta.relacoes'.
-     - Use tipos como: 'amigo_de', 'pai_de', 'inimigo_de', 'menciona', 'interage_com'.
+     - Use tipos como: 'amigo_de', 'pai_de', 'mae_de', 'filho_de', 'inimigo_de', 'menciona', 'interage_com'.
+     - Crie fichas para TODOS os personagens mencionados, mesmo os secundários.
   
-  2. **TAGS (OBRIGATÓRIO):**
-     - Gere de 3 a 6 tags para CADA ficha.
-     - Inclua: sentimentos (ex: "medo"), temas (ex: "traição"), objetos associados ou arquétipos.
+  3. **TAGS (OBRIGATÓRIO):**
+     - Gere de 4 a 7 tags para CADA ficha.
+     - Inclua: sentimentos (ex: "medo"), temas (ex: "traição"), objetos associados, arquétipos, e contexto narrativo.
   
-  3. **EVENTOS:**
+  4. **EVENTOS:**
      - Se houver datas, crie fichas de evento com 'data_inicio' (YYYY-MM-DD).
+     - Eventos devem ter "conteudo" detalhado explicando o que aconteceu.
+  
+  5. **LINKS COM @ (CRUCIAL):**
+     - No campo "conteudo", use @ antes de nomes de outras fichas
+     - Substitua espaços por underscore: "Caverna Escura" → @Caverna_Escura
+     - Isso permite navegação entre fichas no sistema
   
   Retorne APENAS o JSON válido com a chave "fichas".
   `.trim();
@@ -125,7 +175,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o",
-        temperature: 0.4, // Levemente aumentado para favorecer geração de tags criativas
+        temperature: 0.4,
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
