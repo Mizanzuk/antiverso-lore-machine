@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica para o fallback
+import { supabaseAdmin } from "@/lib/supabase"; 
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    // Lógica de Fallback de Autenticação (Igual ao save/route.ts)
     let clientToUse = supabase;
     let userId = user?.id;
 
@@ -28,11 +27,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Pegar o Universe ID da URL
     const { searchParams } = new URL(req.url);
     const universeId = searchParams.get("universeId");
 
-    // 1. Busca Mundos (AGORA FILTRANDO PELO UNIVERSO)
+    // 1. Busca Mundos
     let worldsQuery = clientToUse
       .from("worlds")
       .select("id, nome, descricao, tipo, ordem, is_root, universe_id")
@@ -44,11 +42,9 @@ export async function GET(req: NextRequest) {
 
     const { data: worlds, error: worldsError } = await worldsQuery;
 
-    if (worldsError) {
-      console.error("Erro ao buscar worlds:", worldsError.message);
-    }
+    if (worldsError) console.error("Erro ao buscar worlds:", worldsError.message);
 
-    // 2. Busca Fichas (Filtrando pelos Mundos do Universo Selecionado)
+    // 2. Busca Fichas
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(
@@ -57,33 +53,30 @@ export async function GET(req: NextRequest) {
       .order("titulo", { ascending: true })
       .limit(2000);
 
-    // Se temos mundos carregados, filtramos as fichas para pertencerem apenas a esses mundos
     if (worlds && worlds.length > 0) {
         const worldIds = worlds.map(w => w.id);
         entitiesQuery = entitiesQuery.in("world_id", worldIds);
     } else if (universeId) {
-        // Se um universo foi selecionado mas não tem mundos, garante que a lista de fichas venha vazia
-        // (Isso impede que fichas de outros universos vazem aqui)
         entitiesQuery = entitiesQuery.in("world_id", []);
     }
 
     const { data: entities, error: entitiesError } = await entitiesQuery;
 
-    if (entitiesError) {
-      console.error("Erro ao buscar fichas:", entitiesError.message);
-    }
+    if (entitiesError) console.error("Erro ao buscar fichas:", entitiesError.message);
 
-    const types = [
-      { id: "personagem", label: "Personagens" },
-      { id: "local", label: "Locais" },
-      { id: "organizacao", label: "Empresas / Agências" },
-      { id: "midia", label: "Mídias" },
-      { id: "arquivo_aris", label: "Arquivos ARIS" },
-      { id: "episodio", label: "Episódios" },
-      { id: "evento", label: "Eventos" },
-      { id: "conceito", label: "Conceitos" },
-      { id: "objeto", label: "Objetos" },
-    ];
+    // 3. Busca Categorias (DINÂMICO)
+    const { data: categories, error: catError } = await clientToUse
+      .from("lore_categories")
+      .select("slug, label")
+      .order("label", { ascending: true });
+
+    if (catError) console.error("Erro ao buscar categorias:", catError.message);
+
+    // Mapeia para o formato esperado pelo front { id, label }
+    const types = categories?.map((c: any) => ({
+        id: c.slug,
+        label: c.label
+    })) || [];
 
     return NextResponse.json({
       worlds: worlds ?? [],
