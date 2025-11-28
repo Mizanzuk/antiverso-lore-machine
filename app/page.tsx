@@ -11,6 +11,7 @@ import {
 import { clsx } from "clsx";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
+// ... (Tipos e Constantes permanecem iguais)
 type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -256,7 +257,7 @@ export default function Page() {
     try {
       setLoadingCatalog(true);
       setCatalogError(null);
-      const res = await fetch("/api/catalog", {
+      const res = await fetch(`/api/catalog?universeId=${selectedUniverseId}`, {
         headers: { "x-user-id": userId } // HEADER DE SEGURANÇA
       });
       if (!res.ok) throw new Error("Erro ao carregar catálogo");
@@ -447,9 +448,13 @@ export default function Page() {
       const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
       const payloadMessages = [{ role: "system" as const, content: systemPrompt }, ...contextMessages].map((m) => ({ role: m.role, content: m.content }));
 
+      // --- CORREÇÃO DE AUTH AQUI ---
       const res = await fetch("/api/chat", { 
         method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
+        headers: { 
+            "Content-Type": "application/json",
+            "x-user-id": userId || "" // Envia ID para fallback
+        }, 
         body: JSON.stringify({ 
           messages: payloadMessages,
           universeId: selectedUniverseId || null 
