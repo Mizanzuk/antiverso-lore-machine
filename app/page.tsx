@@ -51,14 +51,14 @@ type LoreEntity = {
   resumo?: string | null;
   world_id?: string | null;
   ano_diegese?: number | null;
-  ordem_cronologica?: number | null;
-  tags?: string[] | null;
-  codes?: string[] | null;
+  // ordem_cronologica removida do tipo também
+  tags?: string | null; // Pode vir como string do banco
+  codes?: string[] | null; // Códigos não vêm direto da ficha nessa rota simplificada, mas mantemos tipo
 };
 
 type CatalogResponse = {
   worlds: World[];
-  entities: LoreEntity[];
+  entities: any[]; // Usando any para flexibilidade no frontend
   types: { id: string; label: string }[];
 };
 
@@ -187,13 +187,14 @@ export default function Page() {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   
-  // ViewMode ainda existe para lógica interna, mas o botão foi removido
   const [viewMode, setViewMode] = useState<ViewMode>("chat"); 
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
   
   // Estados de Catálogo
   const [worlds, setWorlds] = useState<World[]>([]);
   const [entities, setEntities] = useState<LoreEntity[]>([]);
+  const [catalogTypes, setCatalogTypes] = useState<{id: string, label: string}[]>([]);
+  
   const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -265,6 +266,21 @@ export default function Page() {
       const data = (await res.json()) as CatalogResponse;
       setWorlds(data.worlds ?? []);
       setEntities(data.entities ?? []);
+      
+      // Carrega tipos dinâmicos se houver
+      if(data.types && data.types.length > 0) {
+          // Adiciona opção "Todos"
+          setCatalogTypes([{ id: "all", label: "Todos os tipos" }, ...data.types]);
+      } else {
+          // Fallback
+          setCatalogTypes([
+            { id: "all", label: "Todos os tipos" },
+            { id: "personagem", label: "Personagens" },
+            { id: "local", label: "Locais" },
+            { id: "evento", label: "Eventos" }
+          ]);
+      }
+
     } catch (err) {
       console.error(err);
       setCatalogError("Não foi possível carregar o catálogo do AntiVerso agora.");
@@ -273,7 +289,7 @@ export default function Page() {
     }
   }
 
-  // Trigger de carga do catálogo (se necessário internamente)
+  // Trigger de carga do catálogo
   useEffect(() => {
     if (viewMode === "catalog" && userId) {
         loadCatalog();
@@ -587,20 +603,6 @@ export default function Page() {
     } catch(e: any) { alert("Falha inesperada durante a criação do universo: " + e.message); } finally { setIsCreatingUniverse(false); }
   }
 
-  // Helpers para catálogo
-  const catalogTypes: { id: string; label: string }[] = [
-    { id: "all", label: "Todos os tipos" },
-    { id: "personagem", label: "Personagens" },
-    { id: "local", label: "Locais" },
-    { id: "organizacao", label: "Empresas / Agências" },
-    { id: "midia", label: "Mídias" },
-    { id: "arquivo_aris", label: "Arquivos ARIS" },
-    { id: "episodio", label: "Episódios" },
-    { id: "evento", label: "Eventos" },
-    { id: "conceito", label: "Conceitos" },
-    { id: "objeto", label: "Objetos" },
-  ];
-
   const filteredEntitiesAll = entities.filter((e) => {
     if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
     if (selectedType !== "all" && e.tipo !== selectedType) return false;
@@ -609,9 +611,8 @@ export default function Page() {
       const inTitle = normalize(e.titulo).includes(q);
       const inResumo = normalize(e.resumo).includes(q);
       const inSlug = normalize(e.slug).includes(q);
-      const inTags = (e.tags ?? []).map((t) => t.toLowerCase()).some((t) => t.includes(q));
-      const inCodes = (e.codes ?? []).map((c) => c.toLowerCase()).some((c) => c.includes(q));
-      if (!inTitle && !inResumo && !inSlug && !inTags && !inCodes) return false;
+      const inTags = (e.tags ?? "").toLowerCase().includes(q); // tags pode ser string
+      if (!inTitle && !inResumo && !inSlug && !inTags) return false;
     }
     return true;
   });
@@ -655,11 +656,9 @@ export default function Page() {
       {/* Sidebar */}
       <aside className="hidden md:flex flex-col w-72 border-r border-white/10 bg-black/40">
         
-        {/* SEÇÃO DE UNIVERSO (Modificada conforme pedido) */}
+        {/* SEÇÃO DE UNIVERSO */}
         <div className="px-4 pt-4 pb-2">
-          
           <div className="flex flex-col gap-2">
-            
             {universes.length === 0 ? (
                 <button 
                   onClick={() => setShowUniverseModal(true)}
@@ -669,9 +668,7 @@ export default function Page() {
                 </button>
             ) : (
                 <div className="relative group">
-                    {/* Linha com Nome (Dropdown) + Botões */}
                     <div className="flex items-center justify-between group/header">
-                        {/* Dropdown Escondido sobre o Texto */}
                         <div className="relative flex-1 mr-2 cursor-pointer">
                             <div className="font-bold text-sm text-white flex items-center gap-2 hover:text-emerald-400 transition-colors">
                                 {currentUniverseName}
@@ -684,7 +681,6 @@ export default function Page() {
                                     const value = e.target.value;
                                     if (value === "__new__") {
                                         setShowUniverseModal(true);
-                                        // Reverte para o atual para não quebrar visualmente
                                         e.target.value = selectedUniverseId || "";
                                     } else {
                                         setSelectedUniverseId(value);
@@ -696,7 +692,6 @@ export default function Page() {
                             </select>
                         </div>
 
-                        {/* Botões de Ação */}
                         {selectedUniverseId && (
                             <div className="flex gap-1 opacity-0 group-hover/header:opacity-100 transition-opacity">
                                 <button
@@ -722,7 +717,6 @@ export default function Page() {
                         )}
                     </div>
 
-                    {/* Descrição Abaixo */}
                     {selectedUniverseData?.descricao && (
                         <div className="mt-1 text-[11px] text-zinc-500 line-clamp-3 leading-snug">
                             {selectedUniverseData.descricao}
@@ -772,7 +766,6 @@ export default function Page() {
                     const isRenaming = renamingSessionId === session.id;
                     const sessionMode: ChatMode = (session.mode as ChatMode) ?? "consulta";
                     const personaData = PERSONAS[sessionMode];
-                    // Label visual no histórico (mantém Urizen/Urthona ou muda para Consulta/Criativo? O pedido foi só pro header, aqui vou manter Consulta/Criativo pra consistência)
                     const modeLabel = sessionMode === "consulta" ? "Consulta" : "Criativo";
                     return (
                       <div key={session.id} className={clsx("group relative flex items-start gap-2 rounded-md px-2 py-1 text-[11px] cursor-pointer border border-transparent hover:border-white/20", isActive ? "bg-white/10 border-white/30" : "bg-transparent")}>
@@ -816,7 +809,6 @@ export default function Page() {
         {/* Top bar */}
         <header className="h-12 border-b border-white/10 flex items-center justify-between px-4 bg-black/40">
           <div className="flex items-center gap-2">
-            {/* Ícone e Nome do Agente Ativo */}
             <div className={clsx("h-6 w-6 rounded-full", persona.styles.header)} />
             <div className="flex flex-col">
               <span className="text-sm font-medium">{persona.nome}</span>
@@ -842,7 +834,6 @@ export default function Page() {
                 Criativo
               </button>
             </div>
-            {/* Botão Chat/Catálogo removido conforme solicitado */}
           </div>
         </header>
 
@@ -850,7 +841,6 @@ export default function Page() {
         <section className="flex-1 overflow-y-auto px-4 py-4" ref={viewportRef}>
           <div className="max-w-4xl mx-auto">
             
-            {/* Mensagem de estado inicial */}
             {!selectedUniverseId && (
                 <div className="text-center mt-12">
                     <h2 className="text-xl font-bold text-zinc-300 mb-4">Bem-vindo à Lore Machine</h2>
@@ -951,7 +941,7 @@ export default function Page() {
                         className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition"
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-50 truncate">
+                          <h3 className="font-semibold text-gray-5 truncate">
                             {entity.titulo}
                           </h3>
                           {entity.tipo && (
@@ -981,7 +971,7 @@ export default function Page() {
                               {code}
                             </span>
                           ))}
-                          {(entity.tags ?? []).map((tag) => (
+                          {(entity.tags ?? "").split(",").map((tag) => tag.trim()).filter(Boolean).map((tag) => (
                             <span
                               key={tag}
                               className="px-2 py-[1px] rounded-full bg-black/30 border border-white/10"
