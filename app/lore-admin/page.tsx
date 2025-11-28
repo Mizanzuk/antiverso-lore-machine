@@ -6,20 +6,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES } from "@/lib/dates/granularidade";
 
 // --- CONSTANTES DE UI ---
-const LORE_TYPES = [
-  { value: "personagem", label: "Personagem" },
-  { value: "local", label: "Local" },
-  { value: "evento", label: "Evento" },
-  { value: "empresa", label: "Empresa" },
-  { value: "agencia", label: "Agência" },
-  { value: "midia", label: "Mídia" },
-  { value: "conceito", label: "Conceito" },
-  { value: "epistemologia", label: "Epistemologia" },
-  { value: "regra_de_mundo", label: "Regra de Mundo" },
-  { value: "objeto", label: "Objetos" },
-  { value: "roteiro", label: "Roteiro" },
-  { value: "registro_anomalo", label: "Registro Anômalo" },
-];
+// Removida a constante LORE_TYPES fixa. Agora ela virá do banco de dados (loreTypes).
 
 const CAMADAS_TEMPORAIS = [
   { value: "linha_principal", label: "Linha Principal" },
@@ -90,6 +77,9 @@ function LoreAdminContent() {
   const [codes, setCodes] = useState<any[]>([]);
   const [relations, setRelations] = useState<Relation[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
+
+  // ESTADO PARA TIPOS DINÂMICOS
+  const [loreTypes, setLoreTypes] = useState<{value: string, label: string}[]>([]);
 
   // Filtros
   const [fichasSearchTerm, setFichasSearchTerm] = useState("");
@@ -178,6 +168,19 @@ function LoreAdminContent() {
 
       setWorlds(data.worlds || []);
       setFichas(data.entities || []);
+
+      // Carrega Tipos Dinâmicos da API
+      if (data.types && Array.isArray(data.types)) {
+          setLoreTypes(data.types.map((t: any) => ({ value: t.id, label: t.label })));
+      } else {
+          // Fallback caso a API não retorne tipos (segurança)
+          setLoreTypes([
+              { value: "personagem", label: "Personagem" },
+              { value: "local", label: "Local" },
+              { value: "evento", label: "Evento" },
+              { value: "conceito", label: "Conceito" }
+          ]);
+      }
 
       // Lógica de seleção de mundo
       let effectiveWorldId = currentWorldId;
@@ -571,12 +574,12 @@ function LoreAdminContent() {
                    </div>
                 )}
 
-                {/* FILTROS POR TIPO COM QUEBRA DE LINHA */}
-                {fichaFilterTipos.length > 0 && <div className="text-[9px] text-emerald-500 mb-1 font-bold">Filtrando por: {fichaFilterTipos.map(t => LORE_TYPES.find(l=>l.value===t)?.label).join(", ")}</div>}
+                {/* FILTROS POR TIPO DINÂMICO COM QUEBRA DE LINHA */}
+                {fichaFilterTipos.length > 0 && <div className="text-[9px] text-emerald-500 mb-1 font-bold">Filtrando por: {fichaFilterTipos.map(t => loreTypes.find(l=>l.value===t)?.label).join(", ")}</div>}
                 
                 <div className="flex flex-wrap gap-1 mb-2">
                     <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 rounded text-[9px] border ${fichaFilterTipos.length===0 ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500"}`}>TODOS</button>
-                    {LORE_TYPES.map(t => (
+                    {loreTypes.map(t => (
                         <button key={t.value} onClick={() => setFichaFilterTipos(prev => prev.includes(t.value) ? prev.filter(x=>x!==t.value) : [...prev, t.value])} className={`px-2 py-0.5 whitespace-nowrap rounded text-[9px] border uppercase ${fichaFilterTipos.includes(t.value) ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500 hover:border-zinc-600"}`}>
                             {t.label}
                         </button>
@@ -722,7 +725,7 @@ function LoreAdminContent() {
                             value={fichaForm.tipo}
                             onChange={e => setFichaForm({...fichaForm, tipo: e.target.value})}
                         >
-                            {LORE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                            {loreTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                         </select>
                     </div>
                 </div>
@@ -742,9 +745,14 @@ function LoreAdminContent() {
                     {fichaForm.tipo === 'evento' && (
                         <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded mt-2">
                             <span className="text-[10px] font-bold text-emerald-500 uppercase block mb-2">Dados de Evento</span>
+                            <div><label className="text-[10px] text-zinc-500">Descrição da Data (Texto Original)</label><input className="w-full bg-black border border-zinc-800 rounded p-1 text-xs mb-2" value={fichaForm.descricao_data || ""} onChange={e => setFichaForm({...fichaForm, descricao_data: e.target.value})} /></div>
                             <div className="grid grid-cols-2 gap-2">
                                 <div><label className="text-[10px] text-zinc-500">Data Início</label><input type="date" className="w-full bg-black border border-zinc-800 rounded p-1 text-xs" value={fichaForm.data_inicio || ""} onChange={e => setFichaForm({...fichaForm, data_inicio: e.target.value})} /></div>
                                 <div><label className="text-[10px] text-zinc-500">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-800 rounded p-1 text-xs" value={fichaForm.data_fim || ""} onChange={e => setFichaForm({...fichaForm, data_fim: e.target.value})} /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                                <div><label className="text-[10px] text-zinc-500">Granularidade</label><select className="w-full bg-black border border-zinc-800 rounded p-1 text-xs" value={fichaForm.granularidade_data || 'vago'} onChange={e => setFichaForm({...fichaForm, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                                <div><label className="text-[10px] text-zinc-500">Camada Temporal</label><select className="w-full bg-black border border-zinc-800 rounded p-1 text-xs" value={fichaForm.camada_temporal || 'linha_principal'} onChange={e => setFichaForm({...fichaForm, camada_temporal: e.target.value})}>{CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
                             </div>
                         </div>
                     )}
