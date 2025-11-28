@@ -1,4 +1,3 @@
-// app/lore-admin/page.tsx
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, Suspense, ChangeEvent } from "react";
@@ -30,12 +29,6 @@ const CAMADAS_TEMPORAIS = [
   { value: "mundo_alternativo", label: "Mundo Alternativo" },
   { value: "historico_antigo", label: "Histórico / Antigo" },
   { value: "outro", label: "Outro" },
-];
-
-const RELATION_TYPES = [
-  "relacionado_a", "amigo_de", "inimigo_de", "localizado_em", "mora_em",
-  "nasceu_em", "participou_de", "protagonizado_por", "menciona", "pai_de",
-  "filho_de", "criador_de", "parte_de"
 ];
 
 // --- TIPOS ---
@@ -106,6 +99,7 @@ function LoreAdminContent() {
   const [fichaFormMode, setFichaFormMode] = useState<FichaFormMode>("idle");
   const [fichaForm, setFichaForm] = useState<any>({});
   const [isSavingFicha, setIsSavingFicha] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Helpers de Wiki e Relações
   const [isManagingRelations, setIsManagingRelations] = useState(false);
@@ -123,6 +117,7 @@ function LoreAdminContent() {
     checkSession();
   }, []);
 
+  // Carregar Universos assim que logar
   useEffect(() => {
     if (userId && view === "loggedIn") {
         loadUniverses();
@@ -158,6 +153,7 @@ function LoreAdminContent() {
     }
   }
 
+  // Função crítica: Carrega Mundos e Fichas passando o Header de autenticação
   const fetchAllData = useCallback(async (uniId: string, currentWorldId: string | null) => {
     if (!uniId || !userId) return;
     setIsLoadingData(true);
@@ -165,11 +161,12 @@ function LoreAdminContent() {
       const params = new URLSearchParams();
       params.set('universeId', uniId);
       
+      // Chamada para a API com Header Seguro
       const res = await fetch(`/api/catalog?${params.toString()}`, {
          headers: { 'x-user-id': userId }
       });
 
-      if (!res.ok) throw new Error("Falha ao carregar dados");
+      if (!res.ok) throw new Error("Falha ao carregar dados (401/500)");
       const data = await res.json();
 
       setWorlds(data.worlds || []);
@@ -237,7 +234,7 @@ function LoreAdminContent() {
 
   async function handleSaveWorld(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedUniverseId) return alert("Nenhum universo selecionado.");
+    if (!selectedUniverseId) return alert("Nenhum universo selecionado. Crie um universo primeiro.");
     if (!worldForm.nome?.trim()) return alert("Nome do mundo é obrigatório.");
 
     const payload: any = {
@@ -245,12 +242,12 @@ function LoreAdminContent() {
       descricao: worldForm.descricao,
       has_episodes: worldForm.has_episodes,
       tipo: "mundo_ficcional",
-      universe_id: selectedUniverseId // Vínculo essencial
+      universe_id: selectedUniverseId // Vínculo essencial para a query funcionar
     };
 
     try {
       if (worldFormMode === 'create') {
-         // Gera ID seguro
+         // Gera ID seguro (Slug único)
          const slugId = worldForm.nome.toLowerCase()
             .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
             .replace(/[^a-z0-9]/g, "_") + "_" + Date.now();
@@ -263,7 +260,7 @@ function LoreAdminContent() {
       }
       
       setWorldFormMode("idle");
-      // Recarrega tudo para atualizar a lista lateral
+      // Recarrega tudo para atualizar a lista lateral imediatamente
       await fetchAllData(selectedUniverseId, selectedWorldId);
 
     } catch (err: any) {
@@ -275,7 +272,7 @@ function LoreAdminContent() {
     if(e) e.stopPropagation();
     if(!confirm("Tem certeza? Isso apagará TODAS as fichas deste mundo.")) return;
     
-    // Exclusão em cascata manual (se não estiver configurada no banco)
+    // Exclusão em cascata manual
     const { data: fichas } = await supabaseBrowser.from("fichas").select("id").eq("world_id", id);
     const ids = fichas?.map(f => f.id) || [];
     if(ids.length > 0) {
@@ -300,7 +297,7 @@ function LoreAdminContent() {
         id: "", 
         titulo: "", 
         tipo: "conceito", 
-        world_id: defaultWorld, // Preenche o ID
+        world_id: defaultWorld, // Preenche o ID do mundo
         conteudo: "", 
         resumo: "", 
         tags: "", 
@@ -357,11 +354,37 @@ function LoreAdminContent() {
     }
   }
 
+  async function handleDeleteFicha(id: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    if (!confirm("Tem certeza que deseja apagar esta ficha?")) return;
+    await supabaseBrowser.from("codes").delete().eq("ficha_id", id);
+    await supabaseBrowser.from("fichas").delete().eq("id", id);
+    if (selectedFichaId === id) setSelectedFichaId(null);
+    if (selectedUniverseId) fetchAllData(selectedUniverseId, selectedWorldId); 
+  }
+
+  async function checkConsistency() {
+    const textToCheck = `[PROPOSTA DE FICHA] Título: ${fichaForm.titulo} Tipo: ${fichaForm.tipo} Ano/Data: ${fichaForm.ano_diegese || fichaForm.data_inicio || "Não informado"} Resumo: ${fichaForm.resumo} Conteúdo: ${fichaForm.conteudo}`.trim();
+    alert("Consultando Urizen, a Lei, sobre a coerência...");
+    try {
+      const res = await fetch("/api/lore/consistency", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: textToCheck, universeId: selectedUniverseId })
+      });
+      const data = await res.json();
+      if (data.analysis) alert("RELATÓRIO DE URIZEN:\n\n" + data.analysis);
+      else alert("Erro ao analisar. Tente novamente.");
+    } catch (err) {
+      console.error(err);
+      alert("Erro na requisição de coerência.");
+    }
+  }
+
   // --- FILTRAGEM DE LISTA ---
   const filteredFichas = useMemo(() => {
     let list = fichas;
     // Se um mundo específico estiver selecionado, filtra por ele.
-    // Se "selectedWorldId" for null (Root/Visão Geral), mostra TUDO do universo.
     if (selectedWorldId) {
         list = list.filter(f => f.world_id === selectedWorldId);
     }
