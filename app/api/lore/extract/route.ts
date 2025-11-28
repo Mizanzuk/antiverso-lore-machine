@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica
+import { supabaseAdmin } from "@/lib/supabase"; 
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -34,11 +34,6 @@ type ExtractedFicha = {
   meta?: FichaMeta;
 };
 
-const allowedTypes = [
-  "personagem", "local", "midia", "agencia", "empresa", "conceito",
-  "regra_de_mundo", "evento", "epistemologia", "registro_anomalo", "objeto",
-];
-
 function normalizeEpisode(unitNumber: string): string {
   const onlyDigits = (unitNumber || "").replace(/\D+/g, "");
   if (!onlyDigits) return "0";
@@ -61,36 +56,40 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
   return chunks;
 }
 
-async function processChunk(text: string, chunkIndex: number, totalChunks: number): Promise<ExtractedFicha[]> {
+// Agora processChunk recebe a lista de tipos dinâmicos
+async function processChunk(text: string, chunkIndex: number, totalChunks: number, allowedTypes: string[]): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     
-    // PROMPT ATUALIZADO: Mais agressivo na extração de entidades individuais
     const systemPrompt = `
   Você é o Motor de Extração de Lore do AntiVerso.
-  Sua missão é DECOMPOR o texto fornecido em múltiplas fichas de banco de dados.
-  NÃO RESUMA O TEXTO EM UMA ÚNICA FICHA. QUEBRE-O.
-
-  TIPOS PERMITIDOS: ${typeInstructions}
+  Sua missão é DECOMPOR o texto em fichas de banco de dados ricas e detalhadas.
   
-  REGRAS OBRIGATÓRIAS DE EXTRAÇÃO:
+  TIPOS PERMITIDOS (Use APENAS estes): ${typeInstructions}
   
-  1. PERSONAGENS (CRUCIAL):
-     - Se o texto menciona um nome próprio (ex: João, Pedro, Maria), você DEVE criar uma ficha do tipo "personagem" para cada um.
-     - Resumo: Quem é e o que fez na cena.
+  DIRETRIZES DE EXTRAÇÃO (Varra o texto procurando por TUDO isso):
   
-  2. EVENTOS E DATAS (CRUCIAL):
-     - Se o texto menciona uma data específica (ex: "abril de 2011", "23 de agosto", "fevereiro de 2025"), você DEVE criar uma ficha do tipo "evento".
-     - Título do Evento: Algo descritivo (ex: "João chegando atrasado", "Reencontro no ponto de ônibus").
-     - data_inicio: Tente converter para YYYY-MM-DD. Se for apenas mês/ano, use o dia 01.
-     - descricao_data: A frase exata do texto (ex: "numa tarde quente de março de 2015").
-     - camada_temporal: "linha_principal" se for o agora, "flashback" se for lembrança, "relato" se for alguém contando.
-
-  3. LOCAIS:
-     - Se houver locais claros (ex: "Padaria da Esquina", "Ponto de Ônibus"), crie fichas do tipo "local".
+  1. PERSONAGENS (Essencial):
+     - Nomes próprios de pessoas ou entidades. Tipo: "personagem".
+  
+  2. LOCAIS (Essencial):
+     - Ambientes físicos, cidades, salas. Tipo: "local".
+  
+  3. ORGANIZAÇÕES:
+     - Empresas, Agências, Cultos. Tipo: "empresa", "agencia" ou "organizacao".
+  
+  4. OBJETOS E ANOMALIAS:
+     - Itens físicos importantes. Tipo: "objeto".
+     - Fenômenos estranhos. Tipo: "registro_anomalo".
+  
+  5. EVENTOS (Timeline):
+     - Qualquer cena datada ou momento específico. Tipo: "evento".
+     - Obrigatório: data_inicio (YYYY-MM-DD), descricao_data (texto original), camada_temporal.
+  
+  6. OUTROS:
+     - Qualquer outro elemento que se encaixe nos TIPOS PERMITIDOS listados acima.
 
   SAÍDA ESPERADA:
-  Retorne um JSON com a chave "fichas" contendo uma lista.
-  Seja verboso na quantidade de fichas. É melhor pecar pelo excesso do que pela falta.
+  Retorne um JSON com a chave "fichas". Não ignore nada.
   `.trim();
   
     const userPrompt = `Texto para análise:\n"""${text}"""`;
@@ -98,7 +97,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.4, // Aumentei levemente a temperatura para ele ser mais criativo na extração
+        temperature: 0.3, 
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
@@ -142,7 +141,7 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
           const existingRels = existing.meta?.relacoes || [];
           existing.meta = { ...existing.meta, relacoes: [...existingRels, ...f.meta.relacoes] };
         }
-        // Prioriza datas mais específicas se houver conflito
+        
         if (!existing.data_inicio && f.data_inicio) {
            existing.data_inicio = f.data_inicio;
            existing.data_fim = f.data_fim;
@@ -187,19 +186,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized (401)." }, { status: 401 });
     }
 
+    // 1. BUSCAR CATEGORIAS DINÂMICAS DO BANCO
+    const { data: catData } = await clientToUse.from("lore_categories").select("slug");
+    // Se falhar ou estiver vazio, usa um fallback básico
+    const allowedTypes = (catData && catData.length > 0) 
+        ? catData.map((c: any) => c.slug) 
+        : ["personagem", "local", "evento", "conceito", "roteiro"];
+
     const body = await req.json().catch(() => ({}));
-    const { worldId, unitNumber, text, documentName } = body as {
-      worldId?: string;
-      unitNumber?: string;
-      text?: string;
-      documentName?: string | null;
-    };
+    const { worldId, unitNumber, text, documentName } = body;
 
     if (!text || typeof text !== "string" || !text.trim()) {
       return NextResponse.json({ error: "Campo 'text' é obrigatório." }, { status: 400 });
     }
 
-    // 1. SALVAR ROTEIRO
+    // 2. SALVAR ROTEIRO
     let roteiroId: string | null = null;
     if (clientToUse) {
       const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
@@ -222,16 +223,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. DIVIDIR E CONQUISTAR
+    // 3. DIVIDIR E CONQUISTAR (Passando os tipos dinâmicos)
     const chunks = splitTextIntoChunks(text);
-    const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length));
+    const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length, allowedTypes));
     const results = await Promise.all(promises);
     const allRawFichas = results.flat();
 
-    // 3. DEDUPLICAÇÃO
+    // 4. DEDUPLICAÇÃO
     const uniqueFichas = deduplicateFichas(allRawFichas);
 
-    // 4. FICHA DO ROTEIRO (Metadata do arquivo em si)
+    // 5. FICHA DO ROTEIRO
     const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
     const tituloDoc = documentName?.trim() || "Roteiro Processado";
     
@@ -248,7 +249,6 @@ export async function POST(req: NextRequest) {
 
     uniqueFichas.unshift(fichaRoteiro);
 
-    // 5. RETORNO
     const cleanFichas = uniqueFichas.map(f => ({
       ...f,
       titulo: (f.titulo || "").trim(),
