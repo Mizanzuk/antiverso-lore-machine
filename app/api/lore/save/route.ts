@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica para o fallback
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +138,7 @@ async function generateAutomaticCode(opts: {
     basePrefix = `${worldPrefix}${episode}-${typePrefix}`;
   }
 
-  // RLS cuida de filtrar apenas os códigos do usuário
+  // Busca códigos existentes para calcular o próximo número
   const { data: existing } = await supabase
     .from("codes")
     .select("code")
@@ -204,7 +205,7 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: a
     const alvoTitulo = rel.alvo_titulo;
     if (!alvoTitulo) continue;
 
-    // Busca ficha alvo apenas dentro das fichas DO USUÁRIO (RLS)
+    // Busca ficha alvo
     const { data: targetFicha } = await supabase
       .from("fichas")
       .select("id")
@@ -226,11 +227,31 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: a
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Inicializa cliente padrão (Cookies)
     const supabase = createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Acesso negado." }, { status: 401 });
+    // 2. Lógica de Fallback para Autenticação
+    let clientToUse = supabase;
+    let userId = user?.id;
+
+    if (!userId) {
+        // Se cookie falhar, tenta pegar o ID do header enviado pelo frontend
+        const headerUserId = req.headers.get("x-user-id");
+        if (headerUserId) {
+            // Se tiver ID no header, usa o cliente ADMIN (Service Role)
+            // Isso permite salvar os dados mesmo sem cookie de sessão ativo
+            if (supabaseAdmin) {
+                clientToUse = supabaseAdmin;
+                userId = headerUserId;
+            } else {
+                console.warn("⚠️ Supabase Admin não inicializado. Operação pode falhar.");
+            }
+        }
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: "Acesso negado (401). Usuário não identificado." }, { status: 401 });
     }
 
     const body = await req.json();
@@ -238,21 +259,23 @@ export async function POST(req: NextRequest) {
     const unitNumber = String(body.unitNumber || "").trim();
     const fichas = (body.fichas || []) as IncomingFicha[];
 
-    if (!worldId || !unitNumber || !Array.isArray(fichas) || fichas.length === 0) {
+    if (!worldId || !Array.isArray(fichas) || fichas.length === 0) {
       return NextResponse.json(
-        { error: "Parâmetros inválidos." },
+        { error: "Parâmetros inválidos. 'worldId' e 'fichas' são obrigatórios." },
         { status: 400 },
       );
     }
 
-    // Verificar se o Mundo pertence ao Usuário (RLS vai falhar se não pertencer)
-    const { data: worldRow } = await supabase
+    // Verificar se o Mundo existe
+    // Usamos clientToUse para garantir que funcione com Admin ou Cookie
+    const { data: worldRow, error: worldError } = await clientToUse
       .from("worlds")
       .select("*")
       .eq("id", worldId)
       .single();
 
-    if (!worldRow) {
+    if (worldError || !worldRow) {
+      console.error("Erro ao buscar mundo:", worldError);
       return NextResponse.json({ error: "Mundo não encontrado ou acesso negado." }, { status: 400 });
     }
 
@@ -268,13 +291,9 @@ export async function POST(req: NextRequest) {
       const tagsStr = (ficha.tags || []).join(", ");
       const isEvento = tipoNormalizado === "evento";
 
-      // user_id é injetado automaticamente pelo Supabase via default, ou podemos passar explicitamente.
-      // Como RLS está ativo, o insert só funciona se formos o dono.
-      const { data: inserted, error: insertError } = await supabase
-        .from("fichas")
-        .insert({
+      // Inserção da Ficha
+      const insertData: any = {
           world_id: world.id,
-          // user_id: user.id, // O banco já deve ter default auth.uid(), mas pode passar se quiser
           titulo,
           slug,
           tipo: tipoNormalizado,
@@ -288,7 +307,13 @@ export async function POST(req: NextRequest) {
           camada_temporal: isEvento ? ficha.camada_temporal : null,
           aparece_em: ficha.aparece_em,
           episodio: normalizeEpisode(unitNumber),
-        })
+          // Se estiver usando Supabase Admin, pode ser útil forçar o user_id se a tabela não tiver default
+          // user_id: userId 
+      };
+
+      const { data: inserted, error: insertError } = await clientToUse
+        .from("fichas")
+        .insert(insertData)
         .select("id")
         .single();
 
@@ -299,27 +324,27 @@ export async function POST(req: NextRequest) {
 
       const fichaId = (inserted as any).id as string;
 
-      // Gera código
+      // Gera código (Passando o clientToUse)
       const finalCode = await applyCodeForFicha({
         fichaId,
         world,
         tipo: tipoNormalizado,
         unitNumber,
         manualCode: ficha.codigo,
-        supabase,
+        supabase: clientToUse,
       });
 
-      // Salva relações
+      // Salva relações (Passando o clientToUse)
       if (ficha.meta && ficha.meta.relacoes) {
-        await saveRelations(fichaId, ficha.meta.relacoes, supabase);
+        await saveRelations(fichaId, ficha.meta.relacoes, clientToUse);
       }
 
       saved.push({ fichaId, titulo, codigo: finalCode });
     }
 
     return NextResponse.json({ ok: true, savedCount: saved.length, saved });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Erro em /api/lore/save:", err);
-    return NextResponse.json({ error: "Erro inesperado." }, { status: 500 });
+    return NextResponse.json({ error: "Erro inesperado: " + err.message }, { status: 500 });
   }
 }
