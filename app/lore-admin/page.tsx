@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo, useCallback, Suspense, useRef, Cha
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES } from "@/lib/dates/granularidade";
+import { generatePrefix } from "@/lib/generate-prefix";
 
 // --- CONSTANTES DE UI ---
 const CAMADAS_TEMPORAIS = [
@@ -144,6 +145,15 @@ function LoreAdminContent() {
   const [fichaForm, setFichaForm] = useState<any>({});
   const [isSavingFicha, setIsSavingFicha] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  // Estados para gerenciamento de categorias
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showEditCategoriesModal, setShowEditCategoriesModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryDescription, setNewCategoryDescription] = useState("");
+  const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [editingCategories, setEditingCategories] = useState<any[]>([]);
+
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // Helpers de Wiki e Relações
@@ -209,6 +219,144 @@ function LoreAdminContent() {
     else if (data.session) { setUserId(data.session.user.id); setView("loggedIn"); }
   }
   async function handleLogout() { await supabaseBrowser.auth.signOut(); setView("loggedOut"); setUserId(null); }
+
+  // --- GERENCIAMENTO DE CATEGORIAS ---
+  const loadAllCategories = async () => {
+    try {
+      const response = await fetch("/api/lore/categories");
+      if (!response.ok) throw new Error("Erro ao carregar categorias");
+      const data = await response.json();
+      setEditingCategories(data.categories || []);
+    } catch (error) {
+      console.error("Erro ao carregar categorias:", error);
+    }
+  };
+
+  const handleCategoryNameChange = (name: string) => {
+    setNewCategoryName(name);
+    const prefix = generatePrefix(name);
+    setNewCategoryPrefix(prefix);
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!newCategoryName) {
+      alert("Digite o nome da categoria primeiro");
+      return;
+    }
+    
+    setIsGeneratingDescription(true);
+    try {
+      const response = await fetch("/api/lore/categories/generate-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryName: newCategoryName,
+          categorySlug: newCategoryName.toLowerCase().replace(/\s+/g, "_"),
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Erro ao gerar descrição");
+      
+      const data = await response.json();
+      setNewCategoryDescription(data.description);
+    } catch (error) {
+      console.error("Erro:", error);
+      alert("Erro ao gerar descrição");
+    } finally {
+      setIsGeneratingDescription(false);
+    }
+  };
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName) {
+      alert("Nome da categoria é obrigatório");
+      return;
+    }
+    
+    try {
+      const slug = newCategoryName.toLowerCase().replace(/\s+/g, "_");
+      const response = await fetch("/api/lore/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          label: newCategoryName,
+          description: newCategoryDescription || null,
+          prefix: newCategoryPrefix || null,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Erro ao criar categoria");
+      }
+      
+      alert("Categoria criada com sucesso!");
+      setShowCategoryModal(false);
+      setNewCategoryName("");
+      setNewCategoryDescription("");
+      setNewCategoryPrefix("");
+      
+      if (selectedUniverseId) {
+        fetchAllData(selectedUniverseId, selectedWorldId, selectedFichaId);
+      }
+    } catch (error: any) {
+      console.error("Erro:", error);
+      alert(error.message || "Erro ao criar categoria");
+    }
+  };
+
+  const handleUpdateCategory = async (category: any) => {
+    try {
+      const response = await fetch("/api/lore/categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: category.slug,
+          label: category.label,
+          description: category.description,
+          prefix: category.prefix,
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Erro ao atualizar categoria");
+      
+      alert("Categoria atualizada com sucesso!");
+      loadAllCategories();
+      
+      if (selectedUniverseId) {
+        fetchAllData(selectedUniverseId, selectedWorldId, selectedFichaId);
+      }
+    } catch (error) {
+      console.error("Erro:", error);
+      alert("Erro ao atualizar categoria");
+    }
+  };
+
+  const handleDeleteCategory = async (slug: string) => {
+    if (!confirm("Tem certeza? Isso vai deletar TODAS as fichas desta categoria!")) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/lore/categories?slug=${slug}`, {
+        method: "DELETE",
+      });
+      
+      if (!response.ok) throw new Error("Erro ao deletar categoria");
+      
+      alert("Categoria deletada com sucesso!");
+      loadAllCategories();
+      
+      if (selectedUniverseId) {
+        fetchAllData(selectedUniverseId, selectedWorldId, selectedFichaId);
+      }
+    } catch (error) {
+      console.error("Erro:", error);
+      alert("Erro ao deletar categoria");
+    }
+  };
+
 
   // --- DATA FETCHING ---
   async function loadUniverses() {
@@ -609,7 +757,13 @@ function LoreAdminContent() {
 
         {/* LISTA DE FICHAS */}
         <section className="w-80 border-r border-neutral-800 bg-neutral-900/20 flex flex-col min-h-0">
-             <div className="p-3 border-b border-neutral-800 flex justify-between items-center"><h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">{selectedWorldId ? worlds.find(w=>w.id===selectedWorldId)?.nome : "Todas as Fichas"}</h2><button onClick={startCreateFicha} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-medium">+ Ficha</button></div>
+             <div className="p-3 border-b border-neutral-800 flex justify-between items-center">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">{selectedWorldId ? worlds.find(w=>w.id===selectedWorldId)?.nome : "Todas as Fichas"}</h2>
+                <div className="flex gap-2">
+                    <button onClick={() => { loadAllCategories(); setShowEditCategoriesModal(true); }} className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2 py-1 rounded font-medium border border-zinc-700">Editar Categorias</button>
+                    <button onClick={startCreateFicha} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-medium">+ Ficha</button>
+                </div>
+             </div>
              <div className="p-2 space-y-2">
                 <input placeholder="Buscar..." className="w-full bg-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none" value={fichasSearchTerm} onChange={e => setFichasSearchTerm(e.target.value)} />
                 {selectedWorldId && currentWorldHasEpisodes && availableEpisodes.length > 0 && (<div className="mb-2"><select className="w-full bg-black border border-zinc-800 rounded text-[10px] p-1 text-zinc-300 outline-none focus:border-emerald-500" value={selectedEpisodeFilter} onChange={(e) => setSelectedEpisodeFilter(e.target.value)}><option value="">Todos os Episódios</option>{availableEpisodes.map(ep => <option key={ep} value={ep}>Episódio {ep}</option>)}</select></div>)}
@@ -753,7 +907,16 @@ function LoreAdminContent() {
 
                             <div>
                                 <label className="text-[10px] uppercase text-zinc-500 block mb-1">Tipo</label>
-                                <select className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white" value={fichaForm.tipo} onChange={e => setFichaForm({...fichaForm, tipo: e.target.value})}>{loreTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
+                                <select className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white" value={fichaForm.tipo} onChange={e => {
+                                    if (e.target.value === "__new_category__") {
+                                        setShowCategoryModal(true);
+                                    } else {
+                                        setFichaForm({...fichaForm, tipo: e.target.value});
+                                    }
+                                }}>
+                                    {loreTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                    <option value="__new_category__" className="text-emerald-400">+ Nova Categoria</option>
+                                </select>
                             </div>
                         </div>
 
