@@ -12,7 +12,6 @@ export async function GET(req: NextRequest) {
     let clientToUse = supabase;
     let userId = user?.id;
 
-    // Fallback de segurança para modo Admin
     if (!userId) {
         const headerUserId = req.headers.get("x-user-id");
         if (headerUserId && supabaseAdmin) {
@@ -47,7 +46,7 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar worlds:", worldsError.message);
     }
 
-    // 2. Busca Fichas (QUERY COMPLETA SEM RESUMOS)
+    // 2. Busca Fichas (QUERY COMPLETA)
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(`
@@ -86,7 +85,7 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar fichas:", entitiesError.message);
     }
 
-    // 3. Busca Categorias (Dinâmico do Banco)
+    // 3. Busca Categorias (Dinâmico)
     let types: {id: string, label: string}[] = [];
     try {
         const { data: categories, error: catError } = await clientToUse
