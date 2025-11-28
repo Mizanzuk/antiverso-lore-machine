@@ -152,6 +152,7 @@ function LoreAdminContent() {
   const [newCategoryDescription, setNewCategoryDescription] = useState("");
   const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
   const [editingCategories, setEditingCategories] = useState<any[]>([]);
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -343,6 +344,35 @@ function LoreAdminContent() {
     } catch (error) {
       console.error("Erro:", error);
       alert("Erro ao atualizar categoria");
+    }
+  };
+
+  const handleGenerateDescriptionForCategory = async (category: any) => {
+    setGeneratingDescriptionFor(category.slug);
+    try {
+      const response = await fetch("/api/lore/categories/generate-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryName: category.label,
+          categorySlug: category.slug,
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Erro ao gerar descrição");
+      
+      const data = await response.json();
+      
+      // Atualizar a descrição da categoria no estado
+      const updated = editingCategories.map(c => 
+        c.slug === category.slug ? {...c, description: data.description} : c
+      );
+      setEditingCategories(updated);
+    } catch (error) {
+      console.error("Erro:", error);
+      alert("Erro ao gerar descrição");
+    } finally {
+      setGeneratingDescriptionFor(null);
     }
   };
 
@@ -1124,13 +1154,27 @@ function LoreAdminContent() {
       {/* MODAL EDITAR CATEGORIAS */}
       {showEditCategoriesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowEditCategoriesModal(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
+          <div onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] flex flex-col">
+            {/* HEADER FIXO */}
+            <div className="flex justify-between items-center p-6 border-b border-zinc-800">
               <h3 className="text-white font-bold uppercase tracking-widest text-sm">Gerenciar Categorias</h3>
-              <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setShowEditCategoriesModal(false);
+                    setShowCategoryModal(true);
+                  }} 
+                  className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded font-medium"
+                >
+                  + Nova Categoria
+                </button>
+                <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+              </div>
             </div>
             
-            <div className="space-y-3">
+            {/* CONTEÚDO SCROLLÁVEL */}
+            <div className="overflow-y-auto p-6 space-y-3">
               {editingCategories.length === 0 ? (
                 <p className="text-zinc-500 text-sm text-center py-8">Nenhuma categoria encontrada</p>
               ) : (
@@ -1176,7 +1220,18 @@ function LoreAdminContent() {
                       </div>
                     </div>
                     <div className="mb-3">
-                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Descrição</label>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-[10px] uppercase text-zinc-500">Descrição</label>
+                        <button 
+                          type="button"
+                          onClick={() => handleGenerateDescriptionForCategory(cat)}
+                          disabled={generatingDescriptionFor === cat.slug}
+                          className="text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-2 py-1 rounded font-medium flex items-center gap-1"
+                        >
+                          <span>✨</span>
+                          {generatingDescriptionFor === cat.slug ? "Gerando..." : "Gerar com IA"}
+                        </button>
+                      </div>
                       <textarea 
                         className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white h-20"
                         value={cat.description || ''}
@@ -1209,7 +1264,8 @@ function LoreAdminContent() {
               )}
             </div>
             
-            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-zinc-800">
+            {/* FOOTER FIXO */}
+            <div className="flex justify-end gap-2 p-6 pt-4 border-t border-zinc-800">
               <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Fechar</button>
             </div>
           </div>
