@@ -104,12 +104,27 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
 function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
     const map = new Map<string, ExtractedFicha>();
     for (const f of allFichas) {
-      const key = `${f.tipo}-${f.titulo.toLowerCase().trim()}`;
+      // FIX: Adicionada verificação de segurança (|| "") para evitar crash se a IA não retornar título/tipo
+      const safeTitulo = (f.titulo || "").toLowerCase().trim();
+      const safeTipo = (f.tipo || "conceito").toLowerCase().trim();
+
+      if (!safeTitulo) continue; // Pula se não tiver título
+
+      const key = `${safeTipo}-${safeTitulo}`;
+      
       if (map.has(key)) {
         const existing = map.get(key)!;
-        if (f.conteudo && !existing.conteudo.includes(f.conteudo.slice(0, 20))) existing.conteudo += `\n\n[Mais]: ${f.conteudo}`;
-        const mergedTags = new Set([...existing.tags, ...f.tags]);
+        // Check de segurança para conteudo
+        const safeConteudo = f.conteudo || "";
+        const existingConteudo = existing.conteudo || "";
+
+        if (safeConteudo && !existingConteudo.includes(safeConteudo.slice(0, 20))) {
+            existing.conteudo += `\n\n[Mais]: ${safeConteudo}`;
+        }
+        
+        const mergedTags = new Set([...(existing.tags || []), ...(f.tags || [])]);
         existing.tags = Array.from(mergedTags);
+        
         if (f.meta?.relacoes) {
           const existingRels = existing.meta?.relacoes || [];
           existing.meta = { ...existing.meta, relacoes: [...existingRels, ...f.meta.relacoes] };
@@ -121,6 +136,11 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
            existing.granularidade_data = f.granularidade_data;
         }
       } else {
+        // Garante que a ficha nova tenha campos seguros antes de entrar no mapa
+        f.titulo = f.titulo || "Sem Título";
+        f.tipo = f.tipo || "conceito";
+        f.conteudo = f.conteudo || "";
+        f.tags = f.tags || [];
         map.set(key, f);
       }
     }
@@ -216,8 +236,9 @@ export async function POST(req: NextRequest) {
     // 5. RETORNO
     const cleanFichas = uniqueFichas.map(f => ({
       ...f,
-      titulo: f.titulo.trim(),
-      tipo: f.tipo.toLowerCase().trim(),
+      // FIX: Adicionada verificação de segurança aqui também para evitar erro 500 no retorno
+      titulo: (f.titulo || "").trim(),
+      tipo: (f.tipo || "conceito").toLowerCase().trim(),
       meta: { ...f.meta, relacoes: f.meta?.relacoes || [] }
     }));
 
