@@ -101,7 +101,7 @@ Se houver riscos, comece com "ALERTA DE INCONSISTÊNCIA:" e liste os problemas d
     `.trim();
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       temperature: 0.1, 
       messages: [{ role: "system", content: systemPrompt }],
     });
