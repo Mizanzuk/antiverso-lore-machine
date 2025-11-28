@@ -26,7 +26,6 @@ type ExtractedFicha = {
   tags: string[];
   ano_diegese: number | null;
   aparece_em: string;
-  // NOVOS CAMPOS DO PDF
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
@@ -65,31 +64,33 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
 async function processChunk(text: string, chunkIndex: number, totalChunks: number): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     
-    // Prompt atualizado com a lógica do PDF: separar eventos por camada temporal
+    // PROMPT ATUALIZADO: Mais agressivo na extração de entidades individuais
     const systemPrompt = `
-  Você é o Motor de Lore do AntiVerso.
-  Sua tarefa é ler o texto e extrair FICHAS DE LORE estruturadas em JSON.
-  
+  Você é o Motor de Extração de Lore do AntiVerso.
+  Sua missão é DECOMPOR o texto fornecido em múltiplas fichas de banco de dados.
+  NÃO RESUMA O TEXTO EM UMA ÚNICA FICHA. QUEBRE-O.
+
   TIPOS PERMITIDOS: ${typeInstructions}
   
-  DIRETRIZES FUNDAMENTAIS:
-  1. TODO MOMENTO É UM EVENTO: Se o texto cita uma data ou momento específico, crie uma ficha de TIPO "evento".
-  2. CAMADAS TEMPORAIS (CRUCIAL):
-     - Se o fato acontece na história (ex: acidente, morte), use camada_temporal: "linha_principal".
-     - Se é alguém contando/lembrando (ex: email, entrevista), use camada_temporal: "relato" ou "flashback".
-     - Se é a data de lançamento da mídia (ex: podcast vai ao ar), use camada_temporal: "publicacao".
-     - Se for sonho ou alucinação, use camada_temporal: "sonho_visao".
+  REGRAS OBRIGATÓRIAS DE EXTRAÇÃO:
   
-  3. DATAS (Preencha com precisão):
-     - data_inicio: Formato YYYY-MM-DD. Se for vago (ex: "anos 90"), use o primeiro dia (1990-01-01).
-     - data_fim: Só use se for um intervalo (ex: "entre 2003 e 2005").
-     - granularidade_data: "dia", "mes", "ano", "decada", "vago".
-     - descricao_data: A frase original do texto (ex: "numa noite fria de 2014").
+  1. PERSONAGENS (CRUCIAL):
+     - Se o texto menciona um nome próprio (ex: João, Pedro, Maria), você DEVE criar uma ficha do tipo "personagem" para cada um.
+     - Resumo: Quem é e o que fez na cena.
   
-  4. PERSONAGENS E LOCAIS:
-     - Extraia fichas separadas para eles. Foque na personalidade e descrição.
-  
-  FORMATO JSON: { "fichas": [...] }
+  2. EVENTOS E DATAS (CRUCIAL):
+     - Se o texto menciona uma data específica (ex: "abril de 2011", "23 de agosto", "fevereiro de 2025"), você DEVE criar uma ficha do tipo "evento".
+     - Título do Evento: Algo descritivo (ex: "João chegando atrasado", "Reencontro no ponto de ônibus").
+     - data_inicio: Tente converter para YYYY-MM-DD. Se for apenas mês/ano, use o dia 01.
+     - descricao_data: A frase exata do texto (ex: "numa tarde quente de março de 2015").
+     - camada_temporal: "linha_principal" se for o agora, "flashback" se for lembrança, "relato" se for alguém contando.
+
+  3. LOCAIS:
+     - Se houver locais claros (ex: "Padaria da Esquina", "Ponto de Ônibus"), crie fichas do tipo "local".
+
+  SAÍDA ESPERADA:
+  Retorne um JSON com a chave "fichas" contendo uma lista.
+  Seja verboso na quantidade de fichas. É melhor pecar pelo excesso do que pela falta.
   `.trim();
   
     const userPrompt = `Texto para análise:\n"""${text}"""`;
@@ -97,7 +98,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.2, 
+        temperature: 0.4, // Aumentei levemente a temperatura para ele ser mais criativo na extração
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
