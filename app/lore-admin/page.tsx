@@ -119,7 +119,13 @@ function LoreAdminContent() {
 
   // Dados
   const [universes, setUniverses] = useState<Universe[]>([]);
-  const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(() => {
+    // Tentar carregar do localStorage ao inicializar
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("selectedUniverseId") || null;
+    }
+    return null;
+  });
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
   const [fichas, setFichas] = useState<FichaFull[]>([]);
@@ -206,6 +212,7 @@ function LoreAdminContent() {
 
       if (uniId && uniId !== selectedUniverseId) {
           setSelectedUniverseId(uniId);
+          if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", uniId);
           fetchAllData(uniId, worldId, fichaId);
       } else if (uniId === selectedUniverseId) {
           if (worldId !== selectedWorldId) setSelectedWorldId(worldId);
@@ -411,8 +418,13 @@ function LoreAdminContent() {
     if (data) {
       setUniverses(data);
       const urlUni = searchParams.get("universe");
-      const initialUniId = (urlUni && data.find(u => u.id === urlUni)) ? urlUni : (data[0]?.id || null);
+      const savedUniId = typeof window !== "undefined" ? localStorage.getItem("selectedUniverseId") : null;
+      const initialUniId = 
+        (urlUni && data.find(u => u.id === urlUni)) ? urlUni :
+        (savedUniId && data.find(u => u.id === savedUniId)) ? savedUniId :
+        (data[0]?.id || null);
       setSelectedUniverseId(initialUniId);
+      if (initialUniId && typeof window !== "undefined") localStorage.setItem("selectedUniverseId", initialUniId);
       if(initialUniId) {
           fetchAllData(initialUniId, searchParams.get("world"), searchParams.get("ficha"));
       }
@@ -469,6 +481,7 @@ function LoreAdminContent() {
   }, [userId]);
 
   const handleSelectUniverse = (id: string) => {
+      if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", id);
       updateUrl(id, null, null);
   };
 
