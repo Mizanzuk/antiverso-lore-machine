@@ -170,7 +170,13 @@ export default function Page() {
   const [remoteLoaded, setRemoteLoaded] = useState(false);
 
   const [universes, setUniverses] = useState<Universe[]>([]);
-  const [selectedUniverseId, setSelectedUniverseId] = useState<string>(""); 
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string>(() => {
+    // Tentar carregar do localStorage ao inicializar
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("selectedUniverseId") || "";
+    }
+    return "";
+  }); 
   
   const [showUniverseModal, setShowUniverseModal] = useState(false);
   const [newUniverseName, setNewUniverseName] = useState("");
@@ -242,9 +248,15 @@ export default function Page() {
     const { data } = await supabaseBrowser.from("universes").select("id, nome, descricao").order("nome");
     if (data && data.length > 0) {
       setUniverses(data);
+      // Priorizar universo salvo no localStorage
+      const savedUniId = typeof window !== "undefined" ? localStorage.getItem("selectedUniverseId") : null;
       const lastUsedUni = sessions.filter(s => s.universeId).pop()?.universeId;
-      const initialUniId = lastUsedUni && data.some(u => u.id === lastUsedUni) ? lastUsedUni : data[0].id;
-      setSelectedUniverseId(initialUniId); 
+      const initialUniId = 
+        (savedUniId && data.some(u => u.id === savedUniId)) ? savedUniId :
+        (lastUsedUni && data.some(u => u.id === lastUsedUni)) ? lastUsedUni : 
+        data[0].id;
+      setSelectedUniverseId(initialUniId);
+      if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", initialUniId); 
     } else {
         setUniverses([]);
         setSelectedUniverseId("");
@@ -683,7 +695,9 @@ export default function Page() {
                                         setShowUniverseModal(true);
                                         e.target.value = selectedUniverseId || "";
                                     } else {
-                                        setSelectedUniverseId(value);
+                                         setSelectedUniverseId(value);
+                                        // Salvar no localStorage
+                                        localStorage.setItem("selectedUniverseId", value);
                                     }
                                 }}
                             >
@@ -912,6 +926,23 @@ export default function Page() {
                     </>
                   )}
                 </p>
+
+                {/* FILTROS DE CATEGORIA */}
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {catalogTypes.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setSelectedType(t.id)}
+                      className={`px-3 py-1 whitespace-nowrap rounded text-xs border uppercase transition ${
+                        selectedType === t.id
+                          ? "border-emerald-500 bg-emerald-500/20 text-emerald-400"
+                          : "border-white/20 text-gray-300 hover:border-white/40 hover:bg-white/5"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
 
                 <CatalogPagination />
 
