@@ -170,7 +170,13 @@ const EventCard = ({ event, selectedEvent, onSelect, onDelete, onEdit }: any) =>
 
 export default function TimelinePage() {
   const [universes, setUniverses] = useState<Universe[]>([]);
-  const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
+  const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(() => {
+    // Carregar do localStorage ao inicializar
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("selectedUniverseId") || null;
+    }
+    return null;
+  });
   const [userId, setUserId] = useState<string | null>(null);
 
   const [worlds, setWorlds] = useState<World[]>([]);
@@ -220,10 +226,11 @@ export default function TimelinePage() {
         .order("nome");
       if (data && data.length > 0) {
         setUniverses(data);
-        if (!selectedUniverseId) {
-             const antiverso = data.find(u => u.nome.toLowerCase() === 'antiverso');
-             setSelectedUniverseId(antiverso ? antiverso.id : data[0].id);
-        }
+        // Priorizar universo salvo no localStorage
+        const savedUniId = typeof window !== "undefined" ? localStorage.getItem("selectedUniverseId") : null;
+        const initialUniId = (savedUniId && data.some(u => u.id === savedUniId)) ? savedUniId : data[0].id;
+        setSelectedUniverseId(initialUniId);
+        if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", initialUniId);
       }
     }
     fetchUniverses();
@@ -484,7 +491,10 @@ export default function TimelinePage() {
              <select 
                className="w-full bg-black border border-zinc-800 rounded text-xs p-1 mt-1" 
                value={selectedUniverseId || ""} 
-               onChange={e => setSelectedUniverseId(e.target.value)}
+                onChange={e => { 
+                  setSelectedUniverseId(e.target.value); 
+                  if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", e.target.value); 
+                }}
              >
                {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
              </select>
