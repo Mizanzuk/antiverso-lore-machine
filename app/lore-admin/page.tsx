@@ -164,6 +164,19 @@ function LoreAdminContent() {
   const [mentionIndex, setMentionIndex] = useState<number>(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // useEffect para fechar modais com tecla Esc
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (fichaFormMode !== 'idle') setFichaFormMode('idle');
+        if (showCategoryModal) setShowCategoryModal(false);
+        if (showEditCategoriesModal) setShowEditCategoriesModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [fichaFormMode, showCategoryModal, showEditCategoriesModal]);
+
   // --- 1. AUTH ---
   useEffect(() => {
     const checkSession = async () => {
@@ -309,7 +322,7 @@ function LoreAdminContent() {
   const handleUpdateCategory = async (category: any) => {
     try {
       const response = await fetch("/api/lore/categories", {
-        method: "PATCH",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slug: category.slug,
@@ -856,14 +869,17 @@ function LoreAdminContent() {
 
       {/* MODAL FICHA */}
       {fichaFormMode !== "idle" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-            <form onSubmit={handleSaveFicha} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFichaFormMode('idle')}>
+            <form onSubmit={handleSaveFicha} onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
                 <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
-                    <h3 className="text-white font-bold uppercase tracking-widest text-sm">{fichaFormMode === 'create' ? 'Nova Ficha' : 'Editar Ficha'}</h3>
-                    <div className="flex gap-2">
-                        <button type="button" onClick={() => setFichaTab("dados")} className={`text-xs px-3 py-1 rounded ${fichaTab === 'dados' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Dados</button>
-                        {fichaFormMode === 'edit' && <button type="button" onClick={() => setFichaTab("relacoes")} className={`text-xs px-3 py-1 rounded ${fichaTab === 'relacoes' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Relações</button>}
+                    <div className="flex items-center gap-4">
+                        <h3 className="text-white font-bold uppercase tracking-widest text-sm">{fichaFormMode === 'create' ? 'Nova Ficha' : 'Editar Ficha'}</h3>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => setFichaTab("dados")} className={`text-xs px-3 py-1 rounded ${fichaTab === 'dados' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Dados</button>
+                            {fichaFormMode === 'edit' && <button type="button" onClick={() => setFichaTab("relacoes")} className={`text-xs px-3 py-1 rounded ${fichaTab === 'relacoes' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Relações</button>}
+                        </div>
                     </div>
+                    <button type="button" onClick={() => setFichaFormMode('idle')} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
                 </div>
                 
                 {fichaTab === 'dados' && (
@@ -1043,6 +1059,162 @@ function LoreAdminContent() {
       {/* Modais de Mundo e Universo omitidos pois são idênticos */}
       {universeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"><form onSubmit={e => { e.preventDefault(); saveUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-96 shadow-xl"><h3 className="text-white font-bold mb-4">{universeFormMode === 'create' ? 'Novo Universo' : 'Editar Universo'}</h3><input className="w-full bg-black border border-zinc-800 rounded p-2 mb-2 text-sm text-white" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} /><textarea className="w-full bg-black border border-zinc-800 rounded p-2 mb-4 text-sm text-white h-20" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} /><div className="flex justify-end gap-2"><button type="button" onClick={() => setUniverseFormMode("idle")} className="text-zinc-400 text-xs">Cancelar</button><button className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button></div></form></div>)}
       {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"><form onSubmit={handleSaveWorld} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-96 shadow-xl"><h3 className="text-white font-bold mb-4">{worldFormMode === 'create' ? 'Novo Mundo' : 'Editar Mundo'}</h3><input className="w-full bg-black border border-zinc-800 rounded p-2 mb-2 text-sm text-white" placeholder="Nome" value={worldForm.nome || ""} onChange={e=>setWorldForm({...worldForm, nome: e.target.value})} /><div className="flex justify-end gap-2"><button type="button" onClick={() => setWorldFormMode("idle")} className="text-zinc-400 text-xs">Cancelar</button><button className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button></div></form></div>)}
+
+      {/* MODAL NOVA CATEGORIA */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowCategoryModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-lg shadow-xl">
+            <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
+              <h3 className="text-white font-bold uppercase tracking-widest text-sm">Nova Categoria</h3>
+              <button type="button" onClick={() => setShowCategoryModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] uppercase text-zinc-500 block mb-1">Nome da Categoria</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white focus:border-emerald-500"
+                  placeholder="Ex: Planeta, Nave, Artefato"
+                  value={newCategoryName}
+                  onChange={(e) => handleCategoryNameChange(e.target.value)}
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] uppercase text-zinc-500 block mb-1">Prefixo (Auto-gerado)</label>
+                <input 
+                  type="text" 
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-2 text-sm text-zinc-500"
+                  value={newCategoryPrefix}
+                  disabled
+                />
+              </div>
+              
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] uppercase text-zinc-500">Descrição (para IA)</label>
+                  <button 
+                    type="button"
+                    onClick={handleGenerateDescription}
+                    disabled={isGeneratingDescription || !newCategoryName}
+                    className="text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white px-2 py-1 rounded font-medium flex items-center gap-1"
+                  >
+                    <span>✨</span>
+                    {isGeneratingDescription ? "Gerando..." : "Gerar com IA"}
+                  </button>
+                </div>
+                <textarea 
+                  className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white focus:border-emerald-500 h-32"
+                  placeholder="Descrição detalhada para guiar a IA na extração..."
+                  value={newCategoryDescription}
+                  onChange={(e) => setNewCategoryDescription(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-zinc-800">
+              <button type="button" onClick={() => setShowCategoryModal(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Cancelar</button>
+              <button type="button" onClick={handleCreateCategory} className="px-4 py-1.5 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-500">Criar Categoria</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR CATEGORIAS */}
+      {showEditCategoriesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowEditCategoriesModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
+              <h3 className="text-white font-bold uppercase tracking-widest text-sm">Gerenciar Categorias</h3>
+              <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+            </div>
+            
+            <div className="space-y-3">
+              {editingCategories.length === 0 ? (
+                <p className="text-zinc-500 text-sm text-center py-8">Nenhuma categoria encontrada</p>
+              ) : (
+                editingCategories.map((cat: any) => (
+                  <div key={cat.slug} className="bg-black border border-zinc-800 rounded p-4">
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      <div>
+                        <label className="text-[10px] uppercase text-zinc-500 block mb-1">Nome</label>
+                        <input 
+                          type="text" 
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white"
+                          value={cat.label}
+                          onChange={(e) => {
+                            const updated = editingCategories.map(c => 
+                              c.slug === cat.slug ? {...c, label: e.target.value} : c
+                            );
+                            setEditingCategories(updated);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase text-zinc-500 block mb-1">Slug</label>
+                        <input 
+                          type="text" 
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-zinc-500"
+                          value={cat.slug}
+                          disabled
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase text-zinc-500 block mb-1">Prefixo</label>
+                        <input 
+                          type="text" 
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white"
+                          value={cat.prefix || ''}
+                          onChange={(e) => {
+                            const updated = editingCategories.map(c => 
+                              c.slug === cat.slug ? {...c, prefix: e.target.value} : c
+                            );
+                            setEditingCategories(updated);
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Descrição</label>
+                      <textarea 
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-xs text-white h-20"
+                        value={cat.description || ''}
+                        onChange={(e) => {
+                          const updated = editingCategories.map(c => 
+                            c.slug === cat.slug ? {...c, description: e.target.value} : c
+                          );
+                          setEditingCategories(updated);
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => handleDeleteCategory(cat.slug)}
+                        className="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded"
+                      >
+                        Deletar
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => handleUpdateCategory(cat)}
+                        className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded"
+                      >
+                        Salvar Alterações
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-zinc-800">
+              <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
