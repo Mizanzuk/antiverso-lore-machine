@@ -13,13 +13,12 @@ type IncomingFicha = {
   aparece_em?: string;
   codigo?: string;
   
-  // NOVOS CAMPOS
   descricao_data?: string | null;
   data_inicio?: string | null;
   data_fim?: string | null;
   granularidade_data?: string | null;
   camada_temporal?: string | null;
-  ano_diegese?: number | null; // Mantido por compatibilidade
+  ano_diegese?: number | null;
 
   meta?: {
     relacoes?: {
@@ -200,7 +199,8 @@ async function applyCodeForFicha(opts: {
   return generateAutomaticCode({ fichaId, world, tipo, unitNumber, supabase });
 }
 
-async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: any) {
+// CORREÇÃO: Agora recebe userId para salvar nas relações também
+async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: any, userId: string) {
   if (!relacoes || relacoes.length === 0) return;
 
   for (const rel of relacoes) {
@@ -214,11 +214,13 @@ async function saveRelations(sourceFichaId: string, relacoes: any[], supabase: a
       .maybeSingle();
 
     if (targetFicha) {
+      // CORREÇÃO: Adicionado user_id aqui também se a tabela de relações tiver RLS
       await supabase.from("lore_relations").insert({
         source_ficha_id: sourceFichaId,
         target_ficha_id: targetFicha.id,
         tipo_relacao: rel.tipo || "relacionado_a",
         descricao: `Gerado automaticamente via extração.`,
+        user_id: userId 
       });
     }
   }
@@ -284,7 +286,6 @@ export async function POST(req: NextRequest) {
       const slug = slugify(titulo);
       const tagsStr = (ficha.tags || []).join(", ");
       
-      // Lógica de Ano Diegético (Legado ou extraído do ano da data_inicio)
       let anoDiegeseFinal = ficha.ano_diegese;
       if (!anoDiegeseFinal && ficha.data_inicio) {
           try {
@@ -292,7 +293,6 @@ export async function POST(req: NextRequest) {
           } catch {}
       }
 
-      // Mapeamento dos novos campos do PDF
       const insertData: any = {
           world_id: world.id,
           titulo,
@@ -304,13 +304,15 @@ export async function POST(req: NextRequest) {
           aparece_em: ficha.aparece_em,
           episodio: normalizeEpisode(unitNumber),
           
-          // Novos Campos Temporais
           descricao_data: ficha.descricao_data || null,
           data_inicio: ficha.data_inicio || null,
           data_fim: ficha.data_fim || null,
           granularidade_data: ficha.granularidade_data || 'vago',
           camada_temporal: ficha.camada_temporal || 'linha_principal',
           ano_diegese: anoDiegeseFinal || null,
+          
+          // CORREÇÃO CRÍTICA: Forçando o user_id para garantir visibilidade no RLS
+          user_id: userId 
       };
 
       const { data: inserted, error: insertError } = await clientToUse
@@ -336,7 +338,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (ficha.meta && ficha.meta.relacoes) {
-        await saveRelations(fichaId, ficha.meta.relacoes, clientToUse);
+        await saveRelations(fichaId, ficha.meta.relacoes, clientToUse, userId);
       }
 
       saved.push({ fichaId, titulo, codigo: finalCode });
