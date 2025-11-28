@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback, Suspense, useRef } from "react";
+import React, { useEffect, useState, useMemo, useCallback, Suspense, useRef, ChangeEvent } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES } from "@/lib/dates/granularidade";
@@ -58,7 +58,7 @@ type Relation = {
 };
 
 type Universe = { id: string; nome: string; descricao?: string | null; };
-type World = { id: string; nome: string; descricao?: string | null; tipo: string; ordem: number; has_episodes: boolean; universe_id?: string | null; is_root?: boolean; };
+type World = { id: string; nome: string; descricao?: string | null; tipo: string; ordem: number; has_episodes: boolean; universe_id?: string | null; is_root?: boolean; prefixo?: string | null; };
 
 // --- HELPERS ---
 function escapeRegExp(str: string): string { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
@@ -92,6 +92,19 @@ const resizeImage = (file: File, maxWidth: number = 800, quality: number = 0.7):
     });
 };
 
+function getWorldPrefix(world: World | undefined): string {
+    if (!world) return "XX";
+    // Tenta pegar prefixo do nome se não tiver campo prefixo
+    const name = world.nome || "";
+    const parts = name.split(" ");
+    if (parts.length > 1) return parts.map(p => p[0]).join("").toUpperCase().slice(0, 3);
+    return name.slice(0, 3).toUpperCase();
+}
+
+function getTypePrefix(tipo: string): string {
+    return tipo.slice(0, 2).toUpperCase();
+}
+
 function LoreAdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -103,7 +116,6 @@ function LoreAdminContent() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isFocusMode, setIsFocusMode] = useState(false);
 
   // Dados
   const [universes, setUniverses] = useState<Universe[]>([]);
@@ -133,6 +145,7 @@ function LoreAdminContent() {
   const [fichaForm, setFichaForm] = useState<any>({});
   const [isSavingFicha, setIsSavingFicha] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // Helpers de Wiki e Relações
   const [fichaTab, setFichaTab] = useState<"dados" | "relacoes">("dados");
@@ -330,10 +343,30 @@ function LoreAdminContent() {
     if(!selectedUniverseId) return alert("Selecione um universo.");
     setFichaFormMode("create");
     setFichaTab("dados");
+    setImagePreview(null);
     const rootWorld = worlds.find(w => w.is_root);
     const defaultWorld = selectedWorldId || rootWorld?.id || worlds[0]?.id;
     setFichaForm({ id: "", titulo: "", tipo: "conceito", world_id: defaultWorld, conteudo: "", resumo: "", tags: "", granularidade_data: "indefinido", camada_temporal: "linha_principal" });
   }
+
+  // Atualiza código sugerido automaticamente
+  useEffect(() => {
+      if (fichaFormMode !== "idle" && fichaForm.world_id) {
+          const world = worlds.find(w => w.id === fichaForm.world_id);
+          const ep = fichaForm.episodio;
+          const tipo = fichaForm.tipo;
+          
+          // Só sugere se o código estiver vazio ou seguindo o padrão
+          if (!fichaForm.codigo || fichaForm.codigo.includes("AUTO")) {
+              // Lógica de sugestão visual (o código real é gerado no backend, mas aqui damos um feedback)
+              const wPrefix = getWorldPrefix(world);
+              const tPrefix = getTypePrefix(tipo || "XX");
+              const epSuffix = ep ? ep : "00";
+              // Apenas um placeholder visual
+              // setFichaForm(prev => ({...prev, codigo: `${wPrefix}${epSuffix}-${tPrefix}??` })); 
+          }
+      }
+  }, [fichaForm.world_id, fichaForm.episodio, fichaForm.tipo, worlds, fichaFormMode]);
 
   async function handleSaveFicha(e: React.FormEvent) {
     e.preventDefault();
@@ -359,7 +392,7 @@ function LoreAdminContent() {
             granularidade_data: fichaForm.granularidade_data || 'vago',
             camada_temporal: fichaForm.camada_temporal || 'linha_principal',
             episodio: fichaForm.episodio || null,
-            codigo: fichaForm.codigo || null, // Permite edição ou regeneração se null
+            codigo: fichaForm.codigo || null, 
             updated_at: new Date().toISOString(),
         };
 
@@ -391,18 +424,24 @@ function LoreAdminContent() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingImage(true);
+    
+    // Preview imediato
+    const objectUrl = URL.createObjectURL(file);
+    setImagePreview(objectUrl);
+
     try {
         const resizedBlob = await resizeImage(file, 800, 0.7);
         const fileName = `${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
         const { data, error } = await supabaseBrowser.storage.from('images').upload(fileName, resizedBlob, { contentType: 'image/jpeg', upsert: true });
         if (error) {
-            if (error.message.includes("not found")) throw new Error("Bucket 'images' não encontrado. Crie um bucket público chamado 'images' no Supabase.");
+            if (error.message.includes("not found") || error.message.includes("404")) throw new Error("Bucket 'images' não encontrado. Vá ao Supabase > Storage e crie um bucket público chamado 'images'.");
             throw error;
         }
         const { data: publicUrl } = supabaseBrowser.storage.from('images').getPublicUrl(fileName);
         setFichaForm((prev: any) => ({ ...prev, imagem_url: publicUrl.publicUrl }));
     } catch (err: any) {
         alert("Erro ao subir imagem: " + err.message);
+        setImagePreview(null); // Reverte preview se falhar
     } finally {
         setIsUploadingImage(false);
     }
@@ -482,8 +521,7 @@ function LoreAdminContent() {
 
       <main className="flex flex-1 overflow-hidden">
         {/* SIDEBAR NAVIGATION */}
-        {!isFocusMode && (
-          <section className="w-64 border-r border-neutral-800 bg-neutral-950/50 flex flex-col min-h-0">
+        <section className="w-64 border-r border-neutral-800 bg-neutral-950/50 flex flex-col min-h-0">
             <div className="p-4 border-b border-neutral-800">
                 <label className="text-[9px] uppercase font-bold text-zinc-500 block mb-1">Universo Ativo</label>
                 <div className="flex gap-1">
@@ -497,14 +535,12 @@ function LoreAdminContent() {
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 <button onClick={() => { handleSelectWorld(null); }} className={`w-full text-left p-2 rounded text-xs font-bold flex items-center gap-2 ${!selectedWorldId ? "bg-emerald-900/20 text-emerald-400 border border-emerald-500/30" : "text-zinc-400 hover:bg-zinc-900"}`}><span>🟢</span> Visão Geral (Tudo)</button>
                 <div className="mt-4 mb-2 px-2 flex justify-between items-center"><span className="text-[10px] uppercase font-bold text-zinc-600">Mundos</span><button onClick={startCreateWorld} className="text-[10px] bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-300 hover:border-emerald-500 hover:text-white">+</button></div>
-                {childWorlds.map(w => ( <div key={w.id} className={`group flex items-center justify-between p-2 rounded cursor-pointer text-xs ${selectedWorldId === w.id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-900"}`} onClick={() => handleSelectWorld(w.id)}><span className="truncate">{w.nome}</span><div className="hidden group-hover:flex gap-1"><button onClick={(e) => { e.stopPropagation(); setWorldForm(w); setWorldFormMode("edit"); }} className="px-1 text-[9px] bg-black border border-zinc-700 rounded text-zinc-300">Edit</button><button onClick={(e) => handleDeleteWorld(w.id, e)} className="px-1 text-[9px] bg-red-900/30 border border-red-900 rounded text-red-400">×</button></div></div> ))}
+                {childWorlds.map(w => ( <div key={w.id} className={`group flex items-center justify-between p-2 rounded cursor-pointer text-xs ${selectedWorldId === w.id ? "bg-zinc-800 text-white" : "text-zinc-400 hover:bg-zinc-900"}`} onClick={() => handleSelectWorld(w.id)}><span className="truncate">{w.nome}</span><div className="hidden group-hover:flex gap-1"><button onClick={(e) => { e.stopPropagation(); setWorldForm(w); setWorldFormMode("edit"); }} className="px-1 text-[9px] bg-black border border-zinc-700 rounded text-zinc-300">✎</button><button onClick={(e) => handleDeleteWorld(w.id, e)} className="px-1 text-[9px] bg-red-900/30 border border-red-900 rounded text-red-400">×</button></div></div> ))}
             </div>
-          </section>
-        )}
+        </section>
 
         {/* LISTA DE FICHAS */}
-        {!isFocusMode && (
-          <section className="w-80 border-r border-neutral-800 bg-neutral-900/20 flex flex-col min-h-0">
+        <section className="w-80 border-r border-neutral-800 bg-neutral-900/20 flex flex-col min-h-0">
              <div className="p-3 border-b border-neutral-800 flex justify-between items-center"><h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400">{selectedWorldId ? worlds.find(w=>w.id===selectedWorldId)?.nome : "Todas as Fichas"}</h2><button onClick={startCreateFicha} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-medium">+ Ficha</button></div>
              <div className="p-2 space-y-2">
                 <input placeholder="Buscar..." className="w-full bg-black border border-zinc-800 rounded p-1.5 text-xs text-white focus:border-emerald-500 outline-none" value={fichasSearchTerm} onChange={e => setFichasSearchTerm(e.target.value)} />
@@ -521,23 +557,22 @@ function LoreAdminContent() {
                             <div className="text-[9px] uppercase tracking-wide text-zinc-500">{f.tipo}</div>
                         </div>
                         <div className="flex gap-2 mt-1">
-                            {f.codigo && <span className="text-[9px] font-mono text-emerald-500 bg-emerald-900/20 px-1 rounded">{f.codigo}</span>}
                             {f.episodio && <span className="text-[9px] text-zinc-500">Ep. {f.episodio}</span>}
                         </div>
                         <div className="text-[10px] text-zinc-500 line-clamp-2 mt-1">{f.resumo}</div>
                         
                         {/* BOTÕES DE AÇÃO COM ÍCONES SUTIS */}
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                             <button 
-                                onClick={(e) => { e.stopPropagation(); setFichaForm({...f}); setFichaFormMode("edit"); }} 
-                                className="text-zinc-500 hover:text-zinc-200 transition text-[11px]" 
+                                onClick={(e) => { e.stopPropagation(); setFichaForm({...f}); setFichaFormMode("edit"); if(f.imagem_url) setImagePreview(f.imagem_url); }} 
+                                className="px-1.5 py-0.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 rounded transition text-[11px]" 
                                 title="Editar"
                             >
                                 ✎
                             </button>
                             <button 
                                 onClick={(e) => handleDeleteFicha(f.id, e)} 
-                                className="text-zinc-500 hover:text-red-400 transition text-[13px]" 
+                                className="px-1.5 py-0.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/50 rounded transition text-[13px]" 
                                 title="Excluir"
                             >
                                 ×
@@ -546,11 +581,10 @@ function LoreAdminContent() {
                     </div> 
                 ))}
              </div>
-          </section>
-        )}
+        </section>
 
         {/* DETALHES DA FICHA */}
-        <section className={`flex-1 bg-black flex flex-col min-h-0 overflow-y-auto relative transition-all ${isFocusMode ? "w-full" : ""}`}>
+        <section className={`flex-1 bg-black flex flex-col min-h-0 overflow-y-auto relative`}>
             {selectedFichaId ? (
                 <div className="max-w-3xl mx-auto w-full p-8 pb-20">
                     <div className="flex justify-between items-start mb-6">
@@ -564,7 +598,7 @@ function LoreAdminContent() {
                                 <span>{worlds.find(w => w.id === selectedFicha?.world_id)?.nome}</span>
                             </div>
                         </div>
-                        <div className="flex gap-2"><button onClick={() => setIsFocusMode(!isFocusMode)} className="text-zinc-500 hover:text-white px-3 py-1 rounded border border-zinc-800 text-xs">{isFocusMode ? "Restaurar" : "Expandir"}</button><button onClick={() => { setFichaForm({...selectedFicha}); setFichaFormMode("edit"); loadFichaDetails(selectedFicha!.id); }} className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1 rounded text-xs font-bold border border-zinc-700">Editar</button></div>
+                        <button onClick={() => { setFichaForm({...selectedFicha}); setFichaFormMode("edit"); if(selectedFicha?.imagem_url) setImagePreview(selectedFicha.imagem_url); loadFichaDetails(selectedFicha!.id); }} className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1 rounded text-xs font-bold border border-zinc-700">Editar</button>
                     </div>
                     <div className="space-y-8">
                         {selectedFicha?.imagem_url && (
@@ -582,7 +616,7 @@ function LoreAdminContent() {
 
                         <div><h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-zinc-300 leading-loose whitespace-pre-wrap font-serif">{renderWikiText(selectedFicha?.conteudo || selectedFicha?.resumo)}</div></div>
                         <div className="grid grid-cols-2 gap-4 pt-6 border-t border-zinc-900">
-                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha?.id ? rel.target : rel.source; return other ? (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => { setSelectedFichaId(other.id); loadFichaDetails(other.id); }}>{other.titulo}</span></div>) : null; })}</div>
+                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha?.id ? rel.target : rel.source; return other ? (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => handleSelectFicha(other.id)}>{other.titulo}</span></div>) : null; })}</div>
                             <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Dados</h4><div className="space-y-1"><div className="text-xs flex justify-between"><span className="text-zinc-500">Tags</span><span className="text-zinc-300 text-right">{selectedFicha?.tags}</span></div></div></div>
                         </div>
                     </div>
@@ -605,57 +639,60 @@ function LoreAdminContent() {
                 
                 {fichaTab === 'dados' && (
                     <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                             <div>
                                 <label className="text-[10px] uppercase text-zinc-500 block mb-1">Mundo de Origem</label>
                                 <select 
                                     className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white focus:border-emerald-500" 
                                     value={fichaForm.world_id || ""} 
                                     onChange={e => {
-                                        setFichaForm({...fichaForm, world_id: e.target.value, codigo: ''}); // Limpa código para regenerar
+                                        setFichaForm({...fichaForm, world_id: e.target.value, codigo: ''}); 
                                     }}
                                 >
                                     <option value="" disabled>Selecione...</option>
                                     {worlds.map(w => <option key={w.id} value={w.id}>{w.nome} {w.is_root ? "(Global)" : ""}</option>)}
                                 </select>
                             </div>
+                            
+                            {/* DROPDOWN DE EPISÓDIO */}
+                            <div>
+                                <label className="text-[10px] uppercase text-zinc-500 block mb-1">Episódio</label>
+                                <select 
+                                    className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white disabled:opacity-50" 
+                                    value={fichaForm.episodio || ""} 
+                                    onChange={e => {
+                                        setFichaForm({...fichaForm, episodio: e.target.value, codigo: ''});
+                                    }}
+                                    disabled={!fichaForm.world_id || !worlds.find(w => w.id === fichaForm.world_id)?.has_episodes}
+                                >
+                                    <option value="">N/A</option>
+                                    {fichaForm.world_id && worlds.find(w => w.id === fichaForm.world_id)?.has_episodes && Array.from({length: 50}, (_, i) => i + 1).map(n => (<option key={n} value={n}>Episódio {n}</option>))}
+                                </select>
+                            </div>
+
                             <div>
                                 <label className="text-[10px] uppercase text-zinc-500 block mb-1">Tipo</label>
                                 <select className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white" value={fichaForm.tipo} onChange={e => setFichaForm({...fichaForm, tipo: e.target.value})}>{loreTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
                             </div>
                         </div>
 
-                        {/* NOVO: DROPDOWN DE EPISÓDIO */}
-                        {fichaForm.world_id && worlds.find(w => w.id === fichaForm.world_id)?.has_episodes && (
-                            <div>
-                                <label className="text-[10px] uppercase text-zinc-500 block mb-1">Episódio Associado</label>
-                                <div className="flex gap-2">
-                                    <select 
-                                        className="w-32 bg-black border border-zinc-800 rounded p-2 text-xs text-white" 
-                                        value={fichaForm.episodio || ""} 
-                                        onChange={e => {
-                                            setFichaForm({...fichaForm, episodio: e.target.value, codigo: ''}); // Limpa código para regenerar
-                                        }}
-                                    >
-                                        <option value="">Nenhum</option>
-                                        {Array.from({length: 50}, (_, i) => i + 1).map(n => (<option key={n} value={n}>Episódio {n}</option>))}
-                                    </select>
-                                    <span className="text-[10px] text-zinc-600 self-center">Ao mudar, o código será recalculado ao salvar.</span>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="space-y-3">
                             <div className="flex gap-4">
                                 <div className="flex-1"><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white" value={fichaForm.titulo || ""} onChange={e => setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
-                                {/* UPLOAD DE IMAGEM */}
+                                {/* UPLOAD DE IMAGEM COM PREVIEW IMEDIATO */}
                                 <div className="w-32">
                                     <label className="text-[10px] uppercase text-zinc-500 block mb-1">Capa</label>
-                                    <div className="relative group w-full h-9 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center cursor-pointer hover:bg-zinc-800">
-                                        {isUploadingImage ? <span className="text-[9px] animate-pulse">Enviando...</span> : <span className="text-[9px] text-zinc-400">Subir Imagem</span>}
+                                    <div className="relative group w-full h-24 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center cursor-pointer hover:bg-zinc-800 overflow-hidden">
+                                        {imagePreview ? (
+                                            <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="text-center">
+                                                <span className="block text-2xl mb-1">📷</span>
+                                                <span className="text-[9px] text-zinc-400">{isUploadingImage ? "Enviando..." : "Subir"}</span>
+                                            </div>
+                                        )}
                                         <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} disabled={isUploadingImage} />
                                     </div>
-                                    {fichaForm.imagem_url && <div className="text-[9px] text-emerald-500 truncate mt-1">Imagem Salva!</div>}
                                 </div>
                             </div>
                             
@@ -705,23 +742,36 @@ function LoreAdminContent() {
                     <div className="space-y-4 h-full flex flex-col">
                         <div className="flex-1 bg-zinc-900/30 border border-zinc-800 rounded p-3 overflow-y-auto min-h-[200px]">
                             {relations.length === 0 && <div className="text-center text-zinc-600 text-xs mt-10">Sem relações cadastradas.</div>}
-                            {relations.map(rel => {
-                                const isSource = rel.source_ficha_id === fichaForm.id;
-                                const other = isSource ? rel.target : rel.source;
-                                return (
-                                    <div key={rel.id} className="flex justify-between items-center p-2 border-b border-zinc-800 last:border-0 text-xs">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-zinc-300">{isSource ? "Esta ficha" : other?.titulo}</span>
-                                            <span className="text-zinc-500">➜ {rel.tipo_relacao.replace(/_/g, " ")} ➜</span>
-                                            <span className="font-bold text-zinc-300">{isSource ? other?.titulo : "Esta ficha"}</span>
+                            <div className="space-y-3">
+                                {relations.map(rel => {
+                                    const isSource = rel.source_ficha_id === fichaForm.id;
+                                    const other = isSource ? rel.target : rel.source;
+                                    return (
+                                        <div key={rel.id} className="flex justify-between items-center p-2 border-b border-zinc-800 last:border-0 text-xs bg-zinc-900/50 rounded">
+                                            <div className="flex items-center gap-2">
+                                                {/* Visualização de Fluxo */}
+                                                {isSource ? (
+                                                    <>
+                                                        <span className="text-emerald-500 font-bold">Esta ficha</span>
+                                                        <span className="text-zinc-500">➜ {rel.tipo_relacao.replace(/_/g, " ")} ➜</span>
+                                                        <span className="text-zinc-300 font-bold">{other?.titulo}</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="text-zinc-300 font-bold">{other?.titulo}</span>
+                                                        <span className="text-zinc-500">➜ {rel.tipo_relacao.replace(/_/g, " ")} ➜</span>
+                                                        <span className="text-emerald-500 font-bold">Esta ficha</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            <button type="button" onClick={() => handleDeleteRelation(rel.id)} className="text-red-500 hover:text-red-300 px-2">×</button>
                                         </div>
-                                        <button type="button" onClick={() => handleDeleteRelation(rel.id)} className="text-red-500 hover:text-red-300 px-2">×</button>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
                         <div className="pt-4 border-t border-zinc-800">
-                            <label className="text-[10px] uppercase text-zinc-500 block mb-2">Adicionar Nova Relação</label>
+                            <label className="text-[10px] uppercase text-zinc-500 block mb-2">Adicionar Nova Relação (Saindo desta ficha)</label>
                             <div className="flex gap-2">
                                 <select className="w-32 bg-black border border-zinc-800 rounded p-2 text-xs" value={newRelType} onChange={e => setNewRelType(e.target.value)}>
                                     {RELATION_TYPES.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)}
@@ -743,6 +793,7 @@ function LoreAdminContent() {
             </form>
         </div>
       )}
+      
       {/* (Modais de Mundo e Universo omitidos pois são idênticos) */}
       {universeFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"><form onSubmit={e => { e.preventDefault(); saveUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-96 shadow-xl"><h3 className="text-white font-bold mb-4">{universeFormMode === 'create' ? 'Novo Universo' : 'Editar Universo'}</h3><input className="w-full bg-black border border-zinc-800 rounded p-2 mb-2 text-sm text-white" placeholder="Nome" value={universeForm.nome} onChange={e=>setUniverseForm({...universeForm, nome: e.target.value})} /><textarea className="w-full bg-black border border-zinc-800 rounded p-2 mb-4 text-sm text-white h-20" placeholder="Descrição" value={universeForm.descricao || ""} onChange={e=>setUniverseForm({...universeForm, descricao: e.target.value})} /><div className="flex justify-end gap-2"><button type="button" onClick={() => setUniverseFormMode("idle")} className="text-zinc-400 text-xs">Cancelar</button><button className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button></div></form></div>)}
       {worldFormMode !== "idle" && (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"><form onSubmit={handleSaveWorld} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-96 shadow-xl"><h3 className="text-white font-bold mb-4">{worldFormMode === 'create' ? 'Novo Mundo' : 'Editar Mundo'}</h3><div className="space-y-3"><div><label className="text-[10px] uppercase text-zinc-500">Nome</label><input className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white" value={worldForm.nome || ""} onChange={e => setWorldForm({...worldForm, nome: e.target.value})} autoFocus /></div><div><label className="text-[10px] uppercase text-zinc-500">Descrição</label><textarea className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white h-20" value={worldForm.descricao || ""} onChange={e => setWorldForm({...worldForm, descricao: e.target.value})} /></div><div className="flex items-center gap-2"><input type="checkbox" id="hasEp" checked={worldForm.has_episodes || false} onChange={e => setWorldForm({...worldForm, has_episodes: e.target.checked})} /><label htmlFor="hasEp" className="text-xs text-zinc-300">Possui episódios / capítulos?</label></div></div><div className="flex justify-end gap-2 mt-6"><button type="button" onClick={() => setWorldFormMode("idle")} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Cancelar</button><button type="submit" className="px-4 py-1.5 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-500">Salvar</button></div></form></div>)}
