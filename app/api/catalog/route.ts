@@ -12,7 +12,6 @@ export async function GET(req: NextRequest) {
     let clientToUse = supabase;
     let userId = user?.id;
 
-    // Fallback de segurança para modo Admin
     if (!userId) {
         const headerUserId = req.headers.get("x-user-id");
         if (headerUserId && supabaseAdmin) {
@@ -22,10 +21,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "Usuário não identificado." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Usuário não identificado." }, { status: 401 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -34,7 +30,7 @@ export async function GET(req: NextRequest) {
     // 1. Busca Mundos
     let worldsQuery = clientToUse
       .from("worlds")
-      .select("id, nome, descricao, tipo, ordem, is_root, universe_id")
+      .select("id, nome, descricao, tipo, ordem, is_root, universe_id, has_episodes")
       .order("ordem", { ascending: true });
 
     if (universeId) {
@@ -45,18 +41,20 @@ export async function GET(req: NextRequest) {
 
     if (worldsError) {
         console.error("Erro ao buscar worlds:", worldsError.message);
-        // Não retorna erro fatal aqui para tentar carregar o resto se possível, 
-        // mas idealmente mundos são necessários.
     }
 
-    // 2. Busca Fichas (CORRIGIDO: Removido ordem_cronologica)
+    // 2. Busca Fichas (AGORA COM TODOS OS CAMPOS)
     let entitiesQuery = clientToUse
       .from("fichas")
-      .select(
-        "id, slug, tipo, titulo, resumo, world_id, ano_diegese, tags, codigo" // <--- REMOVIDO ordem_cronologica
-      )
+      .select(`
+        id, slug, tipo, titulo, resumo, conteudo, 
+        world_id, ano_diegese, tags, codigo, 
+        imagem_url, aparece_em, 
+        data_inicio, data_fim, granularidade_data, camada_temporal, descricao_data, 
+        episodio
+      `)
       .order("titulo", { ascending: true })
-      .limit(2000);
+      .limit(3000);
 
     if (worlds && worlds.length > 0) {
         const worldIds = worlds.map(w => w.id);
@@ -69,23 +67,21 @@ export async function GET(req: NextRequest) {
 
     if (entitiesError) {
         console.error("Erro ao buscar fichas:", entitiesError.message);
-        // Se der erro na busca de fichas, retorna array vazio para não quebrar a página
     }
 
-    // 3. Busca Categorias (DINÂMICO)
-    // Tenta buscar, se a tabela não existir (ainda não rodou SQL), usa fallback silencioso
+    // 3. Busca Categorias
     let types: {id: string, label: string}[] = [];
     try {
-        const { data: categories, error: catError } = await clientToUse
+        const { data: categories } = await clientToUse
           .from("lore_categories")
           .select("slug, label")
           .order("label", { ascending: true });
         
-        if (!catError && categories) {
+        if (categories) {
             types = categories.map((c: any) => ({ id: c.slug, label: c.label }));
         }
     } catch (e) {
-        console.warn("Tabela lore_categories não encontrada ou erro de acesso.");
+        // Fallback silencioso
     }
 
     return NextResponse.json({
@@ -96,9 +92,6 @@ export async function GET(req: NextRequest) {
 
   } catch (err: any) {
     console.error("Erro CRÍTICO em /api/catalog:", err);
-    return NextResponse.json(
-      { error: "Erro interno no servidor: " + err.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
