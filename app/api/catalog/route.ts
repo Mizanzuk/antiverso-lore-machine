@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabase"; 
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-
+    
     let clientToUse = supabase;
     let userId = user?.id;
 
@@ -50,32 +50,30 @@ export async function GET(req: NextRequest) {
     let entitiesQuery = clientToUse
       .from("fichas")
       .select(`
-        id, 
-        slug, 
-        tipo, 
-        titulo, 
-        resumo, 
-        conteudo, 
-        world_id, 
-        ano_diegese, 
-        tags, 
-        codigo, 
-        imagem_url, 
-        aparece_em, 
-        data_inicio, 
-        data_fim, 
-        granularidade_data, 
-        camada_temporal, 
-        descricao_data, 
+        id,
+        slug,
+        tipo,
+        titulo,
+        resumo,
+        conteudo,
+        tags,
+        aparece_em,
+        ano_diegese,
+        data_inicio,
+        data_fim,
+        granularidade_data,
+        camada_temporal,
+        descricao_data,
+        world_id,
+        imagem_url,
+        codigo,
         episodio
-      `)
-      .order("titulo", { ascending: true })
-      .limit(3000);
+      `);
 
-    if (worlds && worlds.length > 0) {
-        const worldIds = worlds.map(w => w.id);
+    if (universeId && worlds && worlds.length > 0) {
+        const worldIds = worlds.map((w: any) => w.id);
         entitiesQuery = entitiesQuery.in("world_id", worldIds);
-    } else if (universeId) {
+    } else if (universeId && (!worlds || worlds.length === 0)) {
         entitiesQuery = entitiesQuery.in("world_id", []);
     }
 
@@ -85,13 +83,20 @@ export async function GET(req: NextRequest) {
         console.error("Erro ao buscar fichas:", entitiesError.message);
     }
 
-    // 3. Busca Categorias (Dinâmico)
+    // 3. Busca Categorias (Dinâmico) - FILTRADO POR UNIVERSO
     let types: {id: string, label: string}[] = [];
     try {
-        const { data: categories, error: catError } = await clientToUse
+        let categoriesQuery = clientToUse
           .from("lore_categories")
           .select("slug, label")
           .order("label", { ascending: true });
+        
+        // FILTRO ADICIONADO: Só buscar categorias do universo selecionado
+        if (universeId) {
+            categoriesQuery = categoriesQuery.eq("universe_id", universeId);
+        }
+        
+        const { data: categories, error: catError } = await categoriesQuery;
         
         if (!catError && categories) {
             types = categories.map((c: any) => ({ id: c.slug, label: c.label }));
