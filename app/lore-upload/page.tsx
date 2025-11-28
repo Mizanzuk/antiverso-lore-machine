@@ -206,7 +206,7 @@ export default function LoreUploadPage() {
       const response = await fetch("/api/lore/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": userId },
-        body: JSON.stringify({ text, worldId: selectedWorldId, worldName, documentName: documentName.trim() || null, unitNumber }),
+        body: JSON.stringify({ text, worldId: selectedWorldId, worldName, documentName: documentName.trim() || null, unitNumber, universeId: selectedUniverseId }),
       });
 
       if (!response.ok || !response.body) {
