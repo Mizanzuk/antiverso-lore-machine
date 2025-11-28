@@ -63,15 +63,14 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
   Você é o Motor de Extração de Lore do AntiVerso.
   Sua missão é DECOMPOR o texto em uma lista de objetos JSON (fichas), preenchendo o máximo de campos possível.
   
-  ⚠️ MODO DE ALTA SENSIBILIDADE E COMPLETUDE:
-  - Não resuma o texto todo em uma ficha só. Quebre-o em várias.
-  - Se encontrar datas, preencha 'data_inicio' (YYYY-MM-DD), 'descricao_data', 'granularidade_data' e 'camada_temporal'.
-  - Se encontrar relações entre personagens (ex: "João, filho de Maria"), use o campo 'meta.relacoes'.
+  ⚠️ MODO DE ALTA COMPLETUDE:
+  - Quebre o texto em várias fichas.
+  - Gere TAGS ricas e RELAÇÕES entre os personagens.
   
   TIPOS PERMITIDOS: ${typeInstructions}
   
   ### EXEMPLO DE COMPORTAMENTO ESPERADO (Siga este padrão):
-  Texto: "Em 1999, João (filho de Maria) entrou na Caverna Escura."
+  Texto: "Em 1999, João (filho de Maria e inimigo de Pedro) entrou na Caverna Escura sentindo medo."
   Saída JSON:
   {
     "fichas": [
@@ -79,12 +78,19 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
         "tipo": "personagem", 
         "titulo": "João", 
         "resumo": "Filho de Maria que explorou a caverna.", 
-        "meta": { "relacoes": [{ "tipo": "filho_de", "alvo_titulo": "Maria" }] }
+        "tags": ["medo", "exploração", "família", "protagonista"],
+        "meta": { 
+           "relacoes": [
+              { "tipo": "filho_de", "alvo_titulo": "Maria" },
+              { "tipo": "inimigo_de", "alvo_titulo": "Pedro" }
+           ] 
+        }
       },
       { 
         "tipo": "local", 
         "titulo": "Caverna Escura", 
-        "resumo": "Local perigoso explorado por João." 
+        "resumo": "Local perigoso explorado por João.",
+        "tags": ["perigo", "subterrâneo", "escuro"]
       },
       { 
         "tipo": "evento", 
@@ -93,25 +99,33 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
         "granularidade_data": "ano",
         "descricao_data": "Em 1999", 
         "camada_temporal": "linha_principal", 
+        "tags": ["incidente", "1999"],
         "resumo": "Momento em que João entra na caverna." 
       }
     ]
   }
 
   ### SUAS DIRETRIZES:
-  1. Varra o texto procurando por: Personagens, Locais, Organizações, Objetos e Eventos.
-  2. Extraia o máximo de detalhes para o campo 'conteudo'.
-  3. Preencha 'meta.relacoes' sempre que possível.
+  1. **PERSONAGENS & RELAÇÕES (CRUCIAL):**
+     - Se Personagem A interage, menciona ou é parente de Personagem B, preencha 'meta.relacoes'.
+     - Use tipos como: 'amigo_de', 'pai_de', 'inimigo_de', 'menciona', 'interage_com'.
+  
+  2. **TAGS (OBRIGATÓRIO):**
+     - Gere de 3 a 6 tags para CADA ficha.
+     - Inclua: sentimentos (ex: "medo"), temas (ex: "traição"), objetos associados ou arquétipos.
+  
+  3. **EVENTOS:**
+     - Se houver datas, crie fichas de evento com 'data_inicio' (YYYY-MM-DD).
   
   Retorne APENAS o JSON válido com a chave "fichas".
   `.trim();
   
-    const userPrompt = `Texto para análise (Parte ${chunkIndex + 1}/${totalChunks}):\n"""${text}"""`;
+    const userPrompt = `Texto para análise:\n"""${text}"""`;
   
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.3, 
+        temperature: 0.4, // Levemente aumentado para favorecer geração de tags criativas
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
@@ -148,12 +162,18 @@ function deduplicateFichas(allFichas: ExtractedFicha[]): ExtractedFicha[] {
             existing.conteudo += `\n\n[Mais]: ${safeConteudo}`;
         }
         
+        // Merge inteligente de Tags
         const mergedTags = new Set([...(existing.tags || []), ...(f.tags || [])]);
         existing.tags = Array.from(mergedTags);
         
+        // Merge inteligente de Relações
         if (f.meta?.relacoes) {
           const existingRels = existing.meta?.relacoes || [];
-          existing.meta = { ...existing.meta, relacoes: [...existingRels, ...f.meta.relacoes] };
+          // Evita duplicatas exatas de relação
+          const newRels = f.meta.relacoes.filter(r => 
+              !existingRels.some(er => er.alvo_titulo === r.alvo_titulo && er.tipo === r.tipo)
+          );
+          existing.meta = { ...existing.meta, relacoes: [...existingRels, ...newRels] };
         }
         
         if (!existing.data_inicio && f.data_inicio) {
@@ -200,14 +220,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized (401)." }, { status: 401 });
     }
 
-    // Carrega Tipos Dinâmicos
+    // 1. BUSCAR CATEGORIAS DINÂMICAS DO BANCO
     let allowedTypes = ["personagem", "local", "evento", "conceito", "roteiro", "objeto", "organizacao", "registro_anomalo"];
     try {
         const { data: catData } = await clientToUse.from("lore_categories").select("slug");
         if (catData && catData.length > 0) {
             allowedTypes = catData.map((c: any) => c.slug);
         }
-    } catch (e) { /* Ignore */ }
+    } catch (e) {
+        console.warn("Aviso: Falha ao carregar categorias dinâmicas, usando fallback.", e);
+    }
 
     const body = await req.json().catch(() => ({}));
     const { worldId, unitNumber, text, documentName } = body;
@@ -227,7 +249,7 @@ export async function POST(req: NextRequest) {
          try {
             send({ type: "progress", percentage: 5, message: "Iniciando análise do roteiro..." });
 
-            // 1. SALVAR ROTEIRO (BACKUP)
+            // 2. SALVAR ROTEIRO (BACKUP)
             let roteiroId: string | null = null;
             const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
             const tituloDoc = documentName?.trim() || "Roteiro Processado";
@@ -252,7 +274,7 @@ export async function POST(req: NextRequest) {
             
             send({ type: "progress", percentage: 10, message: "Roteiro salvo. Dividindo texto..." });
 
-            // 2. DIVIDIR E CONQUISTAR (SEQUENCIAL PARA PROGRESSO REAL)
+            // 3. DIVIDIR E CONQUISTAR
             const chunks = splitTextIntoChunks(text);
             const totalChunks = chunks.length;
             let allRawFichas: ExtractedFicha[] = [];
@@ -268,22 +290,23 @@ export async function POST(req: NextRequest) {
                 allRawFichas.push(...chunkFichas);
             }
 
-            send({ type: "progress", percentage: 90, message: "Consolidando e deduplicando fichas..." });
+            send({ type: "progress", percentage: 90, message: "Consolidando e gerando tags..." });
 
-            // 3. DEDUPLICAÇÃO
+            // 4. DEDUPLICAÇÃO
             const uniqueFichas = deduplicateFichas(allRawFichas);
 
-            // 4. FICHA DO ROTEIRO
+            // 5. FICHA DO ROTEIRO
             const fichaRoteiro: ExtractedFicha = {
               tipo: "roteiro",
               titulo: tituloDoc,
               resumo: `Ficha técnica automática do documento/episódio ${episodio}.`,
-              conteudo: text, // Texto integral aqui
-              tags: ["roteiro", `ep-${episodio}`],
+              conteudo: text,
+              tags: ["roteiro", `ep-${episodio}`, "documento_original"],
               ano_diegese: null,
               aparece_em: `Episódio ${episodio}`,
               meta: { status: "ativo" }
             };
+
             uniqueFichas.unshift(fichaRoteiro);
 
             const cleanFichas = uniqueFichas.map(f => ({
