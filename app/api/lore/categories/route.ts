@@ -1,19 +1,30 @@
 // ============================================
 // ARQUIVO: app/api/lore/categories/route.ts
 // ============================================
-// CRUD completo para gerenciar categorias
+// CRUD completo para gerenciar categorias POR UNIVERSO
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// GET - Listar todas as categorias
-export async function GET() {
+// GET - Listar todas as categorias de um universo específico
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const universeId = searchParams.get("universeId");
+
+    if (!universeId) {
+      return NextResponse.json(
+        { error: "universeId é obrigatório" },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabaseAdmin
       .from("lore_categories")
       .select("*")
+      .eq("universe_id", universeId)
       .order("label");
 
     if (error) throw error;
@@ -28,11 +39,11 @@ export async function GET() {
   }
 }
 
-// POST - Criar nova categoria
+// POST - Criar nova categoria vinculada a um universo
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { slug, label, description, prefix } = body;
+    const { slug, label, description, prefix, universe_id } = body;
 
     // Validações
     if (!slug || !label) {
@@ -42,16 +53,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verificar se já existe
+    if (!universe_id) {
+      return NextResponse.json(
+        { error: "universe_id é obrigatório" },
+        { status: 400 }
+      );
+    }
+
+    // Verificar se já existe categoria com este slug neste universo
     const { data: existing } = await supabaseAdmin
       .from("lore_categories")
       .select("slug")
       .eq("slug", slug)
+      .eq("universe_id", universe_id)
       .single();
 
     if (existing) {
       return NextResponse.json(
-        { error: "Categoria com este slug já existe" },
+        { error: "Categoria com este slug já existe neste universo" },
         { status: 409 }
       );
     }
@@ -64,6 +83,7 @@ export async function POST(req: NextRequest) {
         label,
         description: description || null,
         prefix: prefix || null,
+        universe_id,
       })
       .select()
       .single();
@@ -80,15 +100,22 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH - Atualizar categoria existente
-export async function PATCH(req: NextRequest) {
+// PUT - Atualizar categoria existente
+export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
-    const { slug, label, description, prefix } = body;
+    const { slug, label, description, prefix, universe_id } = body;
 
     if (!slug) {
       return NextResponse.json(
         { error: "slug é obrigatório" },
+        { status: 400 }
+      );
+    }
+
+    if (!universe_id) {
+      return NextResponse.json(
+        { error: "universe_id é obrigatório" },
         { status: 400 }
       );
     }
@@ -102,6 +129,7 @@ export async function PATCH(req: NextRequest) {
       .from("lore_categories")
       .update(updateData)
       .eq("slug", slug)
+      .eq("universe_id", universe_id)
       .select()
       .single();
 
@@ -117,11 +145,12 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE - Deletar categoria (e todas as fichas dela)
+// DELETE - Deletar categoria (e todas as fichas dela neste universo)
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const slug = searchParams.get("slug");
+    const universeId = searchParams.get("universeId");
 
     if (!slug) {
       return NextResponse.json(
@@ -130,19 +159,38 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // Primeiro, deletar todas as fichas desta categoria
-    const { error: deleteFichasError } = await supabaseAdmin
-      .from("fichas")
-      .delete()
-      .eq("tipo", slug);
+    if (!universeId) {
+      return NextResponse.json(
+        { error: "universeId é obrigatório" },
+        { status: 400 }
+      );
+    }
 
-    if (deleteFichasError) throw deleteFichasError;
+    // Primeiro, buscar todos os worlds deste universo
+    const { data: worlds } = await supabaseAdmin
+      .from("worlds")
+      .select("id")
+      .eq("universe_id", universeId);
+
+    if (worlds && worlds.length > 0) {
+      const worldIds = worlds.map(w => w.id);
+
+      // Deletar todas as fichas desta categoria nestes worlds
+      const { error: deleteFichasError } = await supabaseAdmin
+        .from("fichas")
+        .delete()
+        .eq("tipo", slug)
+        .in("world_id", worldIds);
+
+      if (deleteFichasError) throw deleteFichasError;
+    }
 
     // Depois, deletar a categoria
     const { error: deleteCategoryError } = await supabaseAdmin
       .from("lore_categories")
       .delete()
-      .eq("slug", slug);
+      .eq("slug", slug)
+      .eq("universe_id", universeId);
 
     if (deleteCategoryError) throw deleteCategoryError;
 
