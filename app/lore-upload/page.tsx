@@ -259,7 +259,8 @@ export default function LoreUploadPage() {
         const tagsArray = rawFicha.tags || [];
         const tagsString = tagsArray.join(", ");
         
-        const worldNameForAparece = selected?.nome || selected?.id || "Mundo Desconhecido";
+        // CORREÇÃO: Aqui usamos selectedWorld em vez de 'selected'
+        const worldNameForAparece = selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
         const appearsParts: string[] = [];
         if (worldNameForAparece) appearsParts.push(`Mundo: ${worldNameForAparece}`);
         if (normalizedEpisode) appearsParts.push(`Episódio/Capítulo: ${normalizedEpisode}`);
@@ -521,7 +522,6 @@ export default function LoreUploadPage() {
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
               
-              {/* Campos de Evento */}
               {editingFicha.tipo === 'evento' && (
                 <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
