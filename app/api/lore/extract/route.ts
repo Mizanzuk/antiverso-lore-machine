@@ -56,7 +56,6 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
   return chunks;
 }
 
-// A função de processamento agora inclui um EXEMPLO (One-Shot) no prompt e pede completude máxima
 async function processChunk(text: string, chunkIndex: number, totalChunks: number, allowedTypes: string[]): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     
@@ -107,7 +106,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
   Retorne APENAS o JSON válido com a chave "fichas".
   `.trim();
   
-    const userPrompt = `Texto para análise:\n"""${text}"""`;
+    const userPrompt = `Texto para análise (Parte ${chunkIndex + 1}/${totalChunks}):\n"""${text}"""`;
   
     try {
       const completion = await openai!.chat.completions.create({
@@ -201,16 +200,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized (401)." }, { status: 401 });
     }
 
-    // 1. BUSCAR CATEGORIAS DINÂMICAS DO BANCO
+    // Carrega Tipos Dinâmicos
     let allowedTypes = ["personagem", "local", "evento", "conceito", "roteiro", "objeto", "organizacao", "registro_anomalo"];
     try {
         const { data: catData } = await clientToUse.from("lore_categories").select("slug");
         if (catData && catData.length > 0) {
             allowedTypes = catData.map((c: any) => c.slug);
         }
-    } catch (e) {
-        console.warn("Aviso: Falha ao carregar categorias dinâmicas, usando fallback.", e);
-    }
+    } catch (e) { /* Ignore */ }
 
     const body = await req.json().catch(() => ({}));
     const { worldId, unitNumber, text, documentName } = body;
@@ -219,66 +216,98 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Campo 'text' é obrigatório." }, { status: 400 });
     }
 
-    // 2. SALVAR ROTEIRO
-    let roteiroId: string | null = null;
-    if (clientToUse) {
-      const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : normalizeEpisode(String(unitNumber ?? ""));
-      const titulo = typeof documentName === "string" && documentName.trim() ? documentName.trim() : "Roteiro sem título";
-      
-      try {
-        const { data, error } = await clientToUse
-          .from("roteiros")
-          .insert({ 
-            world_id: worldId ?? null, 
-            titulo, 
-            conteudo: text, 
-            episodio,
-          })
-          .select("id")
-          .single();
-        if (!error && data) roteiroId = data.id;
-      } catch (err) {
-        console.warn("Aviso: Erro ao salvar roteiro.", err);
+    // START STREAMING
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+         const send = (data: any) => {
+             controller.enqueue(encoder.encode(JSON.stringify(data) + "\n"));
+         };
+
+         try {
+            send({ type: "progress", percentage: 5, message: "Iniciando análise do roteiro..." });
+
+            // 1. SALVAR ROTEIRO (BACKUP)
+            let roteiroId: string | null = null;
+            const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
+            const tituloDoc = documentName?.trim() || "Roteiro Processado";
+
+            if (clientToUse) {
+              try {
+                const { data, error } = await clientToUse
+                  .from("roteiros")
+                  .insert({ 
+                    world_id: worldId ?? null, 
+                    titulo: tituloDoc, 
+                    conteudo: text, 
+                    episodio,
+                  })
+                  .select("id")
+                  .single();
+                if (!error && data) roteiroId = data.id;
+              } catch (err) {
+                console.warn("Aviso: Erro ao salvar roteiro backup.", err);
+              }
+            }
+            
+            send({ type: "progress", percentage: 10, message: "Roteiro salvo. Dividindo texto..." });
+
+            // 2. DIVIDIR E CONQUISTAR (SEQUENCIAL PARA PROGRESSO REAL)
+            const chunks = splitTextIntoChunks(text);
+            const totalChunks = chunks.length;
+            let allRawFichas: ExtractedFicha[] = [];
+
+            for (let i = 0; i < totalChunks; i++) {
+                const progressBase = 10;
+                const progressSpace = 80; // 10% a 90%
+                const currentPct = Math.round(progressBase + ((i / totalChunks) * progressSpace));
+                
+                send({ type: "progress", percentage: currentPct, message: `Analisando parte ${i + 1} de ${totalChunks}...` });
+                
+                const chunkFichas = await processChunk(chunks[i], i, totalChunks, allowedTypes);
+                allRawFichas.push(...chunkFichas);
+            }
+
+            send({ type: "progress", percentage: 90, message: "Consolidando e deduplicando fichas..." });
+
+            // 3. DEDUPLICAÇÃO
+            const uniqueFichas = deduplicateFichas(allRawFichas);
+
+            // 4. FICHA DO ROTEIRO
+            const fichaRoteiro: ExtractedFicha = {
+              tipo: "roteiro",
+              titulo: tituloDoc,
+              resumo: `Ficha técnica automática do documento/episódio ${episodio}.`,
+              conteudo: text, // Texto integral aqui
+              tags: ["roteiro", `ep-${episodio}`],
+              ano_diegese: null,
+              aparece_em: `Episódio ${episodio}`,
+              meta: { status: "ativo" }
+            };
+            uniqueFichas.unshift(fichaRoteiro);
+
+            const cleanFichas = uniqueFichas.map(f => ({
+              ...f,
+              titulo: (f.titulo || "").trim(),
+              tipo: (f.tipo || "conceito").toLowerCase().trim(),
+              meta: { ...f.meta, relacoes: f.meta?.relacoes || [] }
+            }));
+
+            send({ type: "progress", percentage: 100, message: "Concluído!" });
+            send({ type: "complete", fichas: cleanFichas, roteiroId });
+            
+            controller.close();
+
+         } catch (err: any) {
+            console.error("Erro no stream:", err);
+            send({ type: "error", message: err.message || "Erro desconhecido no servidor." });
+            controller.close();
+         }
       }
-    }
+    });
 
-    // 3. DIVIDIR E CONQUISTAR
-    const chunks = splitTextIntoChunks(text);
-    const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length, allowedTypes));
-    const results = await Promise.all(promises);
-    const allRawFichas = results.flat();
-
-    // 4. DEDUPLICAÇÃO
-    const uniqueFichas = deduplicateFichas(allRawFichas);
-
-    // 5. FICHA DO ROTEIRO
-    const episodio = typeof unitNumber === "string" ? normalizeEpisode(unitNumber) : "0";
-    const tituloDoc = documentName?.trim() || "Roteiro Processado";
-    
-    const fichaRoteiro: ExtractedFicha = {
-      tipo: "roteiro",
-      titulo: tituloDoc,
-      resumo: `Ficha técnica automática do documento/episódio ${episodio}.`,
-      conteudo: text.slice(0, 2000) + (text.length > 2000 ? "..." : ""),
-      tags: ["roteiro", `ep-${episodio}`],
-      ano_diegese: null,
-      aparece_em: `Episódio ${episodio}`,
-      meta: { status: "ativo" }
-    };
-
-    uniqueFichas.unshift(fichaRoteiro);
-
-    const cleanFichas = uniqueFichas.map(f => ({
-      ...f,
-      titulo: (f.titulo || "").trim(),
-      tipo: (f.tipo || "conceito").toLowerCase().trim(),
-      meta: { ...f.meta, relacoes: f.meta?.relacoes || [] }
-    }));
-
-    return NextResponse.json({
-      fichas: cleanFichas,
-      roteiroId,
-      totalExtracted: cleanFichas.length
+    return new NextResponse(stream, { 
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' } 
     });
 
   } catch (err: any) {
