@@ -92,6 +92,18 @@ const resizeImage = (file: File, maxWidth: number = 800, quality: number = 0.7):
     });
 };
 
+function getWorldPrefix(world: World | undefined): string {
+    if (!world) return "XX";
+    const name = world.nome || "";
+    const parts = name.split(" ");
+    if (parts.length > 1) return parts.map(p => p[0]).join("").toUpperCase().slice(0, 3);
+    return name.slice(0, 3).toUpperCase();
+}
+
+function getTypePrefix(tipo: string): string {
+    return tipo.slice(0, 2).toUpperCase();
+}
+
 function LoreAdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -205,10 +217,10 @@ function LoreAdminContent() {
     if (data) {
       setUniverses(data);
       const urlUni = searchParams.get("universe");
-      if (!urlUni && data.length > 0) {
-          const firstId = data[0].id;
-          setSelectedUniverseId(firstId);
-          fetchAllData(firstId, null, null);
+      const initialUniId = (urlUni && data.find(u => u.id === urlUni)) ? urlUni : (data[0]?.id || null);
+      setSelectedUniverseId(initialUniId);
+      if(initialUniId) {
+          fetchAllData(initialUniId, searchParams.get("world"), searchParams.get("ficha"));
       }
     }
   }
@@ -241,14 +253,12 @@ function LoreAdminContent() {
           ]);
       }
 
-      // Restaura seleção de mundo
       let effectiveWorldId = currentWorldId;
       if (effectiveWorldId && !(data.worlds || []).some((w:World) => w.id === effectiveWorldId)) {
         effectiveWorldId = null;
       }
       setSelectedWorldId(effectiveWorldId);
 
-      // Restaura seleção de ficha
       if (currentFichaId && (data.entities || []).some((f:FichaFull) => f.id === currentFichaId)) {
         setSelectedFichaId(currentFichaId);
         loadFichaDetails(currentFichaId);
@@ -264,7 +274,6 @@ function LoreAdminContent() {
     }
   }, [userId]);
 
-  // Wrappers para atualizar URL quando o usuário clica
   const handleSelectUniverse = (id: string) => {
       updateUrl(id, null, null);
   };
@@ -415,10 +424,15 @@ function LoreAdminContent() {
           if(error) throw error;
           const updatedFichas = fichas.map(f => f.id === id ? { ...f, imagem_url: null } : f);
           setFichas(updatedFichas);
-          if (selectedFichaId === id) {
-             // Force re-render if selected
+          // Se a ficha estiver selecionada e o modal não estiver aberto, forçamos re-render
+          if (selectedFichaId === id && fichaFormMode === 'idle') {
              setSelectedFichaId(null);
              setTimeout(() => setSelectedFichaId(id), 10);
+          }
+          // Se estiver no modal, limpamos o form
+          if (fichaForm.id === id) {
+             setFichaForm({...fichaForm, imagem_url: null});
+             setImagePreview(null);
           }
       } catch(err: any) {
           alert("Erro ao apagar imagem: " + err.message);
@@ -430,7 +444,6 @@ function LoreAdminContent() {
     if (!file) return;
     setIsUploadingImage(true);
     
-    // Preview imediato
     const objectUrl = URL.createObjectURL(file);
     setImagePreview(objectUrl);
 
@@ -506,7 +519,7 @@ function LoreAdminContent() {
 
   // Filtros
   const availableEpisodes = useMemo(() => { const eps = new Set<string>(); fichas.forEach(f => { if (f.episodio && f.episodio !== "0") eps.add(f.episodio); if (!f.episodio && f.codigo) { const m = f.codigo.match(/[A-Z]+(\d+)-/); if (m) eps.add(m[1]); } }); return Array.from(eps).sort((a,b) => parseInt(a)-parseInt(b)); }, [fichas]);
-  const filteredFichas = useMemo(() => { let list = fichas; if (selectedWorldId) list = list.filter(f => f.world_id === selectedWorldId); if (fichaFilterTipos.length > 0) list = list.filter(f => fichaFilterTipos.includes(f.tipo)); if (selectedEpisodeFilter) list = list.filter(f => f.episodio === selectedEpisodeFilter || f.codigo?.match(/[A-Z]+(\d+)-/)?.[1] === selectedEpisodeFilter); if (fichasSearchTerm.trim().length > 0) { const q = fichasSearchTerm.toLowerCase(); list = list.filter(f => (f.titulo||"").toLowerCase().includes(q)); } return list; }, [fichas, selectedWorldId, fichaFilterTipos, selectedEpisodeFilter, fichasSearchTerm]);
+  const filteredFichas = useMemo(() => { let list = fichas; if (selectedWorldId) list = list.filter(f => f.world_id === selectedWorldId); if (fichaFilterTipos.length > 0) list = list.filter(f => fichaFilterTipos.includes(f.tipo)); if (selectedEpisodeFilter) list = list.filter(f => f.episodio === selectedEpisodeFilter || f.codigo?.match(/[A-Z]+(\d+)-/)?.[1] === selectedEpisodeFilter); if (fichasSearchTerm.trim().length > 0) { const q = fichasSearchTerm.toLowerCase(); list = list.filter(f => (f.titulo||"").toLowerCase().includes(q) || (f.tags||"").toLowerCase().includes(q) || (f.resumo||"").toLowerCase().includes(q)); } return list; }, [fichas, selectedWorldId, fichaFilterTipos, selectedEpisodeFilter, fichasSearchTerm]);
   const renderWikiText = (text: string | null | undefined) => { 
       if (!text) return null; 
       const candidates = fichas.filter(f => f.id !== selectedFichaId && f.titulo).map(f => ({ id: f.id, titulo: f.titulo })); 
@@ -800,7 +813,7 @@ function LoreAdminContent() {
                                 )}
                             </div>
                             
-                            {/* Bloco de Evento (RESTAURADO COM DADOS DE DIEGESE) */}
+                            {/* Bloco de Evento (DIEGESE) */}
                             {fichaForm.tipo?.toLowerCase() === 'evento' && (
                                 <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded mt-2">
                                     <span className="text-[10px] font-bold text-emerald-500 uppercase block mb-2">Timeline (Diegese)</span>
