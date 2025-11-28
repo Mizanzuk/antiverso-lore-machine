@@ -236,8 +236,9 @@ function LoreAdminContent() {
 
   // --- GERENCIAMENTO DE CATEGORIAS ---
   const loadAllCategories = async () => {
+    if (!selectedUniverseId) return;
     try {
-      const response = await fetch("/api/lore/categories");
+      const response = await fetch(`/api/lore/categories?universeId=${selectedUniverseId}`);
       if (!response.ok) throw new Error("Erro ao carregar categorias");
       const data = await response.json();
       setEditingCategories(data.categories || []);
@@ -297,6 +298,7 @@ function LoreAdminContent() {
           label: newCategoryName,
           description: newCategoryDescription || null,
           prefix: newCategoryPrefix || null,
+          universe_id: selectedUniverseId,
         }),
       });
       
@@ -330,6 +332,7 @@ function LoreAdminContent() {
           label: category.label,
           description: category.description,
           prefix: category.prefix,
+          universe_id: selectedUniverseId,
         }),
       });
       
@@ -382,7 +385,7 @@ function LoreAdminContent() {
     }
     
     try {
-      const response = await fetch(`/api/lore/categories?slug=${slug}`, {
+      const response = await fetch(`/api/lore/categories?slug=${slug}&universeId=${selectedUniverseId}`, {
         method: "DELETE",
       });
       
