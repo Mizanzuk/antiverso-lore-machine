@@ -200,6 +200,7 @@ export default function LoreUploadPage() {
   async function handleExtractFichas() {
     setError(null); setSuccessMessage(null);
     if (!userId) { setError("Usuário não autenticado."); return; }
+    if (!selectedUniverseId) { setError("Selecione um Universo antes de extrair fichas."); return; }
     const world = worlds.find((w) => w.id === selectedWorldId) || null;
     const worldHasEpisodes = world?.has_episodes !== false;
     if (!selectedWorldId || !world) { setError("Selecione um Mundo antes de extrair fichas."); return; }
