@@ -56,40 +56,37 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
   return chunks;
 }
 
-// Agora processChunk recebe a lista de tipos dinâmicos
+// A função de processamento agora inclui um EXEMPLO (One-Shot) no prompt
 async function processChunk(text: string, chunkIndex: number, totalChunks: number, allowedTypes: string[]): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     
     const systemPrompt = `
   Você é o Motor de Extração de Lore do AntiVerso.
-  Sua missão é DECOMPOR o texto em fichas de banco de dados ricas e detalhadas.
+  Sua missão é DECOMPOR o texto em uma lista de objetos JSON (fichas).
   
-  TIPOS PERMITIDOS (Use APENAS estes): ${typeInstructions}
+  ⚠️ MODO DE ALTA SENSIBILIDADE: Não resuma o texto todo em uma ficha só. Quebre-o em várias.
   
-  DIRETRIZES DE EXTRAÇÃO (Varra o texto procurando por TUDO isso):
+  TIPOS PERMITIDOS: ${typeInstructions}
   
-  1. PERSONAGENS (Essencial):
-     - Nomes próprios de pessoas ou entidades. Tipo: "personagem".
-  
-  2. LOCAIS (Essencial):
-     - Ambientes físicos, cidades, salas. Tipo: "local".
-  
-  3. ORGANIZAÇÕES:
-     - Empresas, Agências, Cultos. Tipo: "empresa", "agencia" ou "organizacao".
-  
-  4. OBJETOS E ANOMALIAS:
-     - Itens físicos importantes. Tipo: "objeto".
-     - Fenômenos estranhos. Tipo: "registro_anomalo".
-  
-  5. EVENTOS (Timeline):
-     - Qualquer cena datada ou momento específico. Tipo: "evento".
-     - Obrigatório: data_inicio (YYYY-MM-DD), descricao_data (texto original), camada_temporal.
-  
-  6. OUTROS:
-     - Qualquer outro elemento que se encaixe nos TIPOS PERMITIDOS listados acima.
+  ### EXEMPLO DE COMPORTAMENTO ESPERADO (Siga este padrão):
+  Texto: "Em 1999, João entrou na Caverna Escura e encontrou o Artefato Perdido."
+  Saída JSON:
+  {
+    "fichas": [
+      { "tipo": "personagem", "titulo": "João", "resumo": "Protagonista que explorou a caverna." },
+      { "tipo": "local", "titulo": "Caverna Escura", "resumo": "Local perigoso explorado por João." },
+      { "tipo": "objeto", "titulo": "Artefato Perdido", "resumo": "Item misterioso encontrado na caverna." },
+      { "tipo": "evento", "titulo": "Descoberta do Artefato", "data_inicio": "1999-01-01", "descricao_data": "Em 1999", "camada_temporal": "linha_principal", "resumo": "Momento em que João encontra o objeto." }
+    ]
+  }
 
-  SAÍDA ESPERADA:
-  Retorne um JSON com a chave "fichas". Não ignore nada.
+  ### SUAS DIRETRIZES:
+  1. Varra o texto procurando por: Personagens, Locais, Organizações, Objetos e Eventos.
+  2. Se encontrar um Personagem (nome próprio), crie uma ficha.
+  3. Se encontrar um Local, crie uma ficha.
+  4. Se encontrar uma Data, crie uma ficha de Evento (preencha data_inicio no formato YYYY-MM-DD).
+  
+  Retorne APENAS o JSON válido com a chave "fichas".
   `.trim();
   
     const userPrompt = `Texto para análise:\n"""${text}"""`;
@@ -97,7 +94,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.3, 
+        temperature: 0.4, // Levemente criativo para inferir detalhes, mas contido pelo exemplo
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
@@ -187,11 +184,16 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. BUSCAR CATEGORIAS DINÂMICAS DO BANCO
-    const { data: catData } = await clientToUse.from("lore_categories").select("slug");
-    // Se falhar ou estiver vazio, usa um fallback básico
-    const allowedTypes = (catData && catData.length > 0) 
-        ? catData.map((c: any) => c.slug) 
-        : ["personagem", "local", "evento", "conceito", "roteiro"];
+    // Adicionado tratamento de erro silencioso para evitar que falha no banco quebre a extração
+    let allowedTypes = ["personagem", "local", "evento", "conceito", "roteiro", "objeto", "organizacao", "registro_anomalo"];
+    try {
+        const { data: catData } = await clientToUse.from("lore_categories").select("slug");
+        if (catData && catData.length > 0) {
+            allowedTypes = catData.map((c: any) => c.slug);
+        }
+    } catch (e) {
+        console.warn("Aviso: Falha ao carregar categorias dinâmicas, usando fallback.", e);
+    }
 
     const body = await req.json().catch(() => ({}));
     const { worldId, unitNumber, text, documentName } = body;
@@ -223,7 +225,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. DIVIDIR E CONQUISTAR (Passando os tipos dinâmicos)
+    // 3. DIVIDIR E CONQUISTAR
     const chunks = splitTextIntoChunks(text);
     const promises = chunks.map((chunk, index) => processChunk(chunk, index, chunks.length, allowedTypes));
     const results = await Promise.all(promises);
