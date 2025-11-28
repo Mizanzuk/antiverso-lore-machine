@@ -31,6 +31,12 @@ const CAMADAS_TEMPORAIS = [
   { value: "outro", label: "Outro" },
 ];
 
+const RELATION_TYPES = [
+  "relacionado_a", "amigo_de", "inimigo_de", "localizado_em", "mora_em",
+  "nasceu_em", "participou_de", "protagonizado_por", "menciona", "pai_de",
+  "filho_de", "criador_de", "parte_de"
+];
+
 // --- TIPOS ---
 type ViewState = "loading" | "loggedOut" | "loggedIn";
 type WorldFormMode = "idle" | "create" | "edit";
@@ -88,6 +94,7 @@ function LoreAdminContent() {
   // Filtros
   const [fichasSearchTerm, setFichasSearchTerm] = useState("");
   const [fichaFilterTipos, setFichaFilterTipos] = useState<string[]>([]);
+  const [selectedEpisodeFilter, setSelectedEpisodeFilter] = useState<string>("");
 
   // Forms
   const [universeFormMode, setUniverseFormMode] = useState<UniverseFormMode>("idle");
@@ -381,16 +388,40 @@ function LoreAdminContent() {
     }
   }
 
-  // --- FILTRAGEM DE LISTA ---
+  // --- FILTRAGEM DE LISTA & EPISÓDIOS ---
+  
+  // Computa episódios disponíveis com base nas fichas carregadas
+  const availableEpisodes = useMemo(() => {
+     const eps = new Set<string>();
+     fichas.forEach(f => {
+       if (f.episodio && f.episodio !== "0") eps.add(f.episodio);
+       if (!f.episodio && f.codigo) {
+          const m = f.codigo.match(/[A-Z]+(\d+)-/);
+          if (m) eps.add(m[1]);
+       }
+     });
+     return Array.from(eps).sort((a,b) => parseInt(a)-parseInt(b));
+  }, [fichas]);
+
   const filteredFichas = useMemo(() => {
     let list = fichas;
     // Se um mundo específico estiver selecionado, filtra por ele.
+    // Se "selectedWorldId" for null (Root/Visão Geral), mostra TUDO do universo.
     if (selectedWorldId) {
         list = list.filter(f => f.world_id === selectedWorldId);
     }
     
     if (fichaFilterTipos.length > 0) {
         list = list.filter(f => fichaFilterTipos.includes(f.tipo));
+    }
+    
+    if (selectedEpisodeFilter) {
+       list = list.filter(f => {
+          if (f.episodio === selectedEpisodeFilter) return true;
+          // Tenta extrair do código se o campo episodio estiver vazio
+          const codeEp = f.codigo?.match(/[A-Z]+(\d+)-/)?.[1];
+          return codeEp === selectedEpisodeFilter;
+       });
     }
 
     if (fichasSearchTerm.trim().length > 0) {
@@ -402,7 +433,7 @@ function LoreAdminContent() {
       );
     }
     return list;
-  }, [fichas, selectedWorldId, fichaFilterTipos, fichasSearchTerm]);
+  }, [fichas, selectedWorldId, fichaFilterTipos, selectedEpisodeFilter, fichasSearchTerm]);
 
   // --- RENDER WIKI TEXT ---
   const renderWikiText = (text: string | null | undefined) => {
@@ -433,6 +464,7 @@ function LoreAdminContent() {
   const selectedFicha = fichas.find(f => f.id === selectedFichaId);
   const currentUniverse = universes.find(u => u.id === selectedUniverseId);
   const childWorlds = worlds.filter(w => !w.is_root); // Apenas mundos filhos para a lista lateral
+  const currentWorldHasEpisodes = selectedWorldId ? worlds.find(w => w.id === selectedWorldId)?.has_episodes : false;
 
   if (view === "loading") return <div className="min-h-screen bg-black text-neutral-500 flex items-center justify-center">Carregando...</div>;
   if (view === "loggedOut") return <div className="min-h-screen bg-black flex items-center justify-center"><form onSubmit={handleLogin} className="p-8 border border-zinc-800 rounded bg-zinc-950"><h1 className="text-white mb-4">Login Admin</h1><input className="block w-full mb-2 bg-black border border-zinc-700 p-2 text-white" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} /><input type="password" className="block w-full mb-4 bg-black border border-zinc-700 p-2 text-white" placeholder="Senha" value={password} onChange={e=>setPassword(e.target.value)} /><button className="bg-emerald-600 text-white px-4 py-2 w-full rounded">Entrar</button></form></div>;
@@ -440,13 +472,12 @@ function LoreAdminContent() {
   return (
     <div className="h-screen bg-black text-neutral-100 flex flex-col overflow-hidden font-sans">
       
-      {/* HEADER */}
+      {/* HEADER ATUALIZADO */}
       <header className="border-b border-neutral-900 px-4 py-2 flex items-center justify-between bg-zinc-950">
         <div className="flex items-center gap-4">
           <a href="/" className="text-[11px] text-neutral-300 hover:text-white">← Home</a>
           <a href="/lore-upload" className="text-[11px] text-neutral-400 hover:text-white">Upload</a>
-          <div className="h-4 w-px bg-zinc-800"></div>
-          <span className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">Admin</span>
+          <a href="/lore-admin/timeline" className="text-[11px] text-neutral-400 hover:text-white">Timeline</a>
         </div>
         <button onClick={handleLogout} className="text-[10px] border border-zinc-800 px-3 py-1 rounded hover:bg-zinc-900 text-zinc-400">Sair</button>
       </header>
@@ -480,12 +511,12 @@ function LoreAdminContent() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {/* Botão Raiz (Ver Tudo) */}
+                {/* Botão Raiz (Ver Tudo) com Ícone Atualizado */}
                 <button 
                     onClick={() => { setSelectedWorldId(null); setSelectedFichaId(null); }}
                     className={`w-full text-left p-2 rounded text-xs font-bold flex items-center gap-2 ${!selectedWorldId ? "bg-emerald-900/20 text-emerald-400 border border-emerald-500/30" : "text-zinc-400 hover:bg-zinc-900"}`}
                 >
-                    <span>🌌</span> Visão Geral (Tudo)
+                    <span>🟢</span> Visão Geral (Tudo)
                 </button>
 
                 <div className="mt-4 mb-2 px-2 flex justify-between items-center">
@@ -525,10 +556,28 @@ function LoreAdminContent() {
                     value={fichasSearchTerm}
                     onChange={e => setFichasSearchTerm(e.target.value)}
                 />
-                <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin">
+
+                {/* DROPDOWN DE EPISÓDIOS (Visível se houver episódios no mundo) */}
+                {selectedWorldId && currentWorldHasEpisodes && availableEpisodes.length > 0 && (
+                   <div className="mb-2">
+                     <select 
+                       className="w-full bg-black border border-zinc-800 rounded text-[10px] p-1 text-zinc-300 outline-none focus:border-emerald-500"
+                       value={selectedEpisodeFilter}
+                       onChange={(e) => setSelectedEpisodeFilter(e.target.value)}
+                     >
+                        <option value="">Todos os Episódios</option>
+                        {availableEpisodes.map(ep => <option key={ep} value={ep}>Episódio {ep}</option>)}
+                     </select>
+                   </div>
+                )}
+
+                {/* FILTROS POR TIPO COM QUEBRA DE LINHA */}
+                {fichaFilterTipos.length > 0 && <div className="text-[9px] text-emerald-500 mb-1 font-bold">Filtrando por: {fichaFilterTipos.map(t => LORE_TYPES.find(l=>l.value===t)?.label).join(", ")}</div>}
+                
+                <div className="flex flex-wrap gap-1 mb-2">
                     <button onClick={() => setFichaFilterTipos([])} className={`px-2 py-0.5 rounded text-[9px] border ${fichaFilterTipos.length===0 ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500"}`}>TODOS</button>
                     {LORE_TYPES.map(t => (
-                        <button key={t.value} onClick={() => setFichaFilterTipos(prev => prev.includes(t.value) ? prev.filter(x=>x!==t.value) : [...prev, t.value])} className={`px-2 py-0.5 whitespace-nowrap rounded text-[9px] border uppercase ${fichaFilterTipos.includes(t.value) ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500"}`}>
+                        <button key={t.value} onClick={() => setFichaFilterTipos(prev => prev.includes(t.value) ? prev.filter(x=>x!==t.value) : [...prev, t.value])} className={`px-2 py-0.5 whitespace-nowrap rounded text-[9px] border uppercase ${fichaFilterTipos.includes(t.value) ? "border-emerald-500 text-emerald-400" : "border-zinc-800 text-zinc-500 hover:border-zinc-600"}`}>
                             {t.label}
                         </button>
                     ))}
