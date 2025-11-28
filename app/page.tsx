@@ -11,7 +11,6 @@ import {
 import { clsx } from "clsx";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
-// ... (Tipos e Constantes permanecem iguais)
 type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -187,6 +186,8 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  
+  // ViewMode ainda existe para lógica interna, mas o botão foi removido
   const [viewMode, setViewMode] = useState<ViewMode>("chat"); 
   const [historySearchTerm, setHistorySearchTerm] = useState<string>("");
   
@@ -272,12 +273,12 @@ export default function Page() {
     }
   }
 
-  // Trigger de carga do catálogo
+  // Trigger de carga do catálogo (se necessário internamente)
   useEffect(() => {
     if (viewMode === "catalog" && userId) {
         loadCatalog();
     }
-  }, [viewMode, userId]); // Carrega quando entra no modo catálogo
+  }, [viewMode, userId]); 
 
   // --- 3. CHAT CORE ---
   const newChatCallback = useCallback((newMode: ChatMode = "consulta", uniId: string | null = selectedUniverseId) => {
@@ -448,7 +449,6 @@ export default function Page() {
       const contextMessages = trimMessagesForStorage([...activeSession.messages, newUserMessage]);
       const payloadMessages = [{ role: "system" as const, content: systemPrompt }, ...contextMessages].map((m) => ({ role: m.role, content: m.content }));
 
-      // --- CORREÇÃO DE AUTH AQUI ---
       const res = await fetch("/api/chat", { 
         method: "POST", 
         headers: { 
@@ -842,31 +842,7 @@ export default function Page() {
                 Criativo
               </button>
             </div>
-
-            <div className="flex items-center gap-1 border border-white/20 rounded-full p-[2px] bg-black/40">
-              <button
-                onClick={() => setViewMode("chat")}
-                className={clsx(
-                  "px-2 py-1 rounded-full text-[11px]",
-                  viewMode === "chat"
-                    ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
-                )}
-              >
-                Chat
-              </button>
-              <button
-                onClick={() => setViewMode("catalog")}
-                className={clsx(
-                  "px-2 py-1 rounded-full text-[11px]",
-                  viewMode === "catalog"
-                    ? "bg-white text-black"
-                    : "text-gray-300 hover:bg-white/10"
-                )}
-              >
-                Catálogo
-              </button>
-            </div>
+            {/* Botão Chat/Catálogo removido conforme solicitado */}
           </div>
         </header>
 
