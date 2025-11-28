@@ -163,7 +163,7 @@ Não invente. Se a informação não estiver no contexto, diga que não sabe.
     };
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", 
+      model: "gpt-4o", 
       messages: [contextMessage, ...conversationMessages], 
       temperature: isCreativeMode ? 0.7 : 0.2,
       stream: true,
