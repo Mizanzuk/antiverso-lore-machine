@@ -4,12 +4,14 @@ import { useEffect, useState, ChangeEvent, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-// --- CONSTANTES DE OPÇÕES (DROPDOWNS) ---
+// ... (MANTENHA AS CONSTANTES LORE_TYPES, CAMADAS_TEMPORAIS, TIPOS E FUNÇÕES AUXILIARES IGUAIS AO ARQUIVO ORIGINAL)
+// Vou omitir as constantes e tipos para focar na lógica alterada, você pode manter o topo do seu arquivo.
+// A alteração principal é na função handleCheckConsistency
 
 const LORE_TYPES = [
   { value: "personagem", label: "Personagem" },
   { value: "local", label: "Local" },
-  { value: "evento", label: "Evento" }, // Importante para a lógica condicional
+  { value: "evento", label: "Evento" },
   { value: "empresa", label: "Empresa" },
   { value: "agencia", label: "Agência" },
   { value: "midia", label: "Mídia" },
@@ -31,164 +33,27 @@ const CAMADAS_TEMPORAIS = [
   { value: "outro", label: "Outro" },
 ];
 
-// --- TIPOS ---
+// ... (TIPOS: Universe, World, SuggestedFicha, etc. MANTENHA IGUAL)
+type Universe = { id: string; nome: string; };
+type World = { id: string; nome: string | null; descricao?: string | null; ordem?: number | null; prefixo?: string | null; has_episodes?: boolean | null; descricao_longa?: string | null; universe_id?: string | null; is_root?: boolean; };
+type SuggestedFicha = { id: string; tipo: string; titulo: string; resumo: string; conteudo: string; tags: string; aparece_em: string; codigo?: string; ano_diegese?: number | null; descricao_data?: string; data_inicio?: string; data_fim?: string; granularidade_data?: string; camada_temporal?: string; meta?: any; };
+type ApiFicha = { tipo?: string; titulo?: string; resumo?: string; conteudo?: string; tags?: string[]; aparece_em?: string; ano_diegese?: number | null; descricao_data?: string | null; data_inicio?: string | null; data_fim?: string | null; granularidade_data?: string | null; camada_temporal?: string | null; meta?: any; };
+type ExtractResponse = { fichas: ApiFicha[]; };
+type CatalogResponse = { worlds: World[]; entities: ApiFicha[]; types: { id: string; label: string }[]; };
 
-type Universe = {
-  id: string;
-  nome: string;
-};
+// ... (HELPER FUNCTIONS: createEmptyFicha, normalizeEpisode, getWorldPrefix - MANTENHA IGUAL)
+function createEmptyFicha(id: string): SuggestedFicha { return { id, tipo: "conceito", titulo: "", resumo: "", conteudo: "", tags: "", aparece_em: "", codigo: "", ano_diegese: null, descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "indefinido", camada_temporal: "linha_principal", meta: {}, }; }
+function normalizeEpisode(raw: string): string | null { if (!raw) return null; const trimmed = raw.trim(); if (!trimmed) return null; if (/^\d+$/.test(trimmed)) { return trimmed.padStart(2, "0"); } return trimmed; }
+function getWorldPrefix(world: World | null): string { if (!world) return ""; if (world.prefixo && world.prefixo.trim()) { return world.prefixo.trim(); } const nome = (world.nome || world.id || "").toUpperCase(); const cleaned = nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9\s]/g, " ").trim(); if (!cleaned) return ""; if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV"; if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC"; if (cleaned.startsWith("EVANGELHO DE OR")) return "EO"; if (cleaned.startsWith("CULTO DE OR")) return "CO"; if (cleaned.startsWith("ANTIVERSO")) return "ANT"; if (cleaned.startsWith("ARIS")) return "ARIS"; const words = cleaned.split(/\s+/).filter(Boolean); if (words.length === 1) { return words[0].slice(0, 3).toUpperCase(); } const initials = words.map((p) => p[0]).join(""); return initials.slice(0, 4).toUpperCase(); }
+const TYPE_PREFIX_MAP: Record<string, string> = { personagem: "PS", local: "LO", conceito: "CC", evento: "EV", midia: "MD", "mídia": "MD", empresa: "EM", agencia: "AG", "agência": "AG", registro_anomalo: "RA", "registro anômalo": "RA", roteiro: "RT", };
+function getTypePrefix(tipo: string): string { const key = (tipo || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key]; return key.slice(0, 2).toUpperCase() || "XX"; }
 
-type World = {
-  id: string;
-  nome: string | null;
-  descricao?: string | null;
-  ordem?: number | null;
-  prefixo?: string | null;
-  has_episodes?: boolean | null;
-  descricao_longa?: string | null;
-  universe_id?: string | null;
-  is_root?: boolean; // Adicionado para consistência
-};
-
-type SuggestedFicha = {
-  id: string;
-  tipo: string;
-  titulo: string;
-  resumo: string;
-  conteudo: string;
-  tags: string;
-  aparece_em: string;
-  codigo?: string;
-  // Campos temporais (usados se tipo == 'evento')
-  ano_diegese?: number | null;
-  descricao_data?: string;
-  data_inicio?: string;
-  data_fim?: string;
-  granularidade_data?: string;
-  camada_temporal?: string;
-  // Metadados completos
-  meta?: any;
-};
-
-type ApiFicha = {
-  tipo?: string;
-  titulo?: string;
-  resumo?: string;
-  conteudo?: string;
-  tags?: string[];
-  aparece_em?: string;
-  ano_diegese?: number | null;
-  descricao_data?: string | null;
-  data_inicio?: string | null;
-  data_fim?: string | null;
-  granularidade_data?: string | null;
-  camada_temporal?: string | null;
-  meta?: any;
-};
-
-type ExtractResponse = {
-  fichas: ApiFicha[];
-};
-
-type CatalogResponse = {
-  worlds: World[];
-  entities: ApiFicha[];
-  types: { id: string; label: string }[];
-};
-
-// --- MAPA DE PREFIXOS POR TIPO ---
-const TYPE_PREFIX_MAP: Record<string, string> = {
-  personagem: "PS",
-  local: "LO",
-  conceito: "CC",
-  evento: "EV",
-  midia: "MD",
-  "mídia": "MD",
-  empresa: "EM",
-  agencia: "AG",
-  "agência": "AG",
-  registro_anomalo: "RA",
-  "registro anômalo": "RA",
-  roteiro: "RT",
-};
-
-function getTypePrefix(tipo: string): string {
-  const key = (tipo || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-
-  if (TYPE_PREFIX_MAP[key]) return TYPE_PREFIX_MAP[key];
-  return key.slice(0, 2).toUpperCase() || "XX";
-}
-
-function createEmptyFicha(id: string): SuggestedFicha {
-  return {
-    id,
-    tipo: "conceito",
-    titulo: "",
-    resumo: "",
-    conteudo: "",
-    tags: "",
-    aparece_em: "",
-    codigo: "",
-    ano_diegese: null,
-    descricao_data: "",
-    data_inicio: "",
-    data_fim: "",
-    granularidade_data: "indefinido",
-    camada_temporal: "linha_principal",
-    meta: {},
-  };
-}
-
-function normalizeEpisode(raw: string): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  if (/^\d+$/.test(trimmed)) {
-    return trimmed.padStart(2, "0");
-  }
-  return trimmed;
-}
-
-function getWorldPrefix(world: World | null): string {
-  if (!world) return "";
-  if (world.prefixo && world.prefixo.trim()) {
-    return world.prefixo.trim();
-  }
-  const nome = (world.nome || world.id || "").toUpperCase();
-  const cleaned = nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Z0-9\s]/g, " ")
-    .trim();
-
-  if (!cleaned) return "";
-
-  if (cleaned.startsWith("ARQUIVOS VERMELHOS")) return "AV";
-  if (cleaned.startsWith("TORRE DE VERA CRUZ")) return "TVC";
-  if (cleaned.startsWith("EVANGELHO DE OR")) return "EO";
-  if (cleaned.startsWith("CULTO DE OR")) return "CO";
-  if (cleaned.startsWith("ANTIVERSO")) return "ANT";
-  if (cleaned.startsWith("ARIS")) return "ARIS";
-
-  const words = cleaned.split(/\s+/).filter(Boolean);
-  if (words.length === 1) {
-    return words[0].slice(0, 3).toUpperCase();
-  }
-  const initials = words.map((p) => p[0]).join("");
-  return initials.slice(0, 4).toUpperCase();
-}
 
 export default function LoreUploadPage() {
-  // NOVOS ESTADOS (UNIVERSO)
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string>("");
-  const [userId, setUserId] = useState<string | null>(null); // Estado para User ID
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // ESTADOS ORIGINAIS
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string>("");
   const [unitNumber, setUnitNumber] = useState<string>("");
@@ -211,13 +76,11 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
-  // --- PROTOCOLO DE COERÊNCIA (NOVOS ESTADOS) ---
   const [isCheckingConsistency, setIsCheckingConsistency] = useState(false);
   const [consistencyReport, setConsistencyReport] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 0. AUTH (Carrega usuário)
   useEffect(() => {
     const getUser = async () => {
         const { data: { session } } = await supabaseBrowser.auth.getSession();
@@ -226,7 +89,6 @@ export default function LoreUploadPage() {
     getUser();
   }, []);
 
-  // 1. CARREGAR UNIVERSOS (Depende de userId)
   useEffect(() => {
     if (!userId) return;
     async function fetchUniverses() {
@@ -239,37 +101,29 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, [userId]);
 
-  // RefetchWorlds declarado aqui para ser chamado no useEffect e no modal
   const fetchWorlds = async () => {
       if (!userId) return;
       setError(null);
       try {
         const params = new URLSearchParams({ universeId: selectedUniverseId });
         const res = await fetch(`/api/catalog?${params.toString()}`, {
-            headers: { 'x-user-id': userId } // Header de segurança
+            headers: { 'x-user-id': userId }
         });
         
-        if (!res.ok) {
-           throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Falha ao carregar Mundos. Status: ${res.status}`);
         
         const data = (await res.json()) as CatalogResponse;
         
-        // Filtra para mostrar apenas mundos filhos (não is_root), mais Mundo Raiz
         const rootWorld = data.worlds.find(w => w.is_root);
         const childWorlds = data.worlds.filter(w => !w.is_root);
         
-        // Combina o mundo raiz (opcional) com os filhos para a lista do dropdown
         let worldList: World[] = [];
         if (rootWorld) worldList.push(rootWorld);
         worldList = [...worldList, ...childWorlds];
 
         if (worldList.length > 0) {
           setWorlds(worldList);
-          
-          if (!worldList.find(w => w.id === selectedWorldId)) {
-             setSelectedWorldId(worldList[0].id);
-          }
+          if (!worldList.find(w => w.id === selectedWorldId)) setSelectedWorldId(worldList[0].id);
         } else {
           setWorlds([]);
           setSelectedWorldId("");
@@ -280,7 +134,6 @@ export default function LoreUploadPage() {
       }
   }
   
-  // 2. CARREGAR MUNDOS (Chama a função refatorada)
   useEffect(() => {
     if (!selectedUniverseId || !userId) return;
     fetchWorlds();
@@ -288,184 +141,69 @@ export default function LoreUploadPage() {
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
-    if (value === "create_new") {
-      setShowNewWorldModal(true);
-      return;
-    }
+    if (value === "create_new") { setShowNewWorldModal(true); return; }
     setSelectedWorldId(value);
   }
 
-  // UPLOAD DE ARQUIVO (PARSER)
   async function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setIsParsingFile(true);
     setError(null);
-    
-    // Auto-preencher nome do documento se vazio
-    if (!documentName) {
-      setDocumentName(file.name.replace(/\.[^/.]+$/, "")); // Remove extensão
-    }
-
+    if (!documentName) setDocumentName(file.name.replace(/\.[^/.]+$/, ""));
     try {
       const formData = new FormData();
       formData.append("file", file);
-
-      const res = await fetch("/api/parse", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Erro ao ler arquivo");
-      }
-
+      const res = await fetch("/api/parse", { method: "POST", body: formData });
+      if (!res.ok) { const errData = await res.json(); throw new Error(errData.error || "Erro ao ler arquivo"); }
       const data = await res.json();
-      if (data.text) {
-        setText(data.text);
-        setSuccessMessage("Arquivo lido com sucesso! O texto foi carregado abaixo.");
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Erro ao processar arquivo.");
-    } finally {
-      setIsParsingFile(false);
-      // Limpar input para permitir selecionar o mesmo arquivo se precisar
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+      if (data.text) { setText(data.text); setSuccessMessage("Arquivo lido com sucesso!"); }
+    } catch (err: any) { console.error(err); setError(err.message || "Erro ao processar arquivo."); } finally { setIsParsingFile(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   }
 
   async function handleCreateWorldFromModal() {
-    if (!newWorldName.trim()) {
-      setError("Dê um nome ao novo Mundo.");
-      return;
-    }
-    if (!selectedUniverseId) {
-      setError("Selecione um Universo primeiro.");
-      return;
-    }
-
+    if (!newWorldName.trim()) { setError("Dê um nome ao novo Mundo."); return; }
+    if (!selectedUniverseId) { setError("Selecione um Universo primeiro."); return; }
     setIsCreatingWorld(true);
     setError(null);
     setSuccessMessage(null);
-
     try {
-      const baseId = newWorldName
-        .trim()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-
+      const baseId = newWorldName.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
       const newId = `${baseId}_${Date.now().toString().slice(-4)}`;
-
-      const payload: any = {
-        id: newId,
-        nome: newWorldName.trim(),
-        descricao: newWorldDescription.trim() || null,
-        has_episodes: newWorldHasEpisodes,
-        tipo: "mundo_ficcional",
-        universe_id: selectedUniverseId
-      };
-
+      const payload: any = { id: newId, nome: newWorldName.trim(), descricao: newWorldDescription.trim() || null, has_episodes: newWorldHasEpisodes, tipo: "mundo_ficcional", universe_id: selectedUniverseId };
       const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
-
-      if (error) {
-        console.error(error);
-        setError("Erro ao criar novo Mundo.");
-        return;
-      }
-
+      if (error) { console.error(error); setError("Erro ao criar novo Mundo."); return; }
       const inserted = (data?.[0] || null) as World | null;
-      if (inserted) {
-        // CORREÇÃO: Força o reload da lista para pegar o mundo criado via API
-        fetchWorlds(); 
-        setSelectedWorldId(inserted.id);
-        setShowNewWorldModal(false);
-        setNewWorldName("");
-        setNewWorldDescription("");
-        setNewWorldHasEpisodes(true);
-        setSuccessMessage("Novo Mundo criado com sucesso.");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Erro inesperado ao criar Mundo.");
-    } finally {
-      setIsCreatingWorld(false);
-    }
+      if (inserted) { fetchWorlds(); setSelectedWorldId(inserted.id); setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); setSuccessMessage("Novo Mundo criado com sucesso."); }
+    } catch (err) { console.error(err); setError("Erro inesperado ao criar Mundo."); } finally { setIsCreatingWorld(false); }
   }
 
-  function handleCancelWorldModal() {
-    setShowNewWorldModal(false);
-    setNewWorldName("");
-    setNewWorldDescription("");
-    setNewWorldHasEpisodes(true);
-  }
+  function handleCancelWorldModal() { setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); }
 
   async function handleExtractFichas() {
-    setError(null);
-    setSuccessMessage(null);
-
-    if (!userId) {
-       setError("Usuário não autenticado.");
-       return;
-    }
-
+    setError(null); setSuccessMessage(null);
+    if (!userId) { setError("Usuário não autenticado."); return; }
     const world = worlds.find((w) => w.id === selectedWorldId) || null;
     const worldHasEpisodes = world?.has_episodes !== false;
-
-    if (!selectedWorldId || !world) {
-      setError("Selecione um Mundo antes de extrair fichas.");
-      return;
-    }
-    if (worldHasEpisodes && !unitNumber.trim()) {
-      setError("Informe o número do episódio/capítulo.");
-      return;
-    }
-    if (!text.trim()) {
-      setError("Cole um texto ou faça upload de um arquivo para extrair fichas.");
-      return;
-    }
-
+    if (!selectedWorldId || !world) { setError("Selecione um Mundo antes de extrair fichas."); return; }
+    if (worldHasEpisodes && !unitNumber.trim()) { setError("Informe o número do episódio/capítulo."); return; }
+    if (!text.trim()) { setError("Cole um texto ou faça upload de um arquivo para extrair fichas."); return; }
     setIsExtracting(true);
-
     try {
       const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
       const worldName = selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
-
       const response = await fetch("/api/lore/extract", {
         method: "POST",
-        headers: { 
-            "Content-Type": "application/json",
-            "x-user-id": userId // HEADER DE SEGURANÇA
-        },
-        body: JSON.stringify({
-          text,
-          worldId: selectedWorldId,
-          worldName,
-          documentName: documentName.trim() || null,
-          unitNumber,
-        }),
+        headers: { "Content-Type": "application/json", "x-user-id": userId },
+        body: JSON.stringify({ text, worldId: selectedWorldId, worldName, documentName: documentName.trim() || null, unitNumber }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const msg = errorData?.error || `Erro ao extrair fichas (status ${response.status}).`;
-        setError(msg);
-        return;
-      }
-
+      if (!response.ok) { const errorData = await response.json().catch(() => null); const msg = errorData?.error || `Erro ao extrair fichas (status ${response.status}).`; setError(msg); return; }
       const data = (await response.json()) as ExtractResponse;
       const rawFichas = data.fichas || [];
-
       const selected = worlds.find((w) => w.id === selectedWorldId);
-      const prefix = getWorldPrefix(selected || null); // Passando null como fallback
+      const prefix = getWorldPrefix(selected || null);
       const normalizedEpisode = normalizeEpisode(unitNumber || "");
       const typeCounters: Record<string, number> = {};
-
       const mapped: SuggestedFicha[] = rawFichas.map((rawFicha) => {
         const base = createEmptyFicha(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
         const titulo = rawFicha.titulo?.trim() || base.titulo;
@@ -482,7 +220,6 @@ export default function LoreUploadPage() {
         const camadaTemporal = rawFicha.camada_temporal?.trim() || "";
         const meta = rawFicha.meta || {};
         const tagsString = tagsArray.join(", ");
-
         const worldNameForAparece = selected?.nome || selected?.id || "Mundo Desconhecido";
         const appearsParts: string[] = [];
         if (worldNameForAparece) appearsParts.push(`Mundo: ${worldNameForAparece}`);
@@ -490,202 +227,66 @@ export default function LoreUploadPage() {
         if (documentName.trim()) appearsParts.push(`Documento: ${documentName.trim()}`);
         if (!normalizedEpisode && !documentName.trim() && apareceEmRaw) appearsParts.push(apareceEmRaw);
         const appearsEmValue = appearsParts.join("\n\n");
-
         let codigoGerado = "";
         if (prefix && normalizedEpisode) {
           const typePrefix = getTypePrefix(tipo);
-          if (typePrefix === "RT") {
-             codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`;
-          } else {
-             if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1;
-             const count = typeCounters[typePrefix]++;
-             const counterStr = String(count).padStart(2, "0");
-             codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`;
-          }
+          if (typePrefix === "RT") { codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`; } else { if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1; const count = typeCounters[typePrefix]++; const counterStr = String(count).padStart(2, "0"); codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`; }
         }
-
-        return {
-          ...base,
-          tipo,
-          titulo,
-          resumo,
-          conteudo,
-          tags: tagsString,
-          aparece_em: appearsEmValue,
-          codigo: codigoGerado,
-          ano_diegese: anoDiegese,
-          descricao_data: descricaoData,
-          data_inicio: dataInicio,
-          data_fim: dataFim,
-          granularidade_data: granularidadeData,
-          camada_temporal: camadaTemporal,
-          meta: meta, 
-        };
+        return { ...base, tipo, titulo, resumo, conteudo, tags: tagsString, aparece_em: appearsEmValue, codigo: codigoGerado, ano_diegese, descricao_data: descricaoData, data_inicio: dataInicio, data_fim: dataFim, granularidade_data: granularidadeData, camada_temporal: camadaTemporal, meta: meta };
       });
-
       setSuggestedFichas(mapped);
       setSuccessMessage(`Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`);
-    } catch (err) {
-      console.error("Erro inesperado ao extrair fichas:", err);
-      setError("Erro inesperado ao extrair fichas.");
-    } finally {
-      setIsExtracting(false);
-    }
+    } catch (err) { console.error("Erro inesperado ao extrair fichas:", err); setError("Erro inesperado ao extrair fichas."); } finally { setIsExtracting(false); }
   }
 
-  // --- PROTOCOLO DE COERÊNCIA (FUNÇÃO DE CHECK) ---
+  // CORREÇÃO CRÍTICA AQUI: Adicionado header x-user-id
   async function handleCheckConsistency() {
-    if (suggestedFichas.length === 0) return;
+    if (suggestedFichas.length === 0 || !userId) return; // check userId
     
     setIsCheckingConsistency(true);
     setConsistencyReport(null);
-
-    // MUDANÇA: Alerta sobre Urizen
     alert("Consultando Urizen, a Lei, sobre a coerência...");
-
-    // Montamos um "Resumo Executivo" do que está sendo proposto para entrar no banco
-    const proposalText = suggestedFichas.map(f => `
-      - [PROPOSTA] ${f.titulo} (${f.tipo}):
-        Resumo: ${f.resumo}
-        Data: ${f.descricao_data || f.ano_diegese || "N/A"}
-        Status: ${f.meta?.status || "Ativo"}
-    `).join("\n");
-
+    const proposalText = suggestedFichas.map(f => ` - [PROPOSTA] ${f.titulo} (${f.tipo}): Resumo: ${f.resumo} Data: ${f.descricao_data || f.ano_diegese || "N/A"} Status: ${f.meta?.status || "Ativo"}`).join("\n");
+    
     try {
       const res = await fetch("/api/lore/consistency", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          input: proposalText, 
-          universeId: selectedUniverseId 
-        })
+        headers: { "Content-Type": "application/json", "x-user-id": userId }, // HEADER ADICIONADO
+        body: JSON.stringify({ input: proposalText, universeId: selectedUniverseId })
       });
-
       const data = await res.json();
-      
-      if (data.analysis) {
-        setConsistencyReport(data.analysis);
-      } else {
-        // MUDANÇA: Referência ao Urizen
-        setConsistencyReport("Urizen, a Lei, não encontrou inconsistências óbvias nos Registros.");
-      }
-    } catch (err) {
-      console.error(err);
-      setConsistencyReport("Erro ao conectar com o Módulo de Coerência.");
-    } finally {
-      setIsCheckingConsistency(false);
-    }
+      if (data.analysis) { setConsistencyReport(data.analysis); } else { setConsistencyReport("Urizen, a Lei, não encontrou inconsistências óbvias nos Registros."); }
+    } catch (err) { console.error(err); setConsistencyReport("Erro ao conectar com o Módulo de Coerência."); } finally { setIsCheckingConsistency(false); }
   }
 
   async function handleSaveFichas() {
-    setError(null);
-    setSuccessMessage(null);
-
-    if (!userId) {
-       setError("Erro de autenticação. Recarregue a página.");
-       return;
-    }
-
-    if (suggestedFichas.length === 0) {
-      setError("Não há fichas para salvar.");
-      return;
-    }
-
+    setError(null); setSuccessMessage(null);
+    if (!userId) { setError("Erro de autenticação. Recarregue a página."); return; }
+    if (suggestedFichas.length === 0) { setError("Não há fichas para salvar."); return; }
     const world = worlds.find((w) => w.id === selectedWorldId) || null;
-
-    if (!selectedWorldId || !world) {
-      setError("Selecione um Mundo antes de salvar fichas.");
-      return;
-    }
-
+    if (!selectedWorldId || !world) { setError("Selecione um Mundo antes de salvar fichas."); return; }
     const worldHasEpisodes = world.has_episodes !== false;
     const normalizedUnitNumber = worldHasEpisodes ? unitNumber.trim() : "0";
-
-    if (worldHasEpisodes && !normalizedUnitNumber) {
-      setError("Informe o número do episódio/capítulo.");
-      return;
-    }
-
+    if (worldHasEpisodes && !normalizedUnitNumber) { setError("Informe o número do episódio/capítulo."); return; }
     setIsSaving(true);
-
     try {
-      const fichasPayload = suggestedFichas.map((f) => ({
-        tipo: f.tipo,
-        titulo: f.titulo,
-        resumo: f.resumo,
-        conteudo: f.conteudo,
-        tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean),
-        aparece_em: f.aparece_em || undefined,
-        ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null,
-        descricao_data: f.descricao_data || null,
-        data_inicio: f.data_inicio || null,
-        data_fim: f.data_fim || null,
-        granularidade_data: f.granularidade_data || null,
-        camada_temporal: f.camada_temporal || null,
-        codigo: f.codigo,
-        meta: f.meta || {}, 
-      }));
-
-      const payload = {
-        worldId: selectedWorldId,
-        unitNumber: normalizedUnitNumber || "0",
-        fichas: fichasPayload,
-      };
-
+      const fichasPayload = suggestedFichas.map((f) => ({ tipo: f.tipo, titulo: f.titulo, resumo: f.resumo, conteudo: f.conteudo, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), aparece_em: f.aparece_em || undefined, ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null, descricao_data: f.descricao_data || null, data_inicio: f.data_inicio || null, data_fim: f.data_fim || null, granularidade_data: f.granularidade_data || null, camada_temporal: f.camada_temporal || null, codigo: f.codigo, meta: f.meta || {}, }));
+      const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
       const response = await fetch("/api/lore/save", {
         method: "POST",
-        headers: { 
-            "Content-Type": "application/json",
-            "x-user-id": userId // ENVIANDO HEADER CORRETO
-        },
+        headers: { "Content-Type": "application/json", "x-user-id": userId },
         body: JSON.stringify(payload),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const msg = (errorData && errorData.error) || `Erro ao salvar fichas (status ${response.status}).`;
-        setError(msg);
-        return;
-      }
-
+      if (!response.ok) { const errorData = await response.json().catch(() => null); const msg = (errorData && errorData.error) || `Erro ao salvar fichas (status ${response.status}).`; setError(msg); return; }
       const dataResp = await response.json();
-      setSuggestedFichas([]);
-      setText("");
-      setDocumentName("");
-      setUnitNumber("");
-      setSuccessMessage("Fichas salvas com sucesso! As relações também foram registradas.");
-    } catch (err) {
-      console.error("Erro inesperado ao salvar fichas:", err);
-      setError("Erro inesperado ao salvar fichas.");
-    } finally {
-      setIsSaving(false);
-    }
+      setSuggestedFichas([]); setText(""); setDocumentName(""); setUnitNumber(""); setSuccessMessage("Fichas salvas com sucesso! As relações também foram registradas.");
+    } catch (err) { console.error("Erro inesperado ao salvar fichas:", err); setError("Erro inesperado ao salvar fichas."); } finally { setIsSaving(false); }
   }
 
-  function handleEditFicha(id: string) {
-    const ficha = suggestedFichas.find((f) => f.id === id);
-    if (!ficha) return;
-    setEditingFicha({ ...ficha });
-  }
-
-  function applyEditingFicha() {
-    if (!editingFicha) return;
-    setSuggestedFichas((prev) =>
-      prev.map((f) => (f.id === editingFicha.id ? { ...editingFicha } : f))
-    );
-    setEditingFicha(null);
-  }
-
-  function handleRemoveFicha(id: string) {
-    setSuggestedFichas((prev) => prev.filter((f) => f.id !== id));
-  }
-
-  function handleClearAll() {
-    setSuggestedFichas([]);
-    setSuccessMessage(null);
-  }
-
-
+  function handleEditFicha(id: string) { const ficha = suggestedFichas.find((f) => f.id === id); if (!ficha) return; setEditingFicha({ ...ficha }); }
+  function applyEditingFicha() { if (!editingFicha) return; setSuggestedFichas((prev) => prev.map((f) => (f.id === editingFicha.id ? { ...editingFicha } : f))); setEditingFicha(null); }
+  function handleRemoveFicha(id: string) { setSuggestedFichas((prev) => prev.filter((f) => f.id !== id)); }
+  function handleClearAll() { setSuggestedFichas([]); setSuccessMessage(null); }
   const selectedWorld = worlds.find((w) => w.id === selectedWorldId) || null;
   const worldHasEpisodes = selectedWorld?.has_episodes !== false;
 
@@ -703,23 +304,16 @@ export default function LoreUploadPage() {
         <div className="max-w-4xl mx-auto w-full px-4 py-8 space-y-6">
           <header className="space-y-2">
             <h1 className="text-2xl font-semibold">Upload de Arquivo ou Texto</h1>
-            <p className="text-sm text-zinc-400">
-              Envie um roteiro (PDF, DOCX, TXT) ou cole o texto. A Lore Machine extrairá fichas automaticamente.
-            </p>
+            <p className="text-sm text-zinc-400">Envie um roteiro (PDF, DOCX, TXT) ou cole o texto. A Lore Machine extrairá fichas automaticamente.</p>
           </header>
 
           {error && <div className="rounded-md border border-red-500 bg-red-950/40 px-3 py-2 text-sm text-red-200">{error}</div>}
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
-          {/* SEÇÃO DE SELEÇÃO */}
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
             <div className="space-y-1">
                <label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label>
-               <select 
-                 className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
-                 value={selectedUniverseId} 
-                 onChange={(e) => setSelectedUniverseId(e.target.value)}
-               >
+               <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => setSelectedUniverseId(e.target.value)}>
                  {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
                </select>
             </div>
@@ -741,23 +335,13 @@ export default function LoreUploadPage() {
             <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={documentName} onChange={(e) => setDocumentName(e.target.value)} placeholder="Ex.: Episódio 6 — A Geladeira" />
           </section>
 
-          {/* UPLOAD DE ARQUIVO */}
           <section className="p-4 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/30 hover:bg-zinc-900/50 transition-colors">
              <div className="flex flex-col items-center justify-center gap-2">
                 <label className="cursor-pointer bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 py-2 rounded text-sm font-medium border border-zinc-600 transition-colors">
                    <span>Escolher Arquivo (PDF, DOCX, TXT)</span>
-                   <input 
-                     ref={fileInputRef}
-                     type="file" 
-                     className="hidden" 
-                     accept=".pdf,.docx,.doc,.txt,.md" 
-                     onChange={handleFileSelect} 
-                     disabled={isParsingFile}
-                   />
+                   <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.docx,.doc,.txt,.md" onChange={handleFileSelect} disabled={isParsingFile} />
                 </label>
-                <span className="text-xs text-zinc-500">
-                   {isParsingFile ? "Lendo arquivo..." : "Ou arraste um arquivo aqui"}
-                </span>
+                <span className="text-xs text-zinc-500">{isParsingFile ? "Lendo arquivo..." : "Ou arraste um arquivo aqui"}</span>
              </div>
           </section>
 
@@ -766,7 +350,6 @@ export default function LoreUploadPage() {
             <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="O texto do arquivo aparecerá aqui, ou você pode colar manualmente..." />
           </section>
 
-          {/* BARRA DE PROGRESSO */}
           {isExtracting && (
             <div className="w-full bg-zinc-800 rounded-full h-2.5 mb-2 overflow-hidden">
                <div className="bg-fuchsia-600 h-2.5 rounded-full w-full animate-pulse"></div>
@@ -806,46 +389,22 @@ export default function LoreUploadPage() {
 
             {suggestedFichas.length > 0 && (
               <div className="pt-6 space-y-4 border-t border-zinc-800 mt-6">
-    
-                {/* ÁREA DE VERIFICAÇÃO DE COERÊNCIA (Urizen) */}
                 <div className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
-                      🛡️ Protocolo de Coerência (Urizen)
-                    </h3>
-                    <button
-                      onClick={handleCheckConsistency}
-                      disabled={isCheckingConsistency}
-                      className="px-3 py-1.5 text-xs bg-purple-900/30 text-purple-200 border border-purple-500/50 rounded hover:bg-purple-900/50 transition-colors disabled:opacity-50"
-                    >
+                    <h3 className="text-sm font-bold text-zinc-300 flex items-center gap-2">🛡️ Protocolo de Coerência (Urizen)</h3>
+                    <button onClick={handleCheckConsistency} disabled={isCheckingConsistency} className="px-3 py-1.5 text-xs bg-purple-900/30 text-purple-200 border border-purple-500/50 rounded hover:bg-purple-900/50 transition-colors disabled:opacity-50">
                       {isCheckingConsistency ? "Analisando Linha do Tempo..." : "Verificar Coerência (Urizen)"}
                     </button>
                   </div>
-                  
-                  <p className="text-xs text-zinc-500 mb-3">
-                    Antes de salvar, peça para **Urizen**, a Lei, verificar se estas novas fichas contradizem fatos estabelecidos (datas de morte, regras de mundo, locais destruídos).
-                  </p>
-
+                  <p className="text-xs text-zinc-500 mb-3">Antes de salvar, peça para **Urizen**, a Lei, verificar se estas novas fichas contradizem fatos estabelecidos.</p>
                   {consistencyReport && (
-                    <div className={`text-xs p-3 rounded border leading-relaxed whitespace-pre-wrap ${
-                      consistencyReport.includes("ALERTA") || consistencyReport.includes("INCONSISTÊNCIA")
-                        ? "bg-red-950/30 border-red-800 text-red-200" // Estilo de Erro
-                        : "bg-emerald-950/30 border-emerald-800 text-emerald-200" // Estilo de Sucesso
-                    }`}>
-                      <strong>Relatório de Urizen:</strong>
-                      <br/>
-                      {consistencyReport}
+                    <div className={`text-xs p-3 rounded border leading-relaxed whitespace-pre-wrap ${consistencyReport.includes("ALERTA") || consistencyReport.includes("INCONSISTÊNCIA") ? "bg-red-950/30 border-red-800 text-red-200" : "bg-emerald-950/30 border-emerald-800 text-emerald-200"}`}>
+                      <strong>Relatório de Urizen:</strong><br/>{consistencyReport}
                     </div>
                   )}
                 </div>
-
-                {/* BOTÃO DE SALVAR ORIGINAL */}
                 <div className="flex justify-center">
-                  <button 
-                    onClick={handleSaveFichas} 
-                    disabled={isSaving} 
-                    className="w-full md:w-auto px-8 py-3 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all transform hover:scale-105"
-                  >
+                  <button onClick={handleSaveFichas} disabled={isSaving} className="w-full md:w-auto px-8 py-3 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all transform hover:scale-105">
                     {isSaving ? "Salvando fichas..." : "CONFIRMAR E SALVAR FICHAS"}
                   </button>
                 </div>
@@ -872,71 +431,29 @@ export default function LoreUploadPage() {
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
             <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Editar ficha</h2><button className="text-xs text-zinc-400 hover:text-zinc-100" onClick={() => setEditingFicha(null)}>Fechar</button></div>
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
-              
-              {/* CAMPO DE TIPO ATUALIZADO COM DROPDOWN */}
               <div className="space-y-1">
                 <label className="text-xs uppercase tracking-wide text-zinc-400">Tipo</label>
-                <select 
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm"
-                  value={LORE_TYPES.some(t => t.value === editingFicha.tipo) ? editingFicha.tipo : "novo"}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "novo") {
-                      const custom = prompt("Digite o nome da nova categoria:");
-                      if (custom) setEditingFicha((prev) => prev ? { ...prev, tipo: custom.toLowerCase().trim() } : prev);
-                    } else {
-                      setEditingFicha((prev) => prev ? { ...prev, tipo: val } : prev);
-                    }
-                  }}
-                >
-                  {LORE_TYPES.map(t => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                  {!LORE_TYPES.some(t => t.value === editingFicha.tipo) && (
-                    <option value={editingFicha.tipo}>{editingFicha.tipo} (Atual)</option>
-                  )}
+                <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={LORE_TYPES.some(t => t.value === editingFicha.tipo) ? editingFicha.tipo : "novo"} onChange={(e) => { const val = e.target.value; if (val === "novo") { const custom = prompt("Digite o nome da nova categoria:"); if (custom) setEditingFicha((prev) => prev ? { ...prev, tipo: custom.toLowerCase().trim() } : prev); } else { setEditingFicha((prev) => prev ? { ...prev, tipo: val } : prev); } }}>
+                  {LORE_TYPES.map(t => (<option key={t.value} value={t.value}>{t.label}</option>))}
+                  {!LORE_TYPES.some(t => t.value === editingFicha.tipo) && (<option value={editingFicha.tipo}>{editingFicha.tipo} (Atual)</option>)}
                   <option value="novo">+ Nova Categoria...</option>
                 </select>
               </div>
-
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Título</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.titulo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, titulo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
               
-              {/* CAMPOS ESPECÍFICOS DE EVENTO */}
               {editingFicha.tipo === 'evento' && (
                 <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
-                   
-                   <div className="space-y-1">
-                     <label className="text-xs text-zinc-400">Descrição da Data (Texto original)</label>
-                     <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.descricao_data || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, descricao_data: e.target.value} : prev)} placeholder='ex: "Na tarde de 23 de agosto..."' />
-                   </div>
-
+                   <div className="space-y-1"><label className="text-xs text-zinc-400">Descrição da Data (Texto original)</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.descricao_data || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, descricao_data: e.target.value} : prev)} placeholder='ex: "Na tarde de 23 de agosto..."' /></div>
                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-xs text-zinc-400">Data Início</label>
-                        <input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_inicio || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_inicio: e.target.value} : prev)} />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-zinc-400">Data Fim</label>
-                        <input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_fim || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_fim: e.target.value} : prev)} />
-                      </div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Data Início</label><input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_inicio || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_inicio: e.target.value} : prev)} /></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Data Fim</label><input type="date" className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.data_fim || ''} onChange={(e) => setEditingFicha(prev => prev ? {...prev, data_fim: e.target.value} : prev)} /></div>
                    </div>
-
                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-xs text-zinc-400">Granularidade</label>
-                        <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.granularidade_data || 'vago'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, granularidade_data: e.target.value} : prev)}>
-                           {GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-zinc-400">Camada</label>
-                        <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.camada_temporal || 'linha_principal'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, camada_temporal: e.target.value} : prev)}>
-                           {CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                        </select>
-                      </div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Granularidade</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.granularidade_data || 'vago'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, granularidade_data: e.target.value} : prev)}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                      <div className="space-y-1"><label className="text-xs text-zinc-400">Camada</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.camada_temporal || 'linha_principal'} onChange={(e) => setEditingFicha(prev => prev ? {...prev, camada_temporal: e.target.value} : prev)}>{CAMADAS_TEMPORAIS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
                    </div>
                 </div>
               )}
