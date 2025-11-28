@@ -55,11 +55,13 @@ type CatalogResponse = {
 // --- CONSTANTES ---
 const CAMADAS = [
   { value: "", label: "Todas as camadas" },
-  { value: "linha_principal", label: "Linha principal" },
+  { value: "linha_principal", label: "Linha Principal (Diegese)" },
+  { value: "relato", label: "Relato / Memória" },
+  { value: "publicacao", label: "Data de Publicação" },
   { value: "flashback", label: "Flashback" },
   { value: "flashforward", label: "Flashforward" },
-  { value: "sonho_visao", label: "Sonho / visão" },
-  { value: "mundo_alternativo", label: "Mundo alternativo" },
+  { value: "sonho_visao", label: "Sonho / Visão" },
+  { value: "mundo_alternativo", label: "Mundo Alternativo" },
   { value: "historico_antigo", label: "Histórico / Antigo" },
   { value: "outro", label: "Outro" },
 ];
@@ -69,13 +71,15 @@ const GRANULARIDADES = [
   { value: "ano", label: "Ano" },
   { value: "mes", label: "Mês" },
   { value: "dia", label: "Dia" },
-  { value: "hora", label: "Hora" },
+  { value: "decada", label: "Década" },
+  { value: "seculo", label: "Século" },
 ];
 
 // --- HELPERS ---
 function getYearFromDate(dateStr: string | null): number | null {
   if (!dateStr) return null;
   try {
+    // Tratamento para datas negativas ou históricas se necessário
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
     return d.getFullYear();
@@ -89,9 +93,11 @@ function getDecade(year: number): number {
 }
 
 function formatDescricaoData(event: TimelineEvent) {
+  // Se tiver a descrição original (frase do roteiro), usa ela.
   if (event.descricao_data && event.descricao_data.trim().length > 0) {
     return event.descricao_data;
   }
+  // Fallback para data formatada
   if (event.data_inicio) {
     try {
       const date = new Date(event.data_inicio);
@@ -100,11 +106,12 @@ function formatDescricaoData(event: TimelineEvent) {
 
       if (event.granularidade_data === "ano") return `${adjustedDate.getFullYear()}`;
       if (event.granularidade_data === "mes") return `${adjustedDate.getMonth() + 1}/${adjustedDate.getFullYear()}`;
+      if (event.granularidade_data === "decada") return `Anos ${getDecade(adjustedDate.getFullYear())}`;
       
       return adjustedDate.toLocaleDateString("pt-BR");
     } catch { /* ignore */ }
   }
-  return "";
+  return "Data desconhecida";
 }
 
 // --- CARD ---
@@ -122,7 +129,7 @@ const EventCard = ({ event, selectedEvent, onSelect, onDelete, onEdit }: any) =>
             <div className="flex justify-between items-start">
                 <div className="pr-10">
                     <div className={clsx("text-[10px] uppercase font-mono tracking-wider mb-1", isSelected ? "text-emerald-300" : "text-zinc-500")}>
-                        {formatDescricaoData(event) || "Data Desconhecida"}
+                        {formatDescricaoData(event)}
                     </div>
                     <h4 className="text-sm font-bold text-white leading-snug">
                         {event.titulo || "Evento sem título"}
@@ -146,6 +153,13 @@ const EventCard = ({ event, selectedEvent, onSelect, onDelete, onEdit }: any) =>
                     </button>
                 </div>
             </div>
+            <div className="flex gap-2 mt-2">
+                {event.camada_temporal && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase">
+                        {event.camada_temporal.replace(/_/g, " ")}
+                    </span>
+                )}
+            </div>
             <p className="text-xs text-zinc-400 mt-2 line-clamp-2">
                 {event.resumo || event.conteudo || "Sem resumo."}
             </p>
@@ -157,7 +171,7 @@ const EventCard = ({ event, selectedEvent, onSelect, onDelete, onEdit }: any) =>
 export default function TimelinePage() {
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null); // AUTH STATE
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [worlds, setWorlds] = useState<World[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState<string | null>(null);
@@ -207,7 +221,6 @@ export default function TimelinePage() {
       if (data && data.length > 0) {
         setUniverses(data);
         if (!selectedUniverseId) {
-             // Tenta achar um universo padrão
              const antiverso = data.find(u => u.nome.toLowerCase() === 'antiverso');
              setSelectedUniverseId(antiverso ? antiverso.id : data[0].id);
         }
@@ -240,7 +253,7 @@ export default function TimelinePage() {
     fetchWorlds();
   }, [selectedUniverseId, reloadCounter, userId]);
 
-  // 3. EVENTOS
+  // 3. EVENTOS (Alterado para ordenar por data_inicio)
   useEffect(() => {
     if (!selectedUniverseId || !userId) return;
     async function fetchEvents() {
@@ -288,12 +301,13 @@ export default function TimelinePage() {
     fetchEvents();
   }, [selectedUniverseId, selectedWorldId, selectedCamada, reloadCounter, userId]);
 
-  // 4. LÓGICA DE AGRUPAMENTO (Mantida igual)
+  // 4. LÓGICA DE AGRUPAMENTO (Usando data_inicio)
   const groupedData = useMemo(() => {
     if (viewMode === "flat") return null;
     const groups: TimelineGroup[] = [];
     const noDateEvents: TimelineEvent[] = [];
     const decadesMap = new Map<number, Map<number, TimelineEvent[]>>();
+    
     events.forEach(ev => {
       const year = getYearFromDate(ev.data_inicio);
       if (year === null) { noDateEvents.push(ev); return; }
@@ -303,10 +317,13 @@ export default function TimelinePage() {
       if (!yearMap.has(year)) yearMap.set(year, []);
       yearMap.get(year)!.push(ev);
     });
+
     const sortedDecades = Array.from(decadesMap.keys()).sort((a, b) => a - b);
+    
     sortedDecades.forEach(dec => {
       const yearMap = decadesMap.get(dec)!;
       const sortedYears = Array.from(yearMap.keys()).sort((a, b) => a - b);
+      
       const yearGroups: TimelineGroup[] = sortedYears.map(yr => ({
         label: yr.toString(),
         type: "year",
@@ -314,7 +331,9 @@ export default function TimelinePage() {
         count: yearMap.get(yr)!.length,
         isOpen: expandedGroups.has(yr.toString())
       }));
+      
       const totalEventsInDecade = yearGroups.reduce((acc, curr) => acc + curr.count, 0);
+      
       groups.push({
         label: `Anos ${dec}`,
         type: "decade",
@@ -323,6 +342,7 @@ export default function TimelinePage() {
         isOpen: expandedGroups.has(`dec-${dec}`)
       });
     });
+
     if (noDateEvents.length > 0) {
       groups.push({ label: "Sem data definida", type: "unknown", events: noDateEvents, count: noDateEvents.length, isOpen: expandedGroups.has("unknown") });
     }
@@ -345,7 +365,6 @@ export default function TimelinePage() {
   }
   function collapseAll() { setExpandedGroups(new Set()); }
 
-  // CRUD
   async function handleDeleteEvent(event: TimelineEvent) {
     if (!confirm(`Apagar evento "${event.titulo}"?`)) return;
     if (!userId) return;
@@ -393,7 +412,6 @@ export default function TimelinePage() {
     } catch (e: any) { alert(e.message); } finally { setIsSavingCreate(false); }
   }
 
-  // Handlers Mundo
   function handleWorldChangeInCreate(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
     if (value === "create_new") {
@@ -454,7 +472,7 @@ export default function TimelinePage() {
           <a href="/lore-admin" className="text-zinc-400 hover:text-white">Catálogo</a>
         </div>
         <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-          Modo Timeline Visual
+          Timeline AntiVerso
         </div>
       </header>
 
@@ -488,11 +506,10 @@ export default function TimelinePage() {
 
         {/* ÁREA PRINCIPAL (TIMELINE) */}
         <main className="flex-1 border-r border-zinc-800 p-0 flex flex-col bg-black relative">
-          {/* Barra de Ferramentas da Timeline */}
           <div className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-900/30 backdrop-blur-sm z-10">
              <div className="flex items-center gap-3">
                 <h2 className="text-sm font-bold text-white">
-                  {selectedWorldId ? worlds.find(w => w.id === selectedWorldId)?.nome : `Timeline Universal: ${universes.find(u => u.id === selectedUniverseId)?.nome || "..."}`}
+                  {selectedWorldId ? worlds.find(w => w.id === selectedWorldId)?.nome : `Timeline Universal`}
                 </h2>
                 <div className="h-4 w-px bg-zinc-700 mx-2"></div>
                 <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-700">
@@ -513,7 +530,7 @@ export default function TimelinePage() {
                 </select>
                 <button onClick={() => {
                   const defWorld = selectedWorldId || (worlds.length > 0 ? worlds.find(w => w.is_root)?.id || worlds[0].id : "");
-                  setCreateData({ world_id: defWorld, titulo: "", resumo: "", episodio: "", camada_temporal: "", descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "" });
+                  setCreateData({ world_id: defWorld, titulo: "", resumo: "", episodio: "", camada_temporal: "linha_principal", descricao_data: "", data_inicio: "", data_fim: "", granularidade_data: "vago" });
                   setIsCreateOpen(true);
                 }} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded shadow-lg shadow-emerald-900/20">+ Evento</button>
              </div>
@@ -575,7 +592,7 @@ export default function TimelinePage() {
                    {selectedEvent.camada_temporal && <span className="text-[10px] px-2 py-0.5 bg-zinc-800 rounded text-zinc-300 border border-zinc-700 capitalize">{selectedEvent.camada_temporal.replace(/_/g, " ")}</span>}
                 </div>
               </div>
-              <div className="p-3 bg-zinc-900/50 rounded border border-zinc-800"><div className="text-[10px] text-zinc-500 uppercase mb-1">Data / Momento</div><div className="text-sm text-white font-mono">{formatDescricaoData(selectedEvent) || "Data desconhecida"}</div></div>
+              <div className="p-3 bg-zinc-900/50 rounded border border-zinc-800"><div className="text-[10px] text-zinc-500 uppercase mb-1">Data / Momento</div><div className="text-sm text-white font-mono">{formatDescricaoData(selectedEvent)}</div></div>
               <div><div className="text-[10px] text-zinc-500 uppercase mb-1">Resumo</div><p className="text-sm text-zinc-300 leading-relaxed">{selectedEvent.resumo || "Sem resumo."}</p></div>
               {selectedEvent.conteudo && (<div><div className="text-[10px] text-zinc-500 uppercase mb-1">Conteúdo Completo</div><div className="text-xs text-zinc-400 leading-relaxed max-h-60 overflow-y-auto pr-2 whitespace-pre-wrap border-l-2 border-zinc-800 pl-3">{selectedEvent.conteudo}</div></div>)}
               <div className="pt-4 border-t border-zinc-800 flex gap-2"><button onClick={() => { setEditData({...selectedEvent}); setIsEditOpen(true); }} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs py-2 rounded font-medium transition-colors">Editar</button><button onClick={() => handleDeleteEvent(selectedEvent)} className="flex-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 text-xs py-2 rounded font-medium transition-colors">Apagar</button></div>
@@ -594,15 +611,19 @@ export default function TimelinePage() {
               <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
                  <div><label className="text-[10px] text-zinc-500 uppercase">Título</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.titulo || ''} onChange={e => setEditData({...editData, titulo: e.target.value})} /></div>
                  <div><label className="text-[10px] text-zinc-500 uppercase">Resumo</label><textarea className="w-full bg-black border border-zinc-700 rounded p-2 text-xs h-20" value={editData.resumo || ''} onChange={e => setEditData({...editData, resumo: e.target.value})} /></div>
-                 <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_inicio || ''} onChange={e => setEditData({...editData, data_inicio: e.target.value})} /></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_fim || ''} onChange={e => setEditData({...editData, data_fim: e.target.value})} /></div>
+                 
+                 <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded">
+                    <div className="text-emerald-500 text-[10px] font-bold uppercase mb-2">Controle Temporal (Diegese)</div>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Data Início (YYYY-MM-DD)</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_inicio || ''} onChange={e => setEditData({...editData, data_inicio: e.target.value})} /></div>
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim (Intervalo)</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.data_fim || ''} onChange={e => setEditData({...editData, data_fim: e.target.value})} /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.granularidade_data || 'vago'} onChange={e => setEditData({...editData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.camada_temporal || 'linha_principal'} onChange={e => setEditData({...editData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+                    </div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data (Texto Original)</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'" /></div>
                  </div>
-                 <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.granularidade_data || 'vago'} onChange={e => setEditData({...editData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.camada_temporal || 'linha_principal'} onChange={e => setEditData({...editData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
-                 </div>
-                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={editData.descricao_data || ''} onChange={e => setEditData({...editData, descricao_data: e.target.value})} /></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button onClick={() => setIsEditOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
@@ -628,15 +649,18 @@ export default function TimelinePage() {
                  <div><label className="text-[10px] text-zinc-500 uppercase">Título</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.titulo || ''} onChange={e => setCreateData({...createData, titulo: e.target.value})} /></div>
                  <div><label className="text-[10px] text-zinc-500 uppercase">Resumo</label><textarea className="w-full bg-black border border-zinc-700 rounded p-2 text-xs h-20" value={createData.resumo || ''} onChange={e => setCreateData({...createData, resumo: e.target.value})} /></div>
                  
-                 <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_inicio || ''} onChange={e => setCreateData({...createData, data_inicio: e.target.value})} /></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_fim || ''} onChange={e => setCreateData({...createData, data_fim: e.target.value})} /></div>
+                 <div className="p-3 bg-zinc-900/50 border border-zinc-800 rounded">
+                    <div className="text-emerald-500 text-[10px] font-bold uppercase mb-2">Controle Temporal</div>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Data Início</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_inicio || ''} onChange={e => setCreateData({...createData, data_inicio: e.target.value})} /></div>
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Data Fim</label><input type="date" className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.data_fim || ''} onChange={e => setCreateData({...createData, data_fim: e.target.value})} /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.granularidade_data || 'vago'} onChange={e => setCreateData({...createData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
+                        <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.camada_temporal || 'linha_principal'} onChange={e => setCreateData({...createData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+                    </div>
+                    <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
                  </div>
-                 <div className="grid grid-cols-2 gap-2">
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Granularidade</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.granularidade_data || 'vago'} onChange={e => setCreateData({...createData, granularidade_data: e.target.value})}>{GRANULARIDADES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}</select></div>
-                    <div><label className="text-[10px] text-zinc-500 uppercase">Camada</label><select className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.camada_temporal || 'linha_principal'} onChange={e => setCreateData({...createData, camada_temporal: e.target.value})}>{CAMADAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
-                 </div>
-                 <div><label className="text-[10px] text-zinc-500 uppercase">Descrição da Data</label><input className="w-full bg-black border border-zinc-700 rounded p-2 text-xs" value={createData.descricao_data || ''} onChange={e => setCreateData({...createData, descricao_data: e.target.value})} placeholder="ex: 'No verão de 1993'"/></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
                  <button type="button" onClick={() => setIsCreateOpen(false)} className="px-4 py-2 rounded text-xs border border-zinc-700 text-zinc-300 hover:bg-zinc-900">Cancelar</button>
