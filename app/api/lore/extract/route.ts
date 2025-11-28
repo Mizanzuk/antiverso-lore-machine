@@ -56,35 +56,53 @@ function splitTextIntoChunks(text: string, maxChars = 12000): string[] {
   return chunks;
 }
 
-// A função de processamento agora inclui um EXEMPLO (One-Shot) no prompt
+// A função de processamento agora inclui um EXEMPLO (One-Shot) no prompt e pede completude máxima
 async function processChunk(text: string, chunkIndex: number, totalChunks: number, allowedTypes: string[]): Promise<ExtractedFicha[]> {
     const typeInstructions = allowedTypes.map((t) => `"${t}"`).join(", ");
     
     const systemPrompt = `
   Você é o Motor de Extração de Lore do AntiVerso.
-  Sua missão é DECOMPOR o texto em uma lista de objetos JSON (fichas).
+  Sua missão é DECOMPOR o texto em uma lista de objetos JSON (fichas), preenchendo o máximo de campos possível.
   
-  ⚠️ MODO DE ALTA SENSIBILIDADE: Não resuma o texto todo em uma ficha só. Quebre-o em várias.
+  ⚠️ MODO DE ALTA SENSIBILIDADE E COMPLETUDE:
+  - Não resuma o texto todo em uma ficha só. Quebre-o em várias.
+  - Se encontrar datas, preencha 'data_inicio' (YYYY-MM-DD), 'descricao_data', 'granularidade_data' e 'camada_temporal'.
+  - Se encontrar relações entre personagens (ex: "João, filho de Maria"), use o campo 'meta.relacoes'.
   
   TIPOS PERMITIDOS: ${typeInstructions}
   
   ### EXEMPLO DE COMPORTAMENTO ESPERADO (Siga este padrão):
-  Texto: "Em 1999, João entrou na Caverna Escura e encontrou o Artefato Perdido."
+  Texto: "Em 1999, João (filho de Maria) entrou na Caverna Escura."
   Saída JSON:
   {
     "fichas": [
-      { "tipo": "personagem", "titulo": "João", "resumo": "Protagonista que explorou a caverna." },
-      { "tipo": "local", "titulo": "Caverna Escura", "resumo": "Local perigoso explorado por João." },
-      { "tipo": "objeto", "titulo": "Artefato Perdido", "resumo": "Item misterioso encontrado na caverna." },
-      { "tipo": "evento", "titulo": "Descoberta do Artefato", "data_inicio": "1999-01-01", "descricao_data": "Em 1999", "camada_temporal": "linha_principal", "resumo": "Momento em que João encontra o objeto." }
+      { 
+        "tipo": "personagem", 
+        "titulo": "João", 
+        "resumo": "Filho de Maria que explorou a caverna.", 
+        "meta": { "relacoes": [{ "tipo": "filho_de", "alvo_titulo": "Maria" }] }
+      },
+      { 
+        "tipo": "local", 
+        "titulo": "Caverna Escura", 
+        "resumo": "Local perigoso explorado por João." 
+      },
+      { 
+        "tipo": "evento", 
+        "titulo": "Exploração da Caverna", 
+        "data_inicio": "1999-01-01", 
+        "granularidade_data": "ano",
+        "descricao_data": "Em 1999", 
+        "camada_temporal": "linha_principal", 
+        "resumo": "Momento em que João entra na caverna." 
+      }
     ]
   }
 
   ### SUAS DIRETRIZES:
   1. Varra o texto procurando por: Personagens, Locais, Organizações, Objetos e Eventos.
-  2. Se encontrar um Personagem (nome próprio), crie uma ficha.
-  3. Se encontrar um Local, crie uma ficha.
-  4. Se encontrar uma Data, crie uma ficha de Evento (preencha data_inicio no formato YYYY-MM-DD).
+  2. Extraia o máximo de detalhes para o campo 'conteudo'.
+  3. Preencha 'meta.relacoes' sempre que possível.
   
   Retorne APENAS o JSON válido com a chave "fichas".
   `.trim();
@@ -94,7 +112,7 @@ async function processChunk(text: string, chunkIndex: number, totalChunks: numbe
     try {
       const completion = await openai!.chat.completions.create({
         model: "gpt-4o-mini",
-        temperature: 0.4, // Levemente criativo para inferir detalhes, mas contido pelo exemplo
+        temperature: 0.3, 
         max_tokens: 4000,
         messages: [
           { role: "system", content: systemPrompt },
@@ -184,7 +202,6 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. BUSCAR CATEGORIAS DINÂMICAS DO BANCO
-    // Adicionado tratamento de erro silencioso para evitar que falha no banco quebre a extração
     let allowedTypes = ["personagem", "local", "evento", "conceito", "roteiro", "objeto", "organizacao", "registro_anomalo"];
     try {
         const { data: catData } = await clientToUse.from("lore_categories").select("slug");
