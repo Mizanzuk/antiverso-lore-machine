@@ -4,6 +4,21 @@ import { useEffect, useState, ChangeEvent, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
+const LORE_TYPES = [
+  { value: "personagem", label: "Personagem" },
+  { value: "local", label: "Local" },
+  { value: "evento", label: "Evento" },
+  { value: "empresa", label: "Empresa" },
+  { value: "agencia", label: "Agência" },
+  { value: "midia", label: "Mídia" },
+  { value: "conceito", label: "Conceito" },
+  { value: "epistemologia", label: "Epistemologia" },
+  { value: "regra_de_mundo", label: "Regra de Mundo" },
+  { value: "objeto", label: "Objetos" },
+  { value: "roteiro", label: "Roteiro" },
+  { value: "registro_anomalo", label: "Registro Anômalo" },
+];
+
 const CAMADAS_TEMPORAIS = [
   { value: "linha_principal", label: "Linha Principal" },
   { value: "flashback", label: "Flashback" },
@@ -41,13 +56,15 @@ export default function LoreUploadPage() {
   const [documentName, setDocumentName] = useState<string>("");
   const [text, setText] = useState<string>("");
 
-  // ESTADO PARA TIPOS DINÂMICOS
   const [loreTypes, setLoreTypes] = useState<{value: string, label: string}[]>([]);
-
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
+  // PROGRESS STATES
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(0);
+  const [extractStatus, setExtractStatus] = useState("");
+
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -98,7 +115,6 @@ export default function LoreUploadPage() {
         
         const data = (await res.json()) as CatalogResponse;
         
-        // Carrega Tipos Dinâmicos
         if (data.types && data.types.length > 0) {
             setLoreTypes(data.types.map(t => ({ value: t.id, label: t.label })));
         }
@@ -169,6 +185,7 @@ export default function LoreUploadPage() {
 
   function handleCancelWorldModal() { setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); }
 
+  // --- STREAMING EXTRACTION ---
   async function handleExtractFichas() {
     setError(null); setSuccessMessage(null);
     if (!userId) { setError("Usuário não autenticado."); return; }
@@ -177,79 +194,121 @@ export default function LoreUploadPage() {
     if (!selectedWorldId || !world) { setError("Selecione um Mundo antes de extrair fichas."); return; }
     if (worldHasEpisodes && !unitNumber.trim()) { setError("Informe o número do episódio/capítulo."); return; }
     if (!text.trim()) { setError("Cole um texto ou faça upload de um arquivo para extrair fichas."); return; }
+    
     setIsExtracting(true);
+    setExtractProgress(0);
+    setExtractStatus("Iniciando...");
+
     try {
       const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
       const worldName = selectedWorld?.nome || selectedWorld?.id || "Mundo Desconhecido";
+      
       const response = await fetch("/api/lore/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": userId },
         body: JSON.stringify({ text, worldId: selectedWorldId, worldName, documentName: documentName.trim() || null, unitNumber }),
       });
-      if (!response.ok) { const errorData = await response.json().catch(() => null); const msg = errorData?.error || `Erro ao extrair fichas (status ${response.status}).`; setError(msg); return; }
-      const data = (await response.json()) as ExtractResponse;
-      const rawFichas = data.fichas || [];
-      const selected = worlds.find((w) => w.id === selectedWorldId);
-      const prefix = getWorldPrefix(selected || null);
+
+      if (!response.ok || !response.body) {
+         const errorData = await response.json().catch(() => null);
+         throw new Error(errorData?.error || `Erro na conexão (status ${response.status}).`);
+      }
+
+      // LEITOR DE STREAM
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let finalFichas: ApiFicha[] = [];
+
+      while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Guarda o resto incompleto
+
+          for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                  const data = JSON.parse(line);
+                  if (data.type === "progress") {
+                      setExtractProgress(data.percentage);
+                      setExtractStatus(data.message);
+                  } else if (data.type === "complete") {
+                      finalFichas = data.fichas;
+                  } else if (data.type === "error") {
+                      throw new Error(data.message);
+                  }
+              } catch (e) {
+                  console.warn("Erro ao parsear linha de stream:", e);
+              }
+          }
+      }
+
+      // PROCESSAMENTO FINAL
+      if (finalFichas.length === 0) throw new Error("Nenhuma ficha retornada.");
+      
+      const prefix = getWorldPrefix(selectedWorld || null);
       const normalizedEpisode = normalizeEpisode(unitNumber || "");
       const typeCounters: Record<string, number> = {};
-      const mapped: SuggestedFicha[] = rawFichas.map((rawFicha) => {
+
+      const mapped: SuggestedFicha[] = finalFichas.map((rawFicha) => {
         const base = createEmptyFicha(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
-        const titulo = rawFicha.titulo?.trim() || base.titulo;
         const tipo = rawFicha.tipo?.trim() || base.tipo;
-        const resumo = rawFicha.resumo?.trim() || base.resumo;
-        const conteudo = rawFicha.conteudo?.trim() || base.conteudo;
         const tagsArray = rawFicha.tags || [];
-        const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
-        
-        const anoDiegese = typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
-        
-        const descricaoData = rawFicha.descricao_data?.trim() || "";
-        const dataInicio = rawFicha.data_inicio?.trim() || "";
-        const dataFim = rawFicha.data_fim?.trim() || "";
-        const granularidadeData = normalizeGranularidade(rawFicha.granularidade_data, descricaoData);
-        const camadaTemporal = rawFicha.camada_temporal?.trim() || "";
-        const meta = rawFicha.meta || {};
         const tagsString = tagsArray.join(", ");
+        
         const worldNameForAparece = selected?.nome || selected?.id || "Mundo Desconhecido";
         const appearsParts: string[] = [];
         if (worldNameForAparece) appearsParts.push(`Mundo: ${worldNameForAparece}`);
         if (normalizedEpisode) appearsParts.push(`Episódio/Capítulo: ${normalizedEpisode}`);
         if (documentName.trim()) appearsParts.push(`Documento: ${documentName.trim()}`);
-        if (!normalizedEpisode && !documentName.trim() && apareceEmRaw) appearsParts.push(apareceEmRaw);
+        
         const appearsEmValue = appearsParts.join("\n\n");
         let codigoGerado = "";
+        
         if (prefix && normalizedEpisode) {
           const typePrefix = getTypePrefix(tipo);
-          if (typePrefix === "RT") { codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`; } else { if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1; const count = typeCounters[typePrefix]++; const counterStr = String(count).padStart(2, "0"); codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`; }
+          if (typePrefix === "RT") { 
+              codigoGerado = `${prefix}${normalizedEpisode}-Roteiro`; 
+          } else { 
+              if (!typeCounters[typePrefix]) typeCounters[typePrefix] = 1; 
+              const count = typeCounters[typePrefix]++; 
+              const counterStr = String(count).padStart(2, "0"); 
+              codigoGerado = `${prefix}${normalizedEpisode}-${typePrefix}${counterStr}`; 
+          }
         }
+        
+        const anoDiegese = typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
+        const granularidadeData = normalizeGranularidade(rawFicha.granularidade_data, rawFicha.descricao_data);
         
         return { 
             ...base, 
-            tipo, 
-            titulo, 
-            resumo, 
-            conteudo, 
+            ...rawFicha,
+            id: base.id, // Garante ID único local
             tags: tagsString, 
             aparece_em: appearsEmValue, 
             codigo: codigoGerado, 
             ano_diegese: anoDiegese, 
-            descricao_data: descricaoData, 
-            data_inicio: dataInicio, 
-            data_fim: dataFim, 
             granularidade_data: granularidadeData, 
-            camada_temporal: camadaTemporal, 
-            meta: meta 
+            camada_temporal: rawFicha.camada_temporal || "linha_principal",
+            meta: rawFicha.meta || {} 
         };
       });
+
       setSuggestedFichas(mapped);
-      setSuccessMessage(`Foram extraídas ${mapped.length} fichas. Revise antes de salvar.`);
-    } catch (err) { console.error("Erro inesperado ao extrair fichas:", err); setError("Erro inesperado ao extrair fichas."); } finally { setIsExtracting(false); }
+      setSuccessMessage(`Extração concluída! ${mapped.length} fichas geradas.`);
+      
+    } catch (err: any) {
+        console.error("Erro de extração:", err);
+        setError(err.message || "Erro ao processar extração.");
+    } finally {
+        setIsExtracting(false);
+    }
   }
 
   async function handleCheckConsistency() {
-    // ... (Mantém igual)
-    // Omitido para economizar espaço, lógica idêntica
     if (suggestedFichas.length === 0 || !userId) return;
     setIsCheckingConsistency(true);
     setConsistencyReport(null);
@@ -263,7 +322,6 @@ export default function LoreUploadPage() {
   }
 
   async function handleSaveFichas() {
-    // ... (Mantém igual)
     setError(null); setSuccessMessage(null);
     if (!userId) { setError("Erro de autenticação. Recarregue a página."); return; }
     if (suggestedFichas.length === 0) { setError("Não há fichas para salvar."); return; }
@@ -274,7 +332,22 @@ export default function LoreUploadPage() {
     if (worldHasEpisodes && !normalizedUnitNumber) { setError("Informe o número do episódio/capítulo."); return; }
     setIsSaving(true);
     try {
-      const fichasPayload = suggestedFichas.map((f) => ({ tipo: f.tipo, titulo: f.titulo, resumo: f.resumo, conteudo: f.conteudo, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), aparece_em: f.aparece_em || undefined, ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null, descricao_data: f.descricao_data || null, data_inicio: f.data_inicio || null, data_fim: f.data_fim || null, granularidade_data: f.granularidade_data || null, camada_temporal: f.camada_temporal || null, codigo: f.codigo, meta: f.meta || {}, }));
+      const fichasPayload = suggestedFichas.map((f) => ({ 
+          tipo: f.tipo, 
+          titulo: f.titulo, 
+          resumo: f.resumo, 
+          conteudo: f.conteudo, 
+          tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), 
+          aparece_em: f.aparece_em || undefined, 
+          ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null, 
+          descricao_data: f.descricao_data || null, 
+          data_inicio: f.data_inicio || null, 
+          data_fim: f.data_fim || null, 
+          granularidade_data: f.granularidade_data || null, 
+          camada_temporal: f.camada_temporal || null, 
+          codigo: f.codigo, 
+          meta: f.meta || {}, 
+      }));
       const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
       const response = await fetch("/api/lore/save", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify(payload), });
       if (!response.ok) { const errorData = await response.json().catch(() => null); const msg = (errorData && errorData.error) || `Erro ao salvar fichas (status ${response.status}).`; setError(msg); return; }
@@ -311,7 +384,6 @@ export default function LoreUploadPage() {
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-            {/* Omitido para brevidade, mas igual ao original, exceto que não precisa mudar */}
             <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => setSelectedUniverseId(e.target.value)}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
             <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
             <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} /></div>
@@ -337,14 +409,18 @@ export default function LoreUploadPage() {
             <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="O texto do arquivo aparecerá aqui, ou você pode colar manualmente..." />
           </section>
 
+          {/* BARRA DE PROGRESSO REAL */}
           {isExtracting && (
-            <div className="w-full bg-zinc-800 rounded-full h-2.5 mb-2 overflow-hidden">
-               <div className="bg-fuchsia-600 h-2.5 rounded-full w-full animate-pulse"></div>
+            <div className="space-y-2">
+                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                   <div className="bg-fuchsia-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+                </div>
+                <p className="text-[10px] text-zinc-400 text-center animate-pulse">{extractStatus} ({extractProgress}%)</p>
             </div>
           )}
 
           <div className="flex justify-center">
-            <button onClick={handleExtractFichas} disabled={isExtracting || isParsingFile} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Extraindo fichas..." : "Extrair fichas"}</button>
+            <button onClick={handleExtractFichas} disabled={isExtracting || isParsingFile} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Processando..." : "Extrair fichas"}</button>
           </div>
 
           <section className="space-y-3 pb-8">
@@ -445,6 +521,7 @@ export default function LoreUploadPage() {
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
               
+              {/* Campos de Evento */}
               {editingFicha.tipo === 'evento' && (
                 <div className="p-3 bg-zinc-900/50 rounded border border-emerald-500/30 space-y-3 mt-2 border-l-4 border-l-emerald-500">
                    <div className="text-[10px] uppercase tracking-widest text-emerald-500 font-bold">Dados da Timeline</div>
