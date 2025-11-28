@@ -4,21 +4,6 @@ import { useEffect, useState, ChangeEvent, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { GRANULARIDADES, normalizeGranularidade } from "@/lib/dates/granularidade";
 
-const LORE_TYPES = [
-  { value: "personagem", label: "Personagem" },
-  { value: "local", label: "Local" },
-  { value: "evento", label: "Evento" },
-  { value: "empresa", label: "Empresa" },
-  { value: "agencia", label: "Agência" },
-  { value: "midia", label: "Mídia" },
-  { value: "conceito", label: "Conceito" },
-  { value: "epistemologia", label: "Epistemologia" },
-  { value: "regra_de_mundo", label: "Regra de Mundo" },
-  { value: "objeto", label: "Objetos" },
-  { value: "roteiro", label: "Roteiro" },
-  { value: "registro_anomalo", label: "Registro Anômalo" },
-];
-
 const CAMADAS_TEMPORAIS = [
   { value: "linha_principal", label: "Linha Principal" },
   { value: "flashback", label: "Flashback" },
@@ -55,6 +40,9 @@ export default function LoreUploadPage() {
   const [unitNumber, setUnitNumber] = useState<string>("");
   const [documentName, setDocumentName] = useState<string>("");
   const [text, setText] = useState<string>("");
+
+  // ESTADO PARA TIPOS DINÂMICOS
+  const [loreTypes, setLoreTypes] = useState<{value: string, label: string}[]>([]);
 
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
@@ -97,7 +85,7 @@ export default function LoreUploadPage() {
     fetchUniverses();
   }, [userId]);
 
-  const fetchWorlds = async () => {
+  const fetchWorldsAndTypes = async () => {
       if (!userId) return;
       setError(null);
       try {
@@ -110,6 +98,11 @@ export default function LoreUploadPage() {
         
         const data = (await res.json()) as CatalogResponse;
         
+        // Carrega Tipos Dinâmicos
+        if (data.types && data.types.length > 0) {
+            setLoreTypes(data.types.map(t => ({ value: t.id, label: t.label })));
+        }
+
         const rootWorld = data.worlds.find(w => w.is_root);
         const childWorlds = data.worlds.filter(w => !w.is_root);
         
@@ -125,14 +118,14 @@ export default function LoreUploadPage() {
           setSelectedWorldId("");
         }
       } catch (err: any) {
-        console.error("Erro ao carregar Mundos:", err);
-        setError(err.message || "Erro ao carregar Mundos.");
+        console.error("Erro ao carregar dados:", err);
+        setError(err.message || "Erro ao carregar dados.");
       }
   }
   
   useEffect(() => {
     if (!selectedUniverseId || !userId) return;
-    fetchWorlds();
+    fetchWorldsAndTypes();
   }, [selectedUniverseId, userId]);
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
@@ -170,7 +163,7 @@ export default function LoreUploadPage() {
       const { data, error } = await supabaseBrowser.from("worlds").insert([payload]).select("*");
       if (error) { console.error(error); setError("Erro ao criar novo Mundo."); return; }
       const inserted = (data?.[0] || null) as World | null;
-      if (inserted) { fetchWorlds(); setSelectedWorldId(inserted.id); setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); setSuccessMessage("Novo Mundo criado com sucesso."); }
+      if (inserted) { fetchWorldsAndTypes(); setSelectedWorldId(inserted.id); setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); setSuccessMessage("Novo Mundo criado com sucesso."); }
     } catch (err) { console.error(err); setError("Erro inesperado ao criar Mundo."); } finally { setIsCreatingWorld(false); }
   }
 
@@ -209,7 +202,6 @@ export default function LoreUploadPage() {
         const tagsArray = rawFicha.tags || [];
         const apareceEmRaw = rawFicha.aparece_em?.trim() || "";
         
-        // CORREÇÃO DA VARIÁVEL ano_diegese
         const anoDiegese = typeof rawFicha.ano_diegese === "number" ? rawFicha.ano_diegese : null;
         
         const descricaoData = rawFicha.descricao_data?.trim() || "";
@@ -256,25 +248,22 @@ export default function LoreUploadPage() {
   }
 
   async function handleCheckConsistency() {
+    // ... (Mantém igual)
+    // Omitido para economizar espaço, lógica idêntica
     if (suggestedFichas.length === 0 || !userId) return;
-    
     setIsCheckingConsistency(true);
     setConsistencyReport(null);
     alert("Consultando Urizen, a Lei, sobre a coerência...");
     const proposalText = suggestedFichas.map(f => ` - [PROPOSTA] ${f.titulo} (${f.tipo}): Resumo: ${f.resumo} Data: ${f.descricao_data || f.ano_diegese || "N/A"} Status: ${f.meta?.status || "Ativo"}`).join("\n");
-    
     try {
-      const res = await fetch("/api/lore/consistency", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": userId },
-        body: JSON.stringify({ input: proposalText, universeId: selectedUniverseId })
-      });
+      const res = await fetch("/api/lore/consistency", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify({ input: proposalText, universeId: selectedUniverseId }) });
       const data = await res.json();
       if (data.analysis) { setConsistencyReport(data.analysis); } else { setConsistencyReport("Urizen, a Lei, não encontrou inconsistências óbvias nos Registros."); }
     } catch (err) { console.error(err); setConsistencyReport("Erro ao conectar com o Módulo de Coerência."); } finally { setIsCheckingConsistency(false); }
   }
 
   async function handleSaveFichas() {
+    // ... (Mantém igual)
     setError(null); setSuccessMessage(null);
     if (!userId) { setError("Erro de autenticação. Recarregue a página."); return; }
     if (suggestedFichas.length === 0) { setError("Não há fichas para salvar."); return; }
@@ -287,11 +276,7 @@ export default function LoreUploadPage() {
     try {
       const fichasPayload = suggestedFichas.map((f) => ({ tipo: f.tipo, titulo: f.titulo, resumo: f.resumo, conteudo: f.conteudo, tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean), aparece_em: f.aparece_em || undefined, ano_diegese: typeof f.ano_diegese === "number" ? f.ano_diegese : null, descricao_data: f.descricao_data || null, data_inicio: f.data_inicio || null, data_fim: f.data_fim || null, granularidade_data: f.granularidade_data || null, camada_temporal: f.camada_temporal || null, codigo: f.codigo, meta: f.meta || {}, }));
       const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
-      const response = await fetch("/api/lore/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": userId },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch("/api/lore/save", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify(payload), });
       if (!response.ok) { const errorData = await response.json().catch(() => null); const msg = (errorData && errorData.error) || `Erro ao salvar fichas (status ${response.status}).`; setError(msg); return; }
       const dataResp = await response.json();
       setSuggestedFichas([]); setText(""); setDocumentName(""); setUnitNumber(""); setSuccessMessage("Fichas salvas com sucesso! As relações também foram registradas.");
@@ -326,23 +311,10 @@ export default function LoreUploadPage() {
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-            <div className="space-y-1">
-               <label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label>
-               <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => setSelectedUniverseId(e.target.value)}>
-                 {universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
-               </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label>
-              <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>
-                {worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}
-                <option value="create_new">+ Novo mundo...</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label>
-              <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} />
-            </div>
+            {/* Omitido para brevidade, mas igual ao original, exceto que não precisa mudar */}
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => setSelectedUniverseId(e.target.value)}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} /></div>
           </section>
 
           <section className="space-y-1">
@@ -446,14 +418,29 @@ export default function LoreUploadPage() {
           <div className="w-full max-w-xl rounded-lg bg-zinc-950 border border-zinc-800 p-4 space-y-4">
             <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Editar ficha</h2><button className="text-xs text-zinc-400 hover:text-zinc-100" onClick={() => setEditingFicha(null)}>Fechar</button></div>
             <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+              
+              {/* DROPDOWN DINÂMICO AQUI */}
               <div className="space-y-1">
                 <label className="text-xs uppercase tracking-wide text-zinc-400">Tipo</label>
-                <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={LORE_TYPES.some(t => t.value === editingFicha.tipo) ? editingFicha.tipo : "novo"} onChange={(e) => { const val = e.target.value; if (val === "novo") { const custom = prompt("Digite o nome da nova categoria:"); if (custom) setEditingFicha((prev) => prev ? { ...prev, tipo: custom.toLowerCase().trim() } : prev); } else { setEditingFicha((prev) => prev ? { ...prev, tipo: val } : prev); } }}>
-                  {LORE_TYPES.map(t => (<option key={t.value} value={t.value}>{t.label}</option>))}
-                  {!LORE_TYPES.some(t => t.value === editingFicha.tipo) && (<option value={editingFicha.tipo}>{editingFicha.tipo} (Atual)</option>)}
+                <select 
+                    className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
+                    value={loreTypes.some(t => t.value === editingFicha.tipo) ? editingFicha.tipo : "novo"} 
+                    onChange={(e) => { 
+                        const val = e.target.value; 
+                        if (val === "novo") { 
+                            const custom = prompt("Digite o nome da nova categoria:"); 
+                            if (custom) setEditingFicha((prev) => prev ? { ...prev, tipo: custom.toLowerCase().trim() } : prev); 
+                        } else { 
+                            setEditingFicha((prev) => prev ? { ...prev, tipo: val } : prev); 
+                        } 
+                    }}
+                >
+                  {loreTypes.map(t => (<option key={t.value} value={t.value}>{t.label}</option>))}
+                  {!loreTypes.some(t => t.value === editingFicha.tipo) && (<option value={editingFicha.tipo}>{editingFicha.tipo} (Atual)</option>)}
                   <option value="novo">+ Nova Categoria...</option>
                 </select>
               </div>
+
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Título</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={editingFicha.titulo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, titulo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Resumo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[60px]" value={editingFicha.resumo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, resumo: e.target.value } : prev)} /></div>
               <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Conteúdo</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[80px]" value={editingFicha.conteudo} onChange={(e) => setEditingFicha((prev) => prev ? { ...prev, conteudo: e.target.value } : prev)} /></div>
