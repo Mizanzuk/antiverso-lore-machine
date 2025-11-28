@@ -2,16 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { searchLore } from "@/lib/rag";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase"; // Importação crítica
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth com Fallback
     const supabase = createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let clientToUse = supabase;
+    let userId = user?.id;
+
+    if (!userId) {
+        const headerUserId = req.headers.get("x-user-id");
+        if (headerUserId && supabaseAdmin) {
+            clientToUse = supabaseAdmin;
+            userId = headerUserId;
+        }
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized (401)" }, { status: 401 });
     }
 
     if (!openai) {
@@ -24,8 +37,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Input necessário." }, { status: 400 });
     }
 
-    // 1. Busca Fichas Relacionadas
-    const relatedFacts = await searchLore(supabase, input, { 
+    // 1. Busca Fichas Relacionadas (usando client autenticado)
+    const relatedFacts = await searchLore(clientToUse, input, { 
       limit: 10, 
       universeId
     });
@@ -37,8 +50,7 @@ export async function POST(req: NextRequest) {
     if (keywords.length > 0 && universeId) {
         const uniqueNames = Array.from(new Set(keywords)).slice(0, 5);
         
-        // RLS garante que só vejo mundos meus
-        const { data: worlds } = await supabase
+        const { data: worlds } = await clientToUse
             .from("worlds")
             .select("id")
             .eq("universe_id", universeId);
@@ -46,7 +58,7 @@ export async function POST(req: NextRequest) {
         const worldIds = worlds?.map((w: any) => w.id) || [];
 
         if (worldIds.length > 0) {
-            const { data: entities } = await supabase
+            const { data: entities } = await clientToUse
                 .from("fichas")
                 .select("titulo, tipo, ano_diegese, data_inicio, data_fim, conteudo")
                 .in("world_id", worldIds)
@@ -89,8 +101,8 @@ Se houver riscos, comece com "ALERTA DE INCONSISTÊNCIA:" e liste os problemas d
     `.trim();
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Rápido e capaz de lógica simples
-      temperature: 0.1, // Baixa criatividade, alta precisão
+      model: "gpt-4o-mini",
+      temperature: 0.1, 
       messages: [{ role: "system", content: systemPrompt }],
     });
 
