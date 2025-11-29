@@ -961,7 +961,27 @@ function LoreAdminContent() {
 
                         <div><h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-zinc-300 leading-loose whitespace-pre-wrap font-serif">{renderWikiText(selectedFicha.conteudo || selectedFicha.resumo)}</div></div>
                         <div className="grid grid-cols-2 gap-4 pt-6 border-t border-zinc-900">
-                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{relations.map(rel => { const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source; return other ? (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => handleSelectFicha(other.id)}>{other.titulo}</span></div>) : null; })}</div>
+                            <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{(() => {
+                                // Deduplicação: remove relações bidirecionais duplicadas
+                                const seen = new Set();
+                                const uniqueRelations = relations.filter(rel => {
+                                    const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source;
+                                    if (!other) return false;
+                                    
+                                    // Cria uma chave única para a combinação de fichas + tipo
+                                    const ids = [selectedFicha.id, other.id].sort();
+                                    const key = `${ids[0]}-${ids[1]}-${rel.tipo_relacao}`;
+                                    
+                                    if (seen.has(key)) return false;
+                                    seen.add(key);
+                                    return true;
+                                });
+                                
+                                return uniqueRelations.map(rel => {
+                                    const other = rel.source_ficha_id === selectedFicha.id ? rel.target : rel.source;
+                                    return (<div key={rel.id} className="text-xs py-1 border-b border-zinc-900 flex justify-between"><span className="text-zinc-400">{rel.tipo_relacao.replace(/_/g, " ")}</span><span className="text-emerald-500 cursor-pointer hover:underline" onClick={() => handleSelectFicha(other.id)}>{other.titulo}</span></div>);
+                                });
+                            })()}</div>
                             <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Dados</h4><div className="space-y-1"><div className="text-xs flex justify-between"><span className="text-zinc-500">Tags</span><span className="text-zinc-300 text-right">{selectedFicha.tags}</span></div></div></div>
                         </div>
                     </div>
