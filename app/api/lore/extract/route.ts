@@ -66,20 +66,29 @@ async function processChunk(
     }
 
     const systemPrompt = `
-Você é um extrator de fichas de lore para um sistema de gerenciamento narrativo.
+Você é um extrator AGRESSIVO de fichas de lore para um sistema de gerenciamento narrativo.
 
 **CATEGORIAS DISPONÍVEIS:**
 ${categoriesSection}
 
-**INSTRUÇÕES:**
-1. Leia o texto fornecido e identifique TODAS as entidades narrativas relevantes
-2. Para cada entidade, crie uma ficha JSON com os campos:
-   - tipo: uma das categorias acima (use o slug em minúsculas)
-   - titulo: nome/título da entidade
-   - resumo: resumo em 1-2 frases
-   - conteudo: descrição detalhada
+**INSTRUÇÕES OBRIGATÓRIAS:**
+
+1. VOCÊ DEVE EXTRAIR TODAS AS ENTIDADES MENCIONADAS NO TEXTO, MESMO QUE BREVEMENTE
+2. EXTRAIA FICHAS PARA:
+   - TODOS os personagens mencionados (nomes próprios, apelidos, referências a pessoas)
+   - TODOS os locais citados (cidades, países, endereços, estabelecimentos, espaços físicos)
+   - TODOS os eventos descritos (encontros, acontecimentos, situações importantes)
+   - TODOS os conceitos abstratos mencionados (ideias, teorias, sentimentos importantes)
+   - TODAS as regras ou leis do universo narrativo
+   - TODOS os roteiros ou narrativas estruturadas
+
+3. Para cada entidade identificada, crie uma ficha JSON com os campos:
+   - tipo: uma das categorias acima (use o slug em minúsculas: "personagem", "local", "evento", "conceito", "regra", "roteiro")
+   - titulo: nome/título da entidade (OBRIGATÓRIO)
+   - resumo: resumo em 1-2 frases do que é essa entidade
+   - conteudo: descrição detalhada extraída do texto
    - tags: array de palavras-chave relevantes
-   - aparece_em: onde/quando aparece no texto (opcional)
+   - aparece_em: contexto onde aparece no texto
    - ano_diegese: ano diegético se mencionado (número ou null)
    - descricao_data: descrição temporal original do texto (string ou null)
    - data_inicio: data ISO 8601 se identificável (string ou null)
@@ -87,12 +96,23 @@ ${categoriesSection}
    - granularidade_data: "dia", "mes", "ano", "decada", "seculo" ou "indefinido"
    - camada_temporal: "linha_principal", "flashback", "flashforward", "sonho_visao", "mundo_alternativo", "historico_antigo", "outro", "relato" ou "publicacao"
 
-3. Retorne APENAS um array JSON válido de fichas
-4. Se não houver entidades, retorne []
-5. Use APENAS os tipos de categoria listados acima
+4. FORMATO DE RESPOSTA OBRIGATÓRIO:
+{
+  "fichas": [
+    { "tipo": "personagem", "titulo": "Nome", "resumo": "...", "conteudo": "...", "tags": [...], ... },
+    { "tipo": "local", "titulo": "Nome do Local", "resumo": "...", "conteudo": "...", "tags": [...], ... }
+  ]
+}
 
-**TEXTO (Chunk ${chunkIndex + 1}/${totalChunks}):**
+5. NUNCA retorne um array vazio. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
+6. Use APENAS os slugs de categoria listados acima.
+7. Seja GENEROSO na extração - prefira extrair demais do que de menos.
+
+**TEXTO A PROCESSAR (Chunk ${chunkIndex + 1}/${totalChunks}):**
+
 ${text}
+
+**LEMBRE-SE: Extraia TODAS as entidades mencionadas. Não seja conservador.**
 `.trim();
 
     try {
@@ -104,23 +124,49 @@ ${text}
         });
 
         const rawContent = completion.choices[0]?.message?.content || "{}";
+        console.log(`[EXTRACT] Resposta da IA (chunk ${chunkIndex + 1}):`, rawContent.substring(0, 500));
+        
         let parsed: any;
 
         try {
             parsed = JSON.parse(rawContent);
-        } catch {
-            console.warn(`[EXTRACT] Chunk ${chunkIndex + 1}: JSON inválido`);
+        } catch (e) {
+            console.error(`[EXTRACT] Chunk ${chunkIndex + 1}: JSON inválido`, e);
+            console.log(`[EXTRACT] Conteúdo que falhou:`, rawContent);
             return [];
         }
 
+        console.log(`[EXTRACT] Objeto parseado:`, JSON.stringify(parsed).substring(0, 300));
+        
         const fichas = parsed.fichas || parsed.entities || [];
-        if (!Array.isArray(fichas)) return [];
+        console.log(`[EXTRACT] Fichas encontradas no objeto:`, fichas.length);
+        
+        if (!Array.isArray(fichas)) {
+            console.warn(`[EXTRACT] Fichas não é um array:`, typeof fichas);
+            return [];
+        }
 
-        return fichas.filter((f: any) => 
-            f.tipo && 
-            f.titulo && 
-            allowedTypes.includes(f.tipo.toLowerCase())
-        );
+        const filtered = fichas.filter((f: any) => {
+            const hasType = !!f.tipo;
+            const hasTitle = !!f.titulo;
+            const typeAllowed = f.tipo && allowedTypes.includes(f.tipo.toLowerCase());
+            
+            if (!hasType || !hasTitle || !typeAllowed) {
+                console.log(`[EXTRACT] Ficha filtrada:`, { 
+                    titulo: f.titulo, 
+                    tipo: f.tipo, 
+                    hasType, 
+                    hasTitle, 
+                    typeAllowed,
+                    allowedTypes 
+                });
+            }
+            
+            return hasType && hasTitle && typeAllowed;
+        });
+        
+        console.log(`[EXTRACT] Fichas após filtro:`, filtered.length);
+        return filtered;
 
     } catch (err) {
         console.error(`[EXTRACT] Erro no chunk ${chunkIndex + 1}:`, err);
@@ -217,7 +263,34 @@ export async function POST(req: NextRequest) {
           allFichas = allFichas.concat(fichas);
         }
 
-        console.log(`[EXTRACT] ✅ Total de ${allFichas.length} fichas extraídas`);
+        console.log(`[EXTRACT] ✅ Total de ${allFichas.length} fichas extraídas pela IA`);
+
+        // 3.5) SEMPRE criar uma ficha de "Roteiro" com o texto original
+        // Isso garante que todo texto enviado seja registrado no banco de dados
+        const roteiroFicha: ExtractedFicha = {
+          tipo: "roteiro",
+          titulo: `Texto Original - ${new Date().toLocaleDateString('pt-BR')}`,
+          resumo: "Texto original enviado para extração de fichas.",
+          conteudo: text,
+          tags: ["original", "roteiro", "texto-base"],
+          aparece_em: "Upload de texto",
+          ano_diegese: null,
+          descricao_data: new Date().toISOString(),
+          data_inicio: new Date().toISOString(),
+          data_fim: null,
+          granularidade_data: "dia",
+          camada_temporal: "publicacao",
+          meta: {
+            source: "upload",
+            extraction_date: new Date().toISOString(),
+            chunks_processed: chunks.length
+          }
+        };
+        
+        // Adicionar a ficha de roteiro no início do array
+        allFichas.unshift(roteiroFicha);
+        console.log(`[EXTRACT] 📝 Ficha de Roteiro adicionada automaticamente`);
+        console.log(`[EXTRACT] ✅ Total final: ${allFichas.length} fichas (incluindo Roteiro)`);
 
         // 4) Enviar resultado final
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
