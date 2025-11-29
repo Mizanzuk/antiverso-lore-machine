@@ -121,7 +121,7 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
 - Se o texto diz "O evento aconteceu na praça" → crie relação "localizado_em" do Evento para Praça
 
 **FORMATO DO CAMPO RELATIONS:**
-```json
+
 "relations": [
   {
     "source_titulo": "[Nome da ficha atual]",
@@ -130,7 +130,6 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
     "descricao": "[descrição breve - opcional]"
   }
 ]
-```
 
 **TIPOS DE RELAÇÃO DISPONÍVEIS:**
 - Familiares: "pai_de", "mae_de", "filho_de", "filha_de", "irmao_de", "irma_de", "conjuge_de", "casado_com"
