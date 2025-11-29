@@ -20,20 +20,77 @@ const CAMADAS_TEMPORAIS = [
 ];
 
 const RELATION_TYPES = [
+  // Relações Gerais
   { value: "relacionado_a", label: "Relacionado a" },
+  { value: "menciona", label: "Menciona" },
+  { value: "mencionado_em", label: "Mencionado em" },
+  
+  // Relações Familiares
+  { value: "pai_de", label: "Pai de" },
+  { value: "mae_de", label: "Mãe de" },
+  { value: "filho_de", label: "Filho de" },
+  { value: "filha_de", label: "Filha de" },
+  { value: "irmao_de", label: "Irmão de" },
+  { value: "irma_de", label: "Irmã de" },
+  { value: "avo_de", label: "Avô de" },
+  { value: "avoa_de", label: "Avó de" },
+  { value: "neto_de", label: "Neto de" },
+  { value: "neta_de", label: "Neta de" },
+  { value: "tio_de", label: "Tio de" },
+  { value: "tia_de", label: "Tia de" },
+  { value: "sobrinho_de", label: "Sobrinho de" },
+  { value: "sobrinha_de", label: "Sobrinha de" },
+  { value: "primo_de", label: "Primo de" },
+  { value: "prima_de", label: "Prima de" },
+  { value: "conjuge_de", label: "Cônjuge de" },
+  { value: "casado_com", label: "Casado com" },
+  { value: "ex_conjuge_de", label: "Ex-cônjuge de" },
+  
+  // Relações Sociais
   { value: "amigo_de", label: "Amigo de" },
   { value: "inimigo_de", label: "Inimigo de" },
+  { value: "rival_de", label: "Rival de" },
+  { value: "mentor_de", label: "Mentor de" },
+  { value: "aprendiz_de", label: "Aprendiz de" },
+  { value: "colega_de", label: "Colega de" },
+  { value: "conhecido_de", label: "Conhecido de" },
+  
+  // Relações Profissionais
+  { value: "chefe_de", label: "Chefe de" },
+  { value: "lider_de", label: "Líder de" },
+  { value: "subordinado_de", label: "Subordinado de" },
+  { value: "funcionario_de", label: "Funcionário de" },
+  { value: "colega_trabalho_de", label: "Colega de trabalho de" },
+  { value: "socio_de", label: "Sócio de" },
+  { value: "parceiro_de", label: "Parceiro de" },
+  { value: "cliente_de", label: "Cliente de" },
+  { value: "fornecedor_de", label: "Fornecedor de" },
+  
+  // Relações Narrativas
+  { value: "protagonizado_por", label: "Protagonizado por" },
+  { value: "antagonizado_por", label: "Antagonizado por" },
+  { value: "participou_de", label: "Participou de" },
+  { value: "testemunhou", label: "Testemunhou" },
+  { value: "criador_de", label: "Criador de" },
+  { value: "criado_por", label: "Criado por" },
+  
+  // Relações Espaciais
   { value: "localizado_em", label: "Localizado em" },
   { value: "mora_em", label: "Mora em" },
+  { value: "vive_em", label: "Vive em" },
   { value: "nasceu_em", label: "Nasceu em" },
-  { value: "participou_de", label: "Participou de" },
-  { value: "protagonizado_por", label: "Protagonizado por" },
-  { value: "menciona", label: "Menciona" },
-  { value: "pai_de", label: "Pai de" },
-  { value: "filho_de", label: "Filho de" },
-  { value: "criador_de", label: "Criador de" },
+  { value: "morreu_em", label: "Morreu em" },
+  { value: "trabalha_em", label: "Trabalha em" },
+  { value: "estudou_em", label: "Estudou em" },
+  { value: "visitou", label: "Visitou" },
+  
+  // Relações de Pertencimento
   { value: "parte_de", label: "Parte de" },
-  { value: "funcionario_de", label: "Funcionário de" }
+  { value: "membro_de", label: "Membro de" },
+  { value: "contem", label: "Contém" },
+  { value: "possui", label: "Possui" },
+  { value: "pertence_a", label: "Pertence a" },
+  { value: "associado_a", label: "Associado a" }
 ];
 
 // --- TIPOS ---
