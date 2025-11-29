@@ -1,51 +1,75 @@
+# Lore Machine
 
-# AntiVerso Lore Machine (v1)
+A powerful tool for managing and organizing fictional universes, characters, events, and narrative elements.
 
-Este projeto é um protótipo da sua máquina de lore com:
+## Features
 
-- Next.js 14 (App Router)
-- Chat minimalista no estilo ChatGPT
-- Or como assistente central
-- RAG com Supabase + embeddings da OpenAI
-- Seed automático usando `AntiVerso_DB_v2.json`
+- **Next.js 14** (App Router)
+- **AI-powered chat** with Urizen (consultation) and Urthona (creation) agents
+- **RAG (Retrieval-Augmented Generation)** with Supabase + OpenAI embeddings
+- **Lore extraction** from text documents (PDF, DOCX, TXT)
+- **Timeline visualization** for events and narrative chronology
+- **Relationship mapping** between lore entries
+- **Multi-universe support** with hierarchical world organization
 
-## Passo 1 — Criar projeto no Supabase
+## Getting Started
 
-1. Acesse o painel do Supabase e crie um novo projeto.
-2. Vá em **SQL Editor**.
-3. Copie TODO o conteúdo do arquivo `schema.sql`.
-4. Cole no editor e execute.
-5. Confirme que a tabela `lore_chunks` foi criada.
+### Step 1 — Create Supabase Project
 
-## Passo 2 — Configurar variáveis na Vercel
+1. Go to [Supabase](https://supabase.com) and create a new project.
+2. Navigate to **SQL Editor**.
+3. Copy the entire content of `schema.sql`.
+4. Paste it into the editor and execute.
+5. Confirm that all tables were created successfully.
 
-1. Crie um novo projeto na Vercel e importe este repositório.
-2. No projeto da Vercel, vá em **Settings → Environment Variables** e crie:
+### Step 2 — Deploy to Vercel
 
-- `OPENAI_API_KEY` → sua chave da OpenAI
-- `NEXT_PUBLIC_SUPABASE_URL` → URL do projeto Supabase
-- `SUPABASE_SERVICE_ROLE_KEY` → Service role key do Supabase
+1. Fork or clone this repository
+2. Go to [Vercel](https://vercel.com) and import your repository
+3. Add the following environment variables:
+   - `OPENAI_API_KEY` → your OpenAI API key
+   - `NEXT_PUBLIC_SUPABASE_URL` → your Supabase project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` → your Supabase service role key
+4. Deploy!
 
-3. Faça o deploy.
+### Step 3 — Start Using
 
-## Passo 3 — Rodar o seed
+Open your deployed site and start creating your fictional universe!
 
-Com o projeto publicado:
+## Usage
 
-1. Acesse: `https://SEU_PROJETO.vercel.app/api/seed` usando algum cliente de HTTP (ou abra no navegador e faça um POST usando algo como o plugin RESTer, ou crie um script simples depois).
-2. A rota vai ler `data/AntiVerso_DB_v2.json`, gerar embeddings e preencher a tabela `lore_chunks`.
+### Creating a Universe
 
-## Passo 4 — Usar o chat
+1. Go to the home page
+2. Click "+ New Universe"
+3. Enter a name and description
+4. Start adding worlds and lore entries
 
-Acesse a raiz do site:
+### Extracting Lore from Documents
 
-- `https://SEU_PROJETO.vercel.app`
+1. Navigate to "Upload" page
+2. Select your universe and world
+3. Upload a text document (PDF, DOCX, or TXT)
+4. The AI will automatically extract characters, locations, events, and other lore elements
+5. Review and save the extracted entries to your catalog
 
-E comece a conversar com Or. Sempre que você fizer perguntas, o backend:
+### Managing Lore
 
-1. Gera embedding da pergunta.
-2. Busca trechos relevantes em `lore_chunks`.
-3. Envia tudo como contexto para o modelo da OpenAI.
-4. Or responde misturando consulta e criação (conforme seu pedido).
+Use the "Admin" page to:
+- Browse all lore entries
+- Edit and update entries
+- View relationships between entries
+- Organize entries by type and world
 
----
+## AI Agents
+
+- **Urizen:** Consultation mode - answers questions based on existing lore
+- **Urthona:** Creative mode - helps generate new narrative ideas while respecting established lore
+
+## License
+
+MIT
+
+## Credits
+
+Built with Next.js, Supabase, and OpenAI.
