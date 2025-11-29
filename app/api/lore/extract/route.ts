@@ -74,21 +74,25 @@ async function processChunk(
     }
 
     const systemPrompt = `
-Você é um extrator AGRESSIVO de fichas de lore para um sistema de gerenciamento narrativo.
+Você é um extrator ULTRA-AGRESSIVO de fichas de lore para um sistema de gerenciamento narrativo.
 
 **CATEGORIAS DISPONÍVEIS:**
 ${categoriesSection}
 
-**INSTRUÇÕES OBRIGATÓRIAS:**
+**INSTRUÇÕES OBRIGATÓRIAS - LEIA COM ATENÇÃO:**
 
 1. VOCÊ DEVE EXTRAIR TODAS AS ENTIDADES MENCIONADAS NO TEXTO, MESMO QUE BREVEMENTE
-2. EXTRAIA FICHAS PARA:
-   - TODOS os personagens mencionados (nomes próprios, apelidos, referências a pessoas)
-   - TODOS os locais citados (cidades, países, endereços, estabelecimentos, espaços físicos)
-   - TODOS os eventos descritos (encontros, acontecimentos, situações importantes)
-   - TODOS os conceitos abstratos mencionados (ideias, teorias, sentimentos importantes)
-   - TODAS as regras ou leis do universo narrativo
-   - TODOS os roteiros ou narrativas estruturadas
+
+2. SIGA RIGOROSAMENTE AS DESCRIÇÕES DAS CATEGORIAS LISTADAS ACIMA
+   - Cada categoria tem uma descrição detalhada que explica O QUE extrair e COMO extrair
+   - Leia com atenção a descrição de cada categoria antes de começar a extração
+   - As descrições contêm exemplos, regras e instruções específicas que você DEVE seguir
+   - Se a descrição diz "crie um evento para CADA data", faça exatamente isso
+   - Se a descrição diz "NUNCA agrupe", não agrupe
+   - Se a descrição diz "seja AGRESSIVO", seja AGRESSIVO
+
+**REGRA DE OURO:**
+As descrições das categorias são suas instruções principais. Siga-as ao pé da letra.
 
 3. Para cada entidade identificada, crie uma ficha JSON com os campos:
    - tipo: uma das categorias acima (use o slug em minúsculas: "personagem", "local", "evento", "conceito", "regra", "roteiro")
@@ -105,21 +109,43 @@ ${categoriesSection}
    - camada_temporal: "linha_principal", "flashback", "flashforward", "sonho_visao", "mundo_alternativo", "historico_antigo", "outro", "relato" ou "publicacao"
    - relations: array de relações desta ficha com outras (OBRIGATÓRIO - extraia TODAS as relações mencionadas)
 
-3.5. Para cada ficha, identifique TODAS as relações com outras fichas no campo "relations":
-   - source_titulo: título da ficha de origem (a ficha atual)
-   - target_titulo: título da ficha de destino (outra ficha mencionada)
-   - tipo_relacao: tipo de relação (escolha o mais apropriado):
-     * Familiares: "pai_de", "mae_de", "filho_de", "filha_de", "irmao_de", "irma_de", "conjuge_de", "casado_com"
-     * Sociais: "amigo_de", "inimigo_de", "rival_de", "mentor_de", "aprendiz_de", "colega_de", "conhecido_de"
-     * Profissionais: "chefe_de", "subordinado_de", "funcionario_de", "colega_trabalho_de", "socio_de"
-     * Narrativas: "protagonizado_por", "participou_de", "testemunhou", "menciona", "criador_de"
-     * Espaciais: "localizado_em", "mora_em", "nasceu_em", "trabalha_em", "estudou_em", "visitou"
-     * Pertencimento: "parte_de", "membro_de", "pertence_a", "associado_a"
-   - descricao: descrição breve da relação (opcional)
+3.5. **ATENÇÃO CRÍTICA - RELAÇÕES SÃO OBRIGATÓRIAS:**
 
-   EXEMPLO:
-   Se o texto diz "João é amigo de Pedro", a ficha de João deve ter:
-   "relations": [{"source_titulo": "João", "target_titulo": "Pedro", "tipo_relacao": "amigo_de", "descricao": "Amigos desde a escola"}]
+Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é OBRIGATÓRIO em TODAS as fichas.
+
+**COMO IDENTIFICAR RELAÇÕES:**
+- Se o texto diz "João é amigo de Pedro" → crie relação "amigo_de" de João para Pedro
+- Se o texto diz "Maria conheceu João" → crie relação "conhecido_de" de Maria para João
+- Se o texto diz "Pedro foi à padaria" → crie relação "visitou" de Pedro para Padaria
+- Se o texto diz "João participou da suspensão" → crie relação "participou_de" de João para Suspensão
+- Se o texto diz "O evento aconteceu na praça" → crie relação "localizado_em" do Evento para Praça
+
+**FORMATO DO CAMPO RELATIONS:**
+```json
+"relations": [
+  {
+    "source_titulo": "[Nome da ficha atual]",
+    "target_titulo": "[Nome de outra ficha mencionada]",
+    "tipo_relacao": "[escolha um tipo abaixo]",
+    "descricao": "[descrição breve - opcional]"
+  }
+]
+```
+
+**TIPOS DE RELAÇÃO DISPONÍVEIS:**
+- Familiares: "pai_de", "mae_de", "filho_de", "filha_de", "irmao_de", "irma_de", "conjuge_de", "casado_com"
+- Sociais: "amigo_de", "inimigo_de", "rival_de", "mentor_de", "aprendiz_de", "colega_de", "conhecido_de"
+- Profissionais: "chefe_de", "subordinado_de", "funcionario_de", "colega_trabalho_de", "socio_de"
+- Narrativas: "protagonizado_por", "participou_de", "testemunhou", "menciona", "criador_de"
+- Espaciais: "localizado_em", "mora_em", "nasceu_em", "trabalha_em", "estudou_em", "visitou"
+- Pertencimento: "parte_de", "membro_de", "pertence_a", "associado_a"
+
+**REGRAS ABSOLUTAS:**
+1. TODA ficha DEVE ter o campo "relations" (mesmo que seja um array vazio [])
+2. Se uma ficha menciona outra entidade, CRIE uma relação
+3. Se um personagem interage com outro, CRIE relações entre eles
+4. Se um evento acontece em um local, CRIE relação "localizado_em"
+5. Se um personagem participa de um evento, CRIE relação "participou_de"
 
 4. FORMATO DE RESPOSTA OBRIGATÓRIO:
 {
@@ -150,22 +176,35 @@ ${categoriesSection}
   ]
 }
 
-5. NUNCA retorne um array vazio. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
+5. NUNCA retorne um array vazio de fichas. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
 6. Use APENAS os slugs de categoria listados acima.
-7. Seja GENEROSO na extração - prefira extrair demais do que de menos.
-8. SEMPRE extraia relações entre fichas. Se uma ficha menciona outra, crie uma relação. Se não houver relações, use array vazio [].
+7. Seja ULTRA-GENEROSO na extração - prefira extrair demais do que de menos.
+8. Siga as instruções específicas de cada categoria descritas acima.
+
+**⚠️ ATENÇÃO FINAL SOBRE RELAÇÕES ⚠️**
+
+Este é o ponto MAIS IMPORTANTE:
+- TODA ficha DEVE incluir o campo "relations" no JSON
+- Se a ficha menciona outra entidade, adicione uma relação
+- Se não houver relações, use "relations": []
+- NUNCA esqueça o campo "relations"
 
 **TEXTO A PROCESSAR (Chunk ${chunkIndex + 1}/${totalChunks}):**
 
 ${text}
 
-**LEMBRE-SE: Extraia TODAS as entidades mencionadas. Não seja conservador.**
+**🔴 CHECKLIST ANTES DE RESPONDER:**
+1. ✅ Todas as fichas têm o campo "relations"?
+2. ✅ Criei relações entre personagens que interagem?
+3. ✅ Criei relações entre eventos e locais?
+4. ✅ Criei relações entre personagens e eventos que participaram?
+5. ✅ Segui RIGOROSAMENTE as descrições de cada categoria?
 `.trim();
 
     try {
         const completion = await openai.chat.completions.create({
             model: "gpt-4o",
-            temperature: 0.3,
+            temperature: 0.5,  // Aumentado de 0.3 para 0.5 para extração mais agressiva
             messages: [{ role: "system", content: systemPrompt }],
             response_format: { type: "json_object" }
         });
