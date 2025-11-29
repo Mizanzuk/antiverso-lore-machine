@@ -262,7 +262,7 @@ export async function POST(req: NextRequest) {
                 continue;
             }
             
-            // Verificar se a relação já existe
+            // Verificar se a relação já existe (A->B)
             const { data: existingRelation } = await clientToUse
                 .from("lore_relations")
                 .select("id")
@@ -274,6 +274,23 @@ export async function POST(req: NextRequest) {
             if (existingRelation) {
                 console.log(`[SAVE] Relação já existe: ${ficha.titulo} -> ${rel.target_titulo}`);
                 continue;
+            }
+            
+            // Verificar se a relação inversa já existe (B->A) para relações simétricas
+            const symmetricRelations = ['amigo_de', 'inimigo_de', 'aliado_de', 'rival_de', 'irmão_de', 'casado_com', 'noivo_de'];
+            if (symmetricRelations.includes(rel.tipo_relacao)) {
+                const { data: reverseRelation } = await clientToUse
+                    .from("lore_relations")
+                    .select("id")
+                    .eq("source_ficha_id", targetFicha.id)
+                    .eq("target_ficha_id", sourceFicha.id)
+                    .eq("tipo_relacao", rel.tipo_relacao)
+                    .maybeSingle();
+                
+                if (reverseRelation) {
+                    console.log(`[SAVE] Relação inversa já existe (deduplicando): ${rel.target_titulo} -> ${ficha.titulo}`);
+                    continue;
+                }
             }
             
             // Criar nova relação
