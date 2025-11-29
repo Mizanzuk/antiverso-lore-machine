@@ -8,6 +8,13 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+type ExtractedRelation = {
+  source_titulo: string;  // Título da ficha de origem
+  target_titulo: string;  // Título da ficha de destino
+  tipo_relacao: string;   // Tipo de relação (ex: "amigo_de", "menciona")
+  descricao?: string;     // Descrição opcional da relação
+};
+
 type ExtractedFicha = {
   tipo: string;
   titulo: string;
@@ -22,6 +29,7 @@ type ExtractedFicha = {
   granularidade_data?: string | null;
   camada_temporal?: string | null;
   meta?: any;
+  relations?: ExtractedRelation[];  // Relações desta ficha com outras
 };
 
 function splitIntoChunks(text: string, maxChunkSize: number = 8000): string[] {
@@ -95,18 +103,57 @@ ${categoriesSection}
    - data_fim: data ISO 8601 se aplicável (string ou null)
    - granularidade_data: "dia", "mes", "ano", "decada", "seculo" ou "indefinido"
    - camada_temporal: "linha_principal", "flashback", "flashforward", "sonho_visao", "mundo_alternativo", "historico_antigo", "outro", "relato" ou "publicacao"
+   - relations: array de relações desta ficha com outras (OBRIGATÓRIO - extraia TODAS as relações mencionadas)
+
+3.5. Para cada ficha, identifique TODAS as relações com outras fichas no campo "relations":
+   - source_titulo: título da ficha de origem (a ficha atual)
+   - target_titulo: título da ficha de destino (outra ficha mencionada)
+   - tipo_relacao: tipo de relação (escolha o mais apropriado):
+     * Familiares: "pai_de", "mae_de", "filho_de", "filha_de", "irmao_de", "irma_de", "conjuge_de", "casado_com"
+     * Sociais: "amigo_de", "inimigo_de", "rival_de", "mentor_de", "aprendiz_de", "colega_de", "conhecido_de"
+     * Profissionais: "chefe_de", "subordinado_de", "funcionario_de", "colega_trabalho_de", "socio_de"
+     * Narrativas: "protagonizado_por", "participou_de", "testemunhou", "menciona", "criador_de"
+     * Espaciais: "localizado_em", "mora_em", "nasceu_em", "trabalha_em", "estudou_em", "visitou"
+     * Pertencimento: "parte_de", "membro_de", "pertence_a", "associado_a"
+   - descricao: descrição breve da relação (opcional)
+
+   EXEMPLO:
+   Se o texto diz "João é amigo de Pedro", a ficha de João deve ter:
+   "relations": [{"source_titulo": "João", "target_titulo": "Pedro", "tipo_relacao": "amigo_de", "descricao": "Amigos desde a escola"}]
 
 4. FORMATO DE RESPOSTA OBRIGATÓRIO:
 {
   "fichas": [
-    { "tipo": "personagem", "titulo": "Nome", "resumo": "...", "conteudo": "...", "tags": [...], ... },
-    { "tipo": "local", "titulo": "Nome do Local", "resumo": "...", "conteudo": "...", "tags": [...], ... }
+    { 
+      "tipo": "personagem", 
+      "titulo": "João", 
+      "resumo": "...", 
+      "conteudo": "...", 
+      "tags": [...],
+      "relations": [
+        {"source_titulo": "João", "target_titulo": "Pedro", "tipo_relacao": "amigo_de", "descricao": "Amigos próximos"},
+        {"source_titulo": "João", "target_titulo": "Padaria da Esquina", "tipo_relacao": "visitou", "descricao": "Frequenta regularmente"}
+      ],
+      ...
+    },
+    { 
+      "tipo": "local", 
+      "titulo": "Padaria da Esquina", 
+      "resumo": "...", 
+      "conteudo": "...", 
+      "tags": [...],
+      "relations": [
+        {"source_titulo": "Padaria da Esquina", "target_titulo": "Pedro", "tipo_relacao": "visitou", "descricao": "Pedro frequenta este local"}
+      ],
+      ...
+    }
   ]
 }
 
 5. NUNCA retorne um array vazio. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
 6. Use APENAS os slugs de categoria listados acima.
 7. Seja GENEROSO na extração - prefira extrair demais do que de menos.
+8. SEMPRE extraia relações entre fichas. Se uma ficha menciona outra, crie uma relação. Se não houver relações, use array vazio [].
 
 **TEXTO A PROCESSAR (Chunk ${chunkIndex + 1}/${totalChunks}):**
 
