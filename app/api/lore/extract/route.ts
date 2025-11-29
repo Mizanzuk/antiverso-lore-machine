@@ -107,9 +107,9 @@ As descrições das categorias são suas instruções principais. Siga-as ao pé
    - data_fim: data ISO 8601 se aplicável (string ou null)
    - granularidade_data: "dia", "mes", "ano", "decada", "seculo" ou "indefinido"
    - camada_temporal: "linha_principal", "flashback", "flashforward", "sonho_visao", "mundo_alternativo", "historico_antigo", "outro", "relato" ou "publicacao"
-   - relations: array de relações desta ficha com outras (OBRIGATÓRIO - extraia TODAS as relações mencionadas)
 
-3.5. **ATENÇÃO CRÍTICA - RELAÇÕES SÃO OBRIGATÓRIAS:**
+
+4. **INSTRUÇÕES DE RELACIONAMENTO (PONTO MAIS IMPORTANTE):**
 
 Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é OBRIGATÓRIO em TODAS as fichas.
 
@@ -146,7 +146,7 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
 4. Se um evento acontece em um local, CRIE relação "localizado_em"
 5. Se um personagem participa de um evento, CRIE relação "participou_de"
 
-4. FORMATO DE RESPOSTA OBRIGATÓRIO:
+5. FORMATO DE RESPOSTA OBRIGATÓRIO:
 {
   "fichas": [
     { 
@@ -175,10 +175,10 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
   ]
 }
 
-5. NUNCA retorne um array vazio de fichas. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
-6. Use APENAS os slugs de categoria listados acima.
-7. Seja ULTRA-GENEROSO na extração - prefira extrair demais do que de menos.
-8. Siga as instruções específicas de cada categoria descritas acima.
+6. NUNCA retorne um array vazio de fichas.
+7. Use APENAS os slugs de categoria listados acima.
+8. Seja ULTRA-GENEROSO na extração.
+9. Siga as instruções específicas de cada categoria.
 
 **⚠️ ATENÇÃO FINAL SOBRE RELAÇÕES ⚠️**
 
