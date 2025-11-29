@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-export const runtime = 'edge';
 import { supabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import OpenAI from "openai";
