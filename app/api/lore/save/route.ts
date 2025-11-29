@@ -256,10 +256,10 @@ export async function POST(req: NextRequest) {
             
             // Verificar se a relação já existe
             const { data: existingRelation } = await clientToUse
-                .from("fichas_relacoes") // <-- BUG CORRIGIDO
+                .from("lore_relations")
                 .select("id")
-                .eq("ficha_origem_id", sourceFicha.id) // <-- BUG CORRIGIDO
-                .eq("ficha_destino_id", targetFicha.id) // <-- BUG CORRIGIDO
+                .eq("source_ficha_id", sourceFicha.id)
+                .eq("target_ficha_id", targetFicha.id)
                 .eq("tipo_relacao", rel.tipo_relacao)
                 .maybeSingle();
             
@@ -270,12 +270,12 @@ export async function POST(req: NextRequest) {
             
             // Criar nova relação
             const { error: relError } = await clientToUse
-                .from("fichas_relacoes") // <-- BUG CORRIGIDO
+                .from("lore_relations")
                 .insert({
-                    ficha_origem_id: sourceFicha.id, // <-- BUG CORRIGIDO
-                    ficha_destino_id: targetFicha.id, // <-- BUG CORRIGIDO
+                    source_ficha_id: sourceFicha.id,
+                    target_ficha_id: targetFicha.id,
                     tipo_relacao: rel.tipo_relacao,
-                    contexto: rel.descricao || null, // <-- BUG CORRIGIDO
+                    descricao: rel.descricao || null,
                     user_id: userId
                 });
             
