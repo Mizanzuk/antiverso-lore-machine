@@ -70,6 +70,7 @@ export default function LoreUploadPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractProgress, setExtractProgress] = useState(0);
   const [extractStatus, setExtractStatus] = useState("");
+  const [currentStep, setCurrentStep] = useState(0);
 
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -210,6 +211,7 @@ export default function LoreUploadPage() {
     setIsExtracting(true);
     setExtractProgress(0);
     setExtractStatus("Iniciando...");
+    setCurrentStep(1);
 
     try {
       const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
@@ -256,13 +258,19 @@ export default function LoreUploadPage() {
                   
                   // Processar diferentes status da API
                   if (data.status === "started") {
-                      setExtractProgress(0);
+                      setCurrentStep(2);
+                      setExtractProgress(5);
                       setExtractStatus(`Iniciando extração (${data.totalChunks} chunk${data.totalChunks > 1 ? 's' : ''})...`);
                   } else if (data.status === "processing") {
-                      const progress = Math.round((data.currentChunk / data.totalChunks) * 100);
-                      setExtractProgress(progress);
+                      setCurrentStep(3);
+                      // Progresso mais suave: cada chunk ocupa uma faixa de progresso
+                      const chunkWeight = 90 / data.totalChunks; // 90% dividido pelos chunks (5% inicial + 5% final)
+                      const baseProgress = 5 + ((data.currentChunk - 1) * chunkWeight);
+                      const currentProgress = Math.min(95, Math.round(baseProgress + (chunkWeight * 0.5))); // Meio do chunk atual
+                      setExtractProgress(currentProgress);
                       setExtractStatus(`Processando chunk ${data.currentChunk}/${data.totalChunks}...`);
                   } else if (data.status === "completed") {
+                      setCurrentStep(4);
                       setExtractProgress(100);
                       setExtractStatus("Extração concluída!");
                       finalFichas = data.fichas || [];
@@ -335,6 +343,7 @@ export default function LoreUploadPage() {
         setError(err.message || "Erro ao processar extração.");
     } finally {
         setIsExtracting(false);
+        setCurrentStep(0);
     }
   }
 
@@ -377,6 +386,7 @@ export default function LoreUploadPage() {
           camada_temporal: f.camada_temporal || null, 
           codigo: f.codigo, 
           meta: f.meta || {}, 
+          relations: f.relations || [], 
       }));
       const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
       const response = await fetch("/api/lore/save", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify(payload), });
@@ -439,13 +449,74 @@ export default function LoreUploadPage() {
             <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="O texto do arquivo aparecerá aqui, ou você pode colar manualmente..." />
           </section>
 
-          {/* BARRA DE PROGRESSO REAL */}
+          {/* BARRA DE PROGRESSO EM ETAPAS */}
           {isExtracting && (
-            <div className="space-y-2">
-                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
-                   <div className="bg-fuchsia-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+            <div className="space-y-4 py-4">
+              {/* Etapas visuais */}
+              <div className="flex items-center justify-between">
+                {/* Etapa 1: Buscar Categorias */}
+                <div className="flex flex-col items-center flex-1">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                    currentStep >= 1 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                  }`}>
+                    {currentStep > 1 ? '✓' : '1'}
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Categorias</p>
                 </div>
-                <p className="text-[10px] text-zinc-400 text-center animate-pulse">{extractStatus} ({extractProgress}%)</p>
+                
+                {/* Linha conectora 1-2 */}
+                <div className={`flex-1 h-1 mx-2 transition-all ${
+                  currentStep >= 2 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                }`}></div>
+                
+                {/* Etapa 2: Dividir Texto */}
+                <div className="flex flex-col items-center flex-1">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                    currentStep >= 2 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                  }`}>
+                    {currentStep > 2 ? '✓' : '2'}
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Dividir</p>
+                </div>
+                
+                {/* Linha conectora 2-3 */}
+                <div className={`flex-1 h-1 mx-2 transition-all ${
+                  currentStep >= 3 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                }`}></div>
+                
+                {/* Etapa 3: Processar Chunks */}
+                <div className="flex flex-col items-center flex-1">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                    currentStep >= 3 ? 'bg-fuchsia-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-500'
+                  }`}>
+                    {currentStep > 3 ? '✓' : '3'}
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Processar</p>
+                </div>
+                
+                {/* Linha conectora 3-4 */}
+                <div className={`flex-1 h-1 mx-2 transition-all ${
+                  currentStep >= 4 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                }`}></div>
+                
+                {/* Etapa 4: Finalizar */}
+                <div className="flex flex-col items-center flex-1">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                    currentStep >= 4 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                  }`}>
+                    {currentStep > 4 ? '✓' : '4'}
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Finalizar</p>
+                </div>
+              </div>
+              
+              {/* Barra de progresso detalhada */}
+              <div className="space-y-2">
+                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                  <div className="bg-fuchsia-600 h-2 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+                </div>
+                <p className="text-[10px] text-zinc-400 text-center">{extractStatus} ({extractProgress}%)</p>
+              </div>
             </div>
           )}
 
