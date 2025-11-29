@@ -137,6 +137,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { worldId, unitNumber, fichas } = body;
     const epNumber = normalizeEpisode(unitNumber);
+    
+    // DEBUG: Logar quantas fichas têm relações
+    const fichasComRelacoes = fichas.filter((f: IncomingFicha) => f.relations && f.relations.length > 0);
+    console.log(`[SAVE] 🔍 DEBUG: ${fichas.length} fichas recebidas, ${fichasComRelacoes.length} têm campo 'relations'`);
+    
+    if (fichasComRelacoes.length > 0) {
+        console.log(`[SAVE] 🔍 DEBUG: Primeira ficha com relações:`, JSON.stringify(fichasComRelacoes[0], null, 2));
+    }
 
     const { data: worldData } = await clientToUse.from("worlds").select("*").eq("id", worldId).single();
     if (!worldData) throw new Error("Mundo não encontrado");
