@@ -4,6 +4,13 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
+type IncomingRelation = {
+  source_titulo: string;
+  target_titulo: string;
+  tipo_relacao: string;
+  descricao?: string;
+};
+
 type IncomingFicha = {
   tipo: string;
   titulo: string;
@@ -19,6 +26,7 @@ type IncomingFicha = {
   camada_temporal?: string | null;
   ano_diegese?: number | null;
   meta?: any;
+  relations?: IncomingRelation[];
 };
 
 // Helpers... (slugify, prefixes, etc. iguais ao anterior)
@@ -210,7 +218,79 @@ export async function POST(req: NextRequest) {
         }
     }
 
-    return NextResponse.json({ ok: true, saved });
+    // Salvar relações entre fichas
+    console.log("[SAVE] Processando relações entre fichas...");
+    let relationsCreated = 0;
+    
+    for (const ficha of fichas) {
+        if (!ficha.relations || ficha.relations.length === 0) continue;
+        
+        // Buscar ID da ficha de origem pelo título
+        const sourceSlug = slugify(ficha.titulo);
+        const { data: sourceFicha } = await clientToUse
+            .from("fichas")
+            .select("id")
+            .eq("world_id", worldId)
+            .eq("slug", sourceSlug)
+            .maybeSingle();
+        
+        if (!sourceFicha) {
+            console.log(`[SAVE] Ficha de origem não encontrada: ${ficha.titulo}`);
+            continue;
+        }
+        
+        for (const rel of ficha.relations) {
+            // Buscar ID da ficha de destino pelo título
+            const targetSlug = slugify(rel.target_titulo);
+            const { data: targetFicha } = await clientToUse
+                .from("fichas")
+                .select("id")
+                .eq("world_id", worldId)
+                .eq("slug", targetSlug)
+                .maybeSingle();
+            
+            if (!targetFicha) {
+                console.log(`[SAVE] Ficha de destino não encontrada: ${rel.target_titulo}`);
+                continue;
+            }
+            
+            // Verificar se a relação já existe
+            const { data: existingRelation } = await clientToUse
+                .from("lore_relations")
+                .select("id")
+                .eq("source_ficha_id", sourceFicha.id)
+                .eq("target_ficha_id", targetFicha.id)
+                .eq("tipo_relacao", rel.tipo_relacao)
+                .maybeSingle();
+            
+            if (existingRelation) {
+                console.log(`[SAVE] Relação já existe: ${ficha.titulo} -> ${rel.target_titulo}`);
+                continue;
+            }
+            
+            // Criar nova relação
+            const { error: relError } = await clientToUse
+                .from("lore_relations")
+                .insert({
+                    source_ficha_id: sourceFicha.id,
+                    target_ficha_id: targetFicha.id,
+                    tipo_relacao: rel.tipo_relacao,
+                    descricao: rel.descricao || null,
+                    user_id: userId
+                });
+            
+            if (relError) {
+                console.error(`[SAVE] Erro ao criar relação:`, relError);
+            } else {
+                relationsCreated++;
+                console.log(`[SAVE] ✅ Relação criada: ${ficha.titulo} -[${rel.tipo_relacao}]-> ${rel.target_titulo}`);
+            }
+        }
+    }
+    
+    console.log(`[SAVE] ✅ Total de ${relationsCreated} relações criadas`);
+
+    return NextResponse.json({ ok: true, saved, relationsCreated });
 
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
