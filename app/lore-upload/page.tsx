@@ -86,6 +86,7 @@ export default function LoreUploadPage() {
 
   const [showNewUniverseModal, setShowNewUniverseModal] = useState(false);
   const [newUniverseName, setNewUniverseName] = useState("");
+  const [newUniverseDescription, setNewUniverseDescription] = useState("");
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
 
   const [availableEpisodes, setAvailableEpisodes] = useState<string[]>([]);
@@ -677,7 +678,11 @@ export default function LoreUploadPage() {
             try {
               const { data, error } = await supabaseBrowser
                 .from("universes")
-                .insert({ nome: newUniverseName.trim(), user_id: userId })
+                .insert({ 
+                  nome: newUniverseName.trim(), 
+                  descricao: newUniverseDescription.trim() || null,
+                  user_id: userId 
+                })
                 .select()
                 .single();
               if (error) throw error;
@@ -687,6 +692,7 @@ export default function LoreUploadPage() {
                 if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", data.id);
                 setShowNewUniverseModal(false);
                 setNewUniverseName("");
+                setNewUniverseDescription("");
               }
             } catch (err: any) {
               console.error("Erro ao criar universo:", err);
@@ -694,13 +700,13 @@ export default function LoreUploadPage() {
             } finally {
               setIsCreatingUniverse(false);
             }
-          }} className="w-full max-w-md border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+          }} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-zinc-400">Novo Universo</div>
-              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); }} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button>
+              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); setNewUniverseDescription(""); }} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">Nome do Universo</label>
+              <label className="text-[11px] text-zinc-500">Nome</label>
               <input 
                 className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
                 value={newUniverseName} 
@@ -709,8 +715,17 @@ export default function LoreUploadPage() {
                 autoFocus
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Descrição</label>
+              <textarea 
+                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[100px]" 
+                value={newUniverseDescription} 
+                onChange={(e) => setNewUniverseDescription(e.target.value)} 
+                placeholder="Resumo do Universo…" 
+              />
+            </div>
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); }} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button>
+              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); setNewUniverseDescription(""); }} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button>
               <button type="submit" disabled={isCreatingUniverse || !newUniverseName.trim()} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">
                 {isCreatingUniverse ? "Criando..." : "Salvar"}
               </button>
