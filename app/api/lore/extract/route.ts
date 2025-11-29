@@ -143,8 +143,20 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
 1. TODA ficha DEVE ter o campo "relations" (mesmo que seja um array vazio [])
 2. Se uma ficha menciona outra entidade, CRIE uma relação
 3. Se um personagem interage com outro, CRIE relações entre eles
-4. Se um evento acontece em um local, CRIE relação "localizado_em"
-5. Se um personagem participa de um evento, CRIE relação "participou_de"
+4. Se um evento acontece em um local, CRIE relação "localizado_em" (evento -> local)
+5. Se um personagem participa de um evento, CRIE relação "participou_de" (personagem -> evento)
+
+**REGRAS SOBRE RELAÇÕES SIMÉTRICAS:**
+- Para relações simétricas (amigo_de, inimigo_de, casado_com, irmão_de, etc.), crie APENAS UMA DIREÇÃO
+- Exemplo CORRETO: {"source_titulo": "João", "target_titulo": "Pedro", "tipo_relacao": "amigo_de"}
+- Exemplo ERRADO: Criar tanto João->Pedro quanto Pedro->João (isso é duplicação!)
+
+**REGRAS SOBRE "localizado_em":**
+- Use "localizado_em" APENAS quando a ORIGEM é um lugar/evento e o DESTINO é outro lugar
+- Exemplo CORRETO: {"source_titulo": "Padaria", "target_titulo": "Bairro Centro", "tipo_relacao": "localizado_em"}
+- Exemplo CORRETO: {"source_titulo": "Reunião de 2025", "target_titulo": "Escola", "tipo_relacao": "localizado_em"}
+- Exemplo ERRADO: {"source_titulo": "Pedro", "target_titulo": "Escola", "tipo_relacao": "localizado_em"}
+- Para personagens visitando lugares, use: "visitou", "mora_em", "trabalha_em", "estudou_em"
 
 5. FORMATO DE RESPOSTA OBRIGATÓRIO:
 {
@@ -168,7 +180,7 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
       "conteudo": "...", 
       "tags": [...],
       "relations": [
-        {"source_titulo": "Padaria da Esquina", "target_titulo": "Pedro", "tipo_relacao": "visitou", "descricao": "Pedro frequenta este local"}
+        {"source_titulo": "Padaria da Esquina", "target_titulo": "Bairro Centro", "tipo_relacao": "localizado_em", "descricao": "Localizada no bairro"}
       ],
       ...
     }
