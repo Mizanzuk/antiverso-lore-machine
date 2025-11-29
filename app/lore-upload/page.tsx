@@ -242,18 +242,35 @@ export default function LoreUploadPage() {
 
           for (const line of lines) {
               if (!line.trim()) continue;
+              
+              // Remover o prefixo "data: " do formato SSE
+              let jsonLine = line.trim();
+              if (jsonLine.startsWith("data:")) {
+                  jsonLine = jsonLine.substring(5).trim();
+              }
+              
+              if (!jsonLine) continue;
+              
               try {
-                  const data = JSON.parse(line);
-                  if (data.type === "progress") {
-                      setExtractProgress(data.percentage);
-                      setExtractStatus(data.message);
-                  } else if (data.type === "complete") {
-                      finalFichas = data.fichas;
-                  } else if (data.type === "error") {
-                      throw new Error(data.message);
+                  const data = JSON.parse(jsonLine);
+                  
+                  // Processar diferentes status da API
+                  if (data.status === "started") {
+                      setExtractProgress(0);
+                      setExtractStatus(`Iniciando extração (${data.totalChunks} chunk${data.totalChunks > 1 ? 's' : ''})...`);
+                  } else if (data.status === "processing") {
+                      const progress = Math.round((data.currentChunk / data.totalChunks) * 100);
+                      setExtractProgress(progress);
+                      setExtractStatus(`Processando chunk ${data.currentChunk}/${data.totalChunks}...`);
+                  } else if (data.status === "completed") {
+                      setExtractProgress(100);
+                      setExtractStatus("Extração concluída!");
+                      finalFichas = data.fichas || [];
+                  } else if (data.error) {
+                      throw new Error(data.error);
                   }
               } catch (e) {
-                  console.warn("Erro ao parsear linha de stream:", e);
+                  console.warn("Erro ao parsear linha de stream:", e, "Linha:", jsonLine);
               }
           }
       }
