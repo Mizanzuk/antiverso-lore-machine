@@ -58,7 +58,7 @@ function getWorldPrefix(world: any): string {
 const TYPE_PREFIX_MAP: Record<string, string> = {
   personagem: "PS",
   local: "LO",
-  conceito: "CC",
+  conceito: "CO", // <-- BUG CORRIGIDO
   evento: "EV",
   midia: "MD",
   "mídia": "MD",
@@ -256,10 +256,10 @@ export async function POST(req: NextRequest) {
             
             // Verificar se a relação já existe
             const { data: existingRelation } = await clientToUse
-                .from("lore_relations")
+                .from("fichas_relacoes") // <-- BUG CORRIGIDO
                 .select("id")
-                .eq("source_ficha_id", sourceFicha.id)
-                .eq("target_ficha_id", targetFicha.id)
+                .eq("ficha_origem_id", sourceFicha.id) // <-- BUG CORRIGIDO
+                .eq("ficha_destino_id", targetFicha.id) // <-- BUG CORRIGIDO
                 .eq("tipo_relacao", rel.tipo_relacao)
                 .maybeSingle();
             
@@ -270,12 +270,12 @@ export async function POST(req: NextRequest) {
             
             // Criar nova relação
             const { error: relError } = await clientToUse
-                .from("lore_relations")
+                .from("fichas_relacoes") // <-- BUG CORRIGIDO
                 .insert({
-                    source_ficha_id: sourceFicha.id,
-                    target_ficha_id: targetFicha.id,
+                    ficha_origem_id: sourceFicha.id, // <-- BUG CORRIGIDO
+                    ficha_destino_id: targetFicha.id, // <-- BUG CORRIGIDO
                     tipo_relacao: rel.tipo_relacao,
-                    descricao: rel.descricao || null,
+                    contexto: rel.descricao || null, // <-- BUG CORRIGIDO
                     user_id: userId
                 });
             
