@@ -221,6 +221,8 @@ function LoreAdminContent() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [albumImages, setAlbumImages] = useState<string[]>([]);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [viewingImageGallery, setViewingImageGallery] = useState<string[]>([]);
+  const [viewingImageIndex, setViewingImageIndex] = useState<number>(0);
   const [isUploadingAlbum, setIsUploadingAlbum] = useState(false);
 
   // Helpers de Wiki e Relações
@@ -231,19 +233,39 @@ function LoreAdminContent() {
   const [mentionIndex, setMentionIndex] = useState<number>(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // useEffect para fechar modais com tecla Esc
+  // useEffect para fechar modais com tecla Esc e navegar galeria com setas
   useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
+    const handleKeyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (viewingImage) setViewingImage(null);
+        if (viewingImage) {
+          setViewingImage(null);
+          setViewingImageGallery([]);
+          setViewingImageIndex(0);
+        }
         else if (fichaFormMode !== 'idle') setFichaFormMode('idle');
         else if (showCategoryModal) setShowCategoryModal(false);
         else if (showEditCategoriesModal) setShowEditCategoriesModal(false);
       }
+      
+      // Navegação na galeria com setas
+      if (viewingImage && viewingImageGallery.length > 1) {
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const newIndex = viewingImageIndex > 0 ? viewingImageIndex - 1 : viewingImageGallery.length - 1;
+          setViewingImageIndex(newIndex);
+          setViewingImage(viewingImageGallery[newIndex]);
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const newIndex = viewingImageIndex < viewingImageGallery.length - 1 ? viewingImageIndex + 1 : 0;
+          setViewingImageIndex(newIndex);
+          setViewingImage(viewingImageGallery[newIndex]);
+        }
+      }
     };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [fichaFormMode, showCategoryModal, showEditCategoriesModal, viewingImage]);
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, [fichaFormMode, showCategoryModal, showEditCategoriesModal, viewingImage, viewingImageGallery, viewingImageIndex]);
 
   // --- 1. AUTH ---
   useEffect(() => {
@@ -979,29 +1001,10 @@ function LoreAdminContent() {
                     </div>
                     <div className="space-y-8">
                         
-                        {/* IMAGEM COM BOTÕES DE AÇÃO */}
+                        {/* IMAGEM DE CAPA */}
                         {selectedFicha.imagem_url && (
-                            <div className="relative group rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30 text-center cursor-pointer" onClick={(e) => {
-                                if (!(e.target as HTMLElement).closest('button')) {
-                                    setViewingImage(selectedFicha.imagem_url);
-                                }
-                            }}>
+                            <div className="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30 text-center cursor-pointer hover:border-zinc-700 transition-colors" onClick={() => setViewingImage(selectedFicha.imagem_url)}>
                                 <img src={selectedFicha.imagem_url} alt="" className="max-h-96 inline-block opacity-90 shadow-2xl object-contain" />
-                                {/* Overlay com botões ao passar o mouse */}
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); setFichaForm({...selectedFicha}); setFichaFormMode("edit"); setImagePreview(selectedFicha.imagem_url); if(selectedFicha.album_imagens) setAlbumImages(selectedFicha.album_imagens); else setAlbumImages([]); }} 
-                                        className="bg-white text-black text-xs font-bold px-4 py-2 rounded hover:bg-zinc-200"
-                                    >
-                                        Trocar
-                                    </button>
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteImage(selectedFicha.id); }} 
-                                        className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded hover:bg-red-500"
-                                    >
-                                        Apagar
-                                    </button>
-                                </div>
                             </div>
                         )}
 
@@ -1011,7 +1014,11 @@ function LoreAdminContent() {
                                 <h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-3">Álbum de Imagens</h3>
                                 <div className="grid grid-cols-4 gap-3">
                                     {selectedFicha.album_imagens.map((url: string, idx: number) => (
-                                        <div key={idx} className="relative aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden cursor-pointer hover:border-zinc-600 transition-colors" onClick={() => setViewingImage(url)}>
+                                        <div key={idx} className="relative aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden cursor-pointer hover:border-zinc-600 transition-colors" onClick={() => {
+                                            setViewingImageGallery(selectedFicha.album_imagens);
+                                            setViewingImageIndex(idx);
+                                            setViewingImage(url);
+                                        }}>
                                             <img src={url} alt="" className="w-full h-full object-cover" />
                                         </div>
                                     ))}
@@ -1211,7 +1218,11 @@ function LoreAdminContent() {
                                 <div className="grid grid-cols-4 gap-3">
                                     {albumImages.map((url, idx) => (
                                         <div key={idx} className="relative group aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden">
-                                            <img src={url} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setViewingImage(url)} />
+                                            <img src={url} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => {
+                                                setViewingImageGallery(albumImages);
+                                                setViewingImageIndex(idx);
+                                                setViewingImage(url);
+                                            }} />
                                             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                 <button type="button" onClick={() => handleDeleteAlbumImage(url)} className="bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded hover:bg-red-500">
                                                     Apagar
@@ -1462,13 +1473,56 @@ function LoreAdminContent() {
 
       {/* Modal de Visualização de Imagem em Tela Cheia */}
       {viewingImage && (
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center" onClick={() => setViewingImage(null)}>
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center" onClick={() => {
+          setViewingImage(null);
+          setViewingImageGallery([]);
+          setViewingImageIndex(0);
+        }}>
+          {/* Botão Fechar */}
           <button 
-            onClick={() => setViewingImage(null)} 
-            className="absolute top-4 right-4 text-white text-2xl w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/80 border border-zinc-700"
+            onClick={() => {
+              setViewingImage(null);
+              setViewingImageGallery([]);
+              setViewingImageIndex(0);
+            }} 
+            className="absolute top-4 right-4 text-white text-2xl w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/80 border border-zinc-700 z-10"
           >
             ×
           </button>
+          
+          {/* Botões de Navegação (apenas se houver mais de 1 imagem) */}
+          {viewingImageGallery.length > 1 && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newIndex = viewingImageIndex > 0 ? viewingImageIndex - 1 : viewingImageGallery.length - 1;
+                  setViewingImageIndex(newIndex);
+                  setViewingImage(viewingImageGallery[newIndex]);
+                }}
+                className="absolute left-4 text-white text-4xl w-12 h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/80 border border-zinc-700 z-10"
+              >
+                ‹
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newIndex = viewingImageIndex < viewingImageGallery.length - 1 ? viewingImageIndex + 1 : 0;
+                  setViewingImageIndex(newIndex);
+                  setViewingImage(viewingImageGallery[newIndex]);
+                }}
+                className="absolute right-4 text-white text-4xl w-12 h-12 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/80 border border-zinc-700 z-10"
+              >
+                ›
+              </button>
+              
+              {/* Contador de imagens */}
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1 rounded-full border border-zinc-700">
+                {viewingImageIndex + 1} / {viewingImageGallery.length}
+              </div>
+            </>
+          )}
+          
           <img 
             src={viewingImage} 
             alt="" 
