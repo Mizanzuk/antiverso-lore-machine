@@ -63,6 +63,7 @@ export default function LoreUploadPage() {
   const [text, setText] = useState<string>("");
 
   const [loreTypes, setLoreTypes] = useState<{value: string, label: string}[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [suggestedFichas, setSuggestedFichas] = useState<SuggestedFicha[]>([]);
   const [editingFicha, setEditingFicha] = useState<SuggestedFicha | null>(null);
 
@@ -70,7 +71,6 @@ export default function LoreUploadPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractProgress, setExtractProgress] = useState(0);
   const [extractStatus, setExtractStatus] = useState("");
-  const [currentStep, setCurrentStep] = useState(0);
 
   const [isParsingFile, setIsParsingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -83,14 +83,6 @@ export default function LoreUploadPage() {
   const [newWorldDescription, setNewWorldDescription] = useState("");
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
-
-  const [showNewUniverseModal, setShowNewUniverseModal] = useState(false);
-  const [newUniverseName, setNewUniverseName] = useState("");
-  const [newUniverseDescription, setNewUniverseDescription] = useState("");
-  const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
-
-  const [availableEpisodes, setAvailableEpisodes] = useState<string[]>([]);
-  const [showNewEpisodeInput, setShowNewEpisodeInput] = useState(false);
 
   const [isCheckingConsistency, setIsCheckingConsistency] = useState(false);
   const [consistencyReport, setConsistencyReport] = useState<string | null>(null);
@@ -136,7 +128,10 @@ export default function LoreUploadPage() {
         const data = (await res.json()) as CatalogResponse;
         
         if (data.types && data.types.length > 0) {
-            setLoreTypes(data.types.map(t => ({ value: t.id, label: t.label })));
+            const types = data.types.map(t => ({ value: t.id, label: t.label }));
+            setLoreTypes(types);
+            // Inicializar com todas as categorias selecionadas
+            setSelectedCategories(types.map(t => t.value));
         }
 
         const rootWorld = data.worlds.find(w => w.is_root);
@@ -163,31 +158,6 @@ export default function LoreUploadPage() {
     if (!selectedUniverseId || !userId) return;
     fetchWorldsAndTypes();
   }, [selectedUniverseId, userId]);
-
-  useEffect(() => {
-    async function fetchEpisodes() {
-      if (!selectedWorldId || !userId) return;
-      try {
-        const { data } = await supabaseBrowser
-          .from("lore_entries")
-          .select("aparece_em")
-          .eq("world_id", selectedWorldId)
-          .not("aparece_em", "is", null);
-        
-        if (data) {
-          const episodeNumbers = new Set<string>();
-          data.forEach(entry => {
-            const match = entry.aparece_em?.match(/Episódio\/Capítulo:\s*(\d+)/i);
-            if (match) episodeNumbers.add(match[1]);
-          });
-          setAvailableEpisodes(Array.from(episodeNumbers).sort((a, b) => parseInt(a) - parseInt(b)));
-        }
-      } catch (err) {
-        console.error("Erro ao buscar episódios:", err);
-      }
-    }
-    fetchEpisodes();
-  }, [selectedWorldId, userId]);
 
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
@@ -240,11 +210,11 @@ export default function LoreUploadPage() {
     if (!selectedWorldId || !world) { setError("Selecione um Mundo antes de extrair fichas."); return; }
     if (worldHasEpisodes && !unitNumber.trim()) { setError("Informe o número do episódio/capítulo."); return; }
     if (!text.trim()) { setError("Cole um texto ou faça upload de um arquivo para extrair fichas."); return; }
+    if (selectedCategories.length === 0) { setError("Selecione pelo menos uma categoria para extrair."); return; }
     
     setIsExtracting(true);
     setExtractProgress(0);
     setExtractStatus("Iniciando...");
-    setCurrentStep(1);
 
     try {
       const selectedWorld = worlds.find((w) => w.id === selectedWorldId);
@@ -253,7 +223,15 @@ export default function LoreUploadPage() {
       const response = await fetch("/api/lore/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": userId },
-        body: JSON.stringify({ text, worldId: selectedWorldId, worldName, documentName: documentName.trim() || null, unitNumber, universeId: selectedUniverseId }),
+        body: JSON.stringify({ 
+          text, 
+          worldId: selectedWorldId, 
+          worldName, 
+          documentName: documentName.trim() || null, 
+          unitNumber, 
+          universeId: selectedUniverseId,
+          categories: selectedCategories.length > 0 ? selectedCategories : null
+        }),
       });
 
       if (!response.ok || !response.body) {
@@ -291,19 +269,13 @@ export default function LoreUploadPage() {
                   
                   // Processar diferentes status da API
                   if (data.status === "started") {
-                      setCurrentStep(2);
-                      setExtractProgress(5);
+                      setExtractProgress(0);
                       setExtractStatus(`Iniciando extração (${data.totalChunks} chunk${data.totalChunks > 1 ? 's' : ''})...`);
                   } else if (data.status === "processing") {
-                      setCurrentStep(3);
-                      // Progresso mais suave: cada chunk ocupa uma faixa de progresso
-                      const chunkWeight = 90 / data.totalChunks; // 90% dividido pelos chunks (5% inicial + 5% final)
-                      const baseProgress = 5 + ((data.currentChunk - 1) * chunkWeight);
-                      const currentProgress = Math.min(95, Math.round(baseProgress + (chunkWeight * 0.5))); // Meio do chunk atual
-                      setExtractProgress(currentProgress);
+                      const progress = Math.round((data.currentChunk / data.totalChunks) * 100);
+                      setExtractProgress(progress);
                       setExtractStatus(`Processando chunk ${data.currentChunk}/${data.totalChunks}...`);
                   } else if (data.status === "completed") {
-                      setCurrentStep(4);
                       setExtractProgress(100);
                       setExtractStatus("Extração concluída!");
                       finalFichas = data.fichas || [];
@@ -376,7 +348,6 @@ export default function LoreUploadPage() {
         setError(err.message || "Erro ao processar extração.");
     } finally {
         setIsExtracting(false);
-        setCurrentStep(0);
     }
   }
 
@@ -419,7 +390,6 @@ export default function LoreUploadPage() {
           camada_temporal: f.camada_temporal || null, 
           codigo: f.codigo, 
           meta: f.meta || {}, 
-          relations: f.relations || [], 
       }));
       const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
       const response = await fetch("/api/lore/save", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify(payload), });
@@ -457,55 +427,9 @@ export default function LoreUploadPage() {
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => { 
-              const value = e.target.value;
-              if (value === "create_new_universe") { setShowNewUniverseModal(true); return; }
-              setSelectedUniverseId(value); 
-              if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", value); 
-            }}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}<option value="create_new_universe">+ Novo Universo...</option></select></div>
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => {
-              const selectedUniverse = universes.find(u => u.id === selectedUniverseId);
-              const displayName = world.is_root && selectedUniverse 
-                ? `Raiz de ${selectedUniverse.nome}` 
-                : (world.nome ?? world.id);
-              return <option key={world.id} value={world.id}>{displayName}</option>;
-            })}<option value="create_new">+ Novo mundo...</option></select></div>
-            <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label>
-              {!worldHasEpisodes ? (
-                <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value="N/A" disabled />
-              ) : showNewEpisodeInput ? (
-                <div className="flex gap-2">
-                  <input 
-                    className="flex-1 rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
-                    value={unitNumber} 
-                    onChange={(e) => setUnitNumber(e.target.value)} 
-                    placeholder="Digite o número do novo episódio" 
-                    autoFocus
-                  />
-                  <button 
-                    onClick={() => { setShowNewEpisodeInput(false); setUnitNumber(""); }}
-                    className="px-3 py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-sm text-zinc-300"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <select 
-                  className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
-                  value={unitNumber} 
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === "new_episode") { setShowNewEpisodeInput(true); setUnitNumber(""); return; }
-                    setUnitNumber(value);
-                  }}
-                >
-                  <option value="">Selecione o episódio</option>
-                  {availableEpisodes.map(ep => <option key={ep} value={ep}>{ep}</option>)}
-                  <option value="new_episode">+ Novo Episódio</option>
-                </select>
-              )}
-            </div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => { setSelectedUniverseId(e.target.value); if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", e.target.value); }}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} /></div>
           </section>
 
           <section className="space-y-1">
@@ -528,74 +452,57 @@ export default function LoreUploadPage() {
             <textarea className="w-full min-h-[180px] rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} placeholder="O texto do arquivo aparecerá aqui, ou você pode colar manualmente..." />
           </section>
 
-          {/* BARRA DE PROGRESSO EM ETAPAS */}
-          {isExtracting && (
-            <div className="space-y-4 py-4">
-              {/* Etapas visuais */}
+          {/* FILTRO DE CATEGORIAS */}
+          {loreTypes.length > 0 && (
+            <section className="space-y-2 p-4 bg-zinc-900/50 border border-zinc-800 rounded-md">
               <div className="flex items-center justify-between">
-                {/* Etapa 1: Buscar Categorias */}
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 1 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {currentStep > 1 ? '✓' : '1'}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Categorias</p>
-                </div>
-                
-                {/* Linha conectora 1-2 */}
-                <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 2 ? 'bg-fuchsia-600' : 'bg-zinc-800'
-                }`}></div>
-                
-                {/* Etapa 2: Dividir Texto */}
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 2 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {currentStep > 2 ? '✓' : '2'}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Dividir</p>
-                </div>
-                
-                {/* Linha conectora 2-3 */}
-                <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 3 ? 'bg-fuchsia-600' : 'bg-zinc-800'
-                }`}></div>
-                
-                {/* Etapa 3: Processar Chunks */}
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 3 ? 'bg-fuchsia-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {currentStep > 3 ? '✓' : '3'}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Processar</p>
-                </div>
-                
-                {/* Linha conectora 3-4 */}
-                <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 4 ? 'bg-fuchsia-600' : 'bg-zinc-800'
-                }`}></div>
-                
-                {/* Etapa 4: Finalizar */}
-                <div className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 4 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
-                  }`}>
-                    {currentStep > 4 ? '✓' : '4'}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-2 text-center">Finalizar</p>
-                </div>
+                <label className="text-xs uppercase tracking-wide text-zinc-400">Categorias para Extrair</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedCategories.length === loreTypes.length) {
+                      setSelectedCategories([]);
+                    } else {
+                      setSelectedCategories(loreTypes.map(t => t.value));
+                    }
+                  }}
+                  className="text-xs text-fuchsia-400 hover:text-fuchsia-300 font-medium"
+                >
+                  {selectedCategories.length === loreTypes.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                </button>
               </div>
-              
-              {/* Barra de progresso detalhada */}
-              <div className="space-y-2">
-                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                  <div className="bg-fuchsia-600 h-2 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
-                </div>
-                <p className="text-[10px] text-zinc-400 text-center">{extractStatus} ({extractProgress}%)</p>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {loreTypes.map((type) => (
+                  <label key={type.value} className="flex items-center gap-2 cursor-pointer hover:bg-zinc-800/50 p-2 rounded transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedCategories.includes(type.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCategories([...selectedCategories, type.value]);
+                        } else {
+                          setSelectedCategories(selectedCategories.filter(c => c !== type.value));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-fuchsia-600 focus:ring-fuchsia-500 focus:ring-offset-0"
+                    />
+                    <span className="text-sm text-zinc-300">{type.label}</span>
+                  </label>
+                ))}
               </div>
+              {selectedCategories.length === 0 && (
+                <p className="text-xs text-amber-500 mt-2">⚠️ Nenhuma categoria selecionada. Selecione pelo menos uma para extrair fichas.</p>
+              )}
+            </section>
+          )}
+
+          {/* BARRA DE PROGRESSO REAL */}
+          {isExtracting && (
+            <div className="space-y-2">
+                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                   <div className="bg-fuchsia-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+                </div>
+                <p className="text-[10px] text-zinc-400 text-center animate-pulse">{extractStatus} ({extractProgress}%)</p>
             </div>
           )}
 
@@ -658,78 +565,13 @@ export default function LoreUploadPage() {
       </div>
 
       {showNewWorldModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
           <form onSubmit={e => { e.preventDefault(); handleCreateWorldFromModal(); }} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
             <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
             <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
             <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="submit" disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
-          </form>
-        </div>
-      )}
-
-      {showNewUniverseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <form onSubmit={async (e) => { 
-            e.preventDefault(); 
-            if (!newUniverseName.trim() || !userId) return;
-            setIsCreatingUniverse(true);
-            try {
-              const { data, error } = await supabaseBrowser
-                .from("universes")
-                .insert({ 
-                  nome: newUniverseName.trim(), 
-                  descricao: newUniverseDescription.trim() || null,
-                  user_id: userId 
-                })
-                .select()
-                .single();
-              if (error) throw error;
-              if (data) {
-                setUniverses(prev => [...prev, data]);
-                setSelectedUniverseId(data.id);
-                if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", data.id);
-                setShowNewUniverseModal(false);
-                setNewUniverseName("");
-                setNewUniverseDescription("");
-              }
-            } catch (err: any) {
-              console.error("Erro ao criar universo:", err);
-              setError(err.message || "Erro ao criar universo.");
-            } finally {
-              setIsCreatingUniverse(false);
-            }
-          }} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] text-zinc-400">Novo Universo</div>
-              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); setNewUniverseDescription(""); }} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">Nome</label>
-              <input 
-                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" 
-                value={newUniverseName} 
-                onChange={(e) => setNewUniverseName(e.target.value)} 
-                placeholder="Ex: Antiverso" 
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[11px] text-zinc-500">Descrição</label>
-              <textarea 
-                className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[100px]" 
-                value={newUniverseDescription} 
-                onChange={(e) => setNewUniverseDescription(e.target.value)} 
-                placeholder="Resumo do Universo…" 
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => { setShowNewUniverseModal(false); setNewUniverseName(""); setNewUniverseDescription(""); }} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button>
-              <button type="submit" disabled={isCreatingUniverse || !newUniverseName.trim()} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">
-                {isCreatingUniverse ? "Criando..." : "Salvar"}
-              </button>
-            </div>
           </form>
         </div>
       )}
