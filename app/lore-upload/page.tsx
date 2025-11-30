@@ -485,6 +485,7 @@ export default function LoreUploadPage() {
           camada_temporal: f.camada_temporal || null, 
           codigo: f.codigo, 
           meta: f.meta || {}, 
+          relations: (f as any).relations || [], 
       }));
       const payload = { worldId: selectedWorldId, unitNumber: normalizedUnitNumber || "0", fichas: fichasPayload };
       const response = await fetch("/api/lore/save", { method: "POST", headers: { "Content-Type": "application/json", "x-user-id": userId }, body: JSON.stringify(payload), });
