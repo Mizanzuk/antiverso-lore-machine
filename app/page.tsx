@@ -1048,14 +1048,17 @@ export default function Page() {
 
       {/* MODAL NOVO UNIVERSO */}
       {showUniverseModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <form onSubmit={e => { e.preventDefault(); createUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
-            <h3 className="text-white font-bold mb-4 text-sm">Novo Universo</h3>
-            <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome do Universo" value={newUniverseName} onChange={e=>setNewUniverseName(e.target.value)} autoFocus />
-            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-xs" placeholder="Descrição (opcional)" value={newUniverseDesc} onChange={e=>setNewUniverseDesc(e.target.value)} />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowUniverseModal(false)}>
+          <form onSubmit={e => { e.preventDefault(); createUniverse(); }} onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-bold text-sm">Novo Universo</h3>
+              <button type="button" onClick={() => setShowUniverseModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+            </div>
+            <input className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 mb-2 text-white text-sm" placeholder="Nome do Universo" value={newUniverseName} onChange={e=>setNewUniverseName(e.target.value)} autoFocus />
+            <textarea className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-sm" placeholder="Descrição (opcional)" value={newUniverseDesc} onChange={e=>setNewUniverseDesc(e.target.value)} />
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowUniverseModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
-              <button type="submit" disabled={isCreatingUniverse} className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">{isCreatingUniverse ? "Criando..." : "Criar"}</button>
+              <button type="button" onClick={() => setShowUniverseModal(false)} className="text-xs text-zinc-400 hover:text-zinc-100">Fechar</button>
+              <button type="submit" disabled={isCreatingUniverse} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-xs font-bold">{isCreatingUniverse ? "Criando..." : "Criar"}</button>
             </div>
           </form>
         </div>
@@ -1063,14 +1066,17 @@ export default function Page() {
       
       {/* MODAL EDITAR UNIVERSO */}
       {showEditUniModal && selectedUniverseData && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <form onSubmit={e => { e.preventDefault(); saveEditUniverse(); }} className="bg-zinc-950 border border-zinc-800 p-6 rounded w-80">
-            <h3 className="text-white font-bold mb-4 text-sm">Editar Universo</h3>
-            <input className="w-full bg-black border border-zinc-700 rounded p-2 mb-2 text-white text-xs" placeholder="Nome do Universo" value={editUniForm.nome} onChange={e=>setEditUniForm({...editUniForm, nome: e.target.value})} autoFocus />
-            <textarea className="w-full bg-black border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-xs" placeholder="Descrição (opcional)" value={editUniForm.descricao} onChange={e=>setEditUniForm({...editUniForm, descricao: e.target.value})} />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowEditUniModal(false)}>
+          <form onSubmit={e => { e.preventDefault(); saveEditUniverse(); }} onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-bold text-sm">Editar Universo</h3>
+              <button type="button" onClick={() => setShowEditUniModal(false)} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+            </div>
+            <input className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 mb-2 text-white text-sm" placeholder="Nome do Universo" value={editUniForm.nome} onChange={e=>setEditUniForm({...editUniForm, nome: e.target.value})} autoFocus />
+            <textarea className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 mb-4 text-white h-20 text-sm" placeholder="Descrição (opcional)" value={editUniForm.descricao} onChange={e=>setEditUniForm({...editUniForm, descricao: e.target.value})} />
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowEditUniModal(false)} className="text-zinc-400 text-xs">Cancelar</button>
-              <button type="submit" className="bg-emerald-600 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button>
+              <button type="button" onClick={() => setShowEditUniModal(false)} className="text-xs text-zinc-400 hover:text-zinc-100">Fechar</button>
+              <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-xs font-bold">Salvar</button>
             </div>
           </form>
         </div>
