@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
         descricao_data,
         world_id,
         imagem_url,
+        album_imagens,
         codigo,
         episodio
       `);
