@@ -651,7 +651,7 @@ function LoreAdminContent() {
             ano_diegese: fichaForm.ano_diegese ? Number(fichaForm.ano_diegese) : null,
             aparece_em: fichaForm.aparece_em || null,
             imagem_url: fichaForm.imagem_url || null,
-            album_imagens: fichaForm.album_imagens || null,
+            album_imagens: albumImages.length > 0 ? albumImages : null,
             descricao_data: fichaForm.descricao_data || null,
             data_inicio: fichaForm.data_inicio || null,
             data_fim: fichaForm.data_fim || null,
@@ -752,8 +752,9 @@ function LoreAdminContent() {
             const { data: publicUrl } = supabaseBrowser.storage.from('images').getPublicUrl(fileName);
             uploadedUrls.push(publicUrl.publicUrl);
         }
-        setAlbumImages((prev) => [...prev, ...uploadedUrls]);
-        setFichaForm((prev: any) => ({ ...prev, album_imagens: [...(prev.album_imagens || []), ...uploadedUrls] }));
+        const newAlbum = [...albumImages, ...uploadedUrls];
+        setAlbumImages(newAlbum);
+        setFichaForm((prev: any) => ({ ...prev, album_imagens: newAlbum }));
     } catch (err: any) {
         alert("Erro ao subir imagens do álbum: " + err.message);
     } finally {
