@@ -593,7 +593,7 @@ export default function LoreUploadPage() {
                           setSelectedCategories(selectedCategories.filter(c => c !== type.value));
                         }
                       }}
-                      className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-fuchsia-600 focus:ring-fuchsia-500 focus:ring-offset-0"
+                      className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0"
                     />
                     <span className="text-sm text-zinc-300">{type.label}</span>
                   </label>
@@ -613,7 +613,7 @@ export default function LoreUploadPage() {
                 {/* Etapa 1: Buscar Categorias */}
                 <div className="flex flex-col items-center flex-1">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 1 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                    currentStep >= 1 ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-500'
                   }`}>
                     {currentStep > 1 ? '✓' : '1'}
                   </div>
@@ -622,13 +622,13 @@ export default function LoreUploadPage() {
                 
                 {/* Linha conectora 1-2 */}
                 <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 2 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                  currentStep >= 2 ? 'bg-emerald-600' : 'bg-zinc-800'
                 }`}></div>
                 
                 {/* Etapa 2: Dividir Texto */}
                 <div className="flex flex-col items-center flex-1">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 2 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                    currentStep >= 2 ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-500'
                   }`}>
                     {currentStep > 2 ? '✓' : '2'}
                   </div>
@@ -637,13 +637,13 @@ export default function LoreUploadPage() {
                 
                 {/* Linha conectora 2-3 */}
                 <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 3 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                  currentStep >= 3 ? 'bg-emerald-600' : 'bg-zinc-800'
                 }`}></div>
                 
                 {/* Etapa 3: Processar Chunks */}
                 <div className="flex flex-col items-center flex-1">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 3 ? 'bg-fuchsia-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-500'
+                    currentStep >= 3 ? 'bg-emerald-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-500'
                   }`}>
                     {currentStep > 3 ? '✓' : '3'}
                   </div>
@@ -652,13 +652,13 @@ export default function LoreUploadPage() {
                 
                 {/* Linha conectora 3-4 */}
                 <div className={`flex-1 h-1 mx-2 transition-all ${
-                  currentStep >= 4 ? 'bg-fuchsia-600' : 'bg-zinc-800'
+                  currentStep >= 4 ? 'bg-emerald-600' : 'bg-zinc-800'
                 }`}></div>
                 
                 {/* Etapa 4: Finalizar */}
                 <div className="flex flex-col items-center flex-1">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep >= 4 ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-500'
+                    currentStep >= 4 ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-500'
                   }`}>
                     {currentStep > 4 ? '✓' : '4'}
                   </div>
@@ -669,7 +669,7 @@ export default function LoreUploadPage() {
               {/* Barra de progresso detalhada */}
               <div className="space-y-2">
                 <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                  <div className="bg-fuchsia-600 h-2 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+                  <div className="bg-emerald-600 h-2 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
                 </div>
                 <p className="text-[10px] text-zinc-400 text-center">{extractStatus} ({extractProgress}%)</p>
               </div>
@@ -677,7 +677,7 @@ export default function LoreUploadPage() {
           )}
 
           <div className="flex justify-center">
-            <button onClick={handleExtractFichas} disabled={isExtracting || isParsingFile} className="w-full md:w-auto px-6 py-2 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Processando..." : "Extrair fichas"}</button>
+            <button onClick={handleExtractFichas} disabled={isExtracting || isParsingFile} className="w-full md:w-auto px-6 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-sm font-medium">{isExtracting ? "Processando..." : "Extrair fichas"}</button>
           </div>
 
           <section className="space-y-3 pb-8">
@@ -735,11 +735,11 @@ export default function LoreUploadPage() {
       </div>
 
       {showNewUniverseModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
-          <form onSubmit={e => { e.preventDefault(); handleCreateUniverse(); }} className="w-full max-w-md border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={handleCancelUniverseModal}>
+          <form onSubmit={e => { e.preventDefault(); handleCreateUniverse(); }} onClick={(e) => e.stopPropagation()} className="w-full max-w-md border border-zinc-800 rounded-lg p-6 bg-zinc-950 space-y-3 mx-4">
             <div className="flex items-center justify-between">
-              <div className="text-[11px] text-zinc-400">Novo Universo</div>
-              <button type="button" onClick={handleCancelUniverseModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button>
+              <h3 className="text-white font-bold text-sm">Novo Universo</h3>
+              <button type="button" onClick={handleCancelUniverseModal} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
             </div>
             <div className="space-y-1">
               <label className="text-[11px] text-zinc-500">Nome do Universo</label>
@@ -750,7 +750,7 @@ export default function LoreUploadPage() {
               <textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[100px]" value={newUniverseDescription} onChange={(e) => setNewUniverseDescription(e.target.value)} placeholder="Resumo do Universo…" />
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={handleCancelUniverseModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button>
+              <button type="button" onClick={handleCancelUniverseModal} className="text-xs text-zinc-400 hover:text-zinc-100">Fechar</button>
               <button type="submit" disabled={isCreatingUniverse} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingUniverse ? "Criando..." : "Salvar"}</button>
             </div>
           </form>
@@ -758,13 +758,13 @@ export default function LoreUploadPage() {
       )}
 
       {showNewWorldModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
-          <form onSubmit={e => { e.preventDefault(); handleCreateWorldFromModal(); }} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
-            <div className="flex items-center justify-between"><div className="text-[11px] text-zinc-400">Novo Mundo</div><button type="button" onClick={handleCancelWorldModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button></div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={handleCancelWorldModal}>
+          <form onSubmit={e => { e.preventDefault(); handleCreateWorldFromModal(); }} onClick={(e) => e.stopPropagation()} className="w-full max-w-md max-h-[90vh] overflow-auto border border-zinc-800 rounded-lg p-6 bg-zinc-950 space-y-3 mx-4">
+            <div className="flex items-center justify-between"><h3 className="text-white font-bold text-sm">Novo Mundo</h3><button type="button" onClick={handleCancelWorldModal} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Nome</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newWorldName} onChange={(e) => setNewWorldName(e.target.value)} placeholder="Ex: Arquivos Vermelhos" /></div>
             <div className="space-y-1"><label className="text-[11px] text-zinc-500">Descrição</label><textarea className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm min-h-[140px]" value={newWorldDescription} onChange={(e) => setNewWorldDescription(e.target.value)} placeholder="Resumo do Mundo…" /></div>
             <div className="flex items-center gap-2 pt-1"><button type="button" onClick={() => setNewWorldHasEpisodes((prev) => !prev)} className={`h-4 px-2 rounded border text-[11px] ${newWorldHasEpisodes ? "border-emerald-400 text-emerald-300 bg-emerald-400/10" : "border-zinc-700 text-zinc-400 bg-black/40"}`}>Este mundo possui episódios</button></div>
-            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button><button type="submit" disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
+            <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={handleCancelWorldModal} className="text-xs text-zinc-400 hover:text-zinc-100">Fechar</button><button type="submit" disabled={isCreatingWorld} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingWorld ? "Criando..." : "Salvar"}</button></div>
           </form>
         </div>
       )}
