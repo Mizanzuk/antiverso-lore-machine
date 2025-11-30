@@ -219,6 +219,9 @@ function LoreAdminContent() {
   const [editingCategories, setEditingCategories] = useState<any[]>([]);
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [albumImages, setAlbumImages] = useState<string[]>([]);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [isUploadingAlbum, setIsUploadingAlbum] = useState(false);
 
   // Helpers de Wiki e Relações
   const [fichaTab, setFichaTab] = useState<"dados" | "relacoes">("dados");
@@ -232,14 +235,15 @@ function LoreAdminContent() {
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (fichaFormMode !== 'idle') setFichaFormMode('idle');
-        if (showCategoryModal) setShowCategoryModal(false);
-        if (showEditCategoriesModal) setShowEditCategoriesModal(false);
+        if (viewingImage) setViewingImage(null);
+        else if (fichaFormMode !== 'idle') setFichaFormMode('idle');
+        else if (showCategoryModal) setShowCategoryModal(false);
+        else if (showEditCategoriesModal) setShowEditCategoriesModal(false);
       }
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [fichaFormMode, showCategoryModal, showEditCategoriesModal]);
+  }, [fichaFormMode, showCategoryModal, showEditCategoriesModal, viewingImage]);
 
   // --- 1. AUTH ---
   useEffect(() => {
@@ -647,6 +651,7 @@ function LoreAdminContent() {
             ano_diegese: fichaForm.ano_diegese ? Number(fichaForm.ano_diegese) : null,
             aparece_em: fichaForm.aparece_em || null,
             imagem_url: fichaForm.imagem_url || null,
+            album_imagens: fichaForm.album_imagens || null,
             descricao_data: fichaForm.descricao_data || null,
             data_inicio: fichaForm.data_inicio || null,
             data_fim: fichaForm.data_fim || null,
@@ -664,6 +669,8 @@ function LoreAdminContent() {
         }
 
         setFichaFormMode("idle");
+        setImagePreview(null);
+        setAlbumImages([]);
         await fetchAllData(selectedUniverseId!, selectedWorldId, fichaFormMode === 'create' ? null : fichaForm.id);
     } catch (err: any) {
         alert("Erro ao salvar ficha: " + err.message);
@@ -727,6 +734,42 @@ function LoreAdminContent() {
     } finally {
         setIsUploadingImage(false);
     }
+  }
+
+  async function handleAlbumUpload(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingAlbum(true);
+
+    try {
+        const uploadedUrls: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const resizedBlob = await resizeImage(file, 800, 0.7);
+            const fileName = `${Date.now()}-${i}-${file.name.replace(/[^a-z0-9.]/gi, '_')}`;
+            const { data, error } = await supabaseBrowser.storage.from('images').upload(fileName, resizedBlob, { contentType: 'image/jpeg', upsert: true });
+            if (error) throw error;
+            const { data: publicUrl } = supabaseBrowser.storage.from('images').getPublicUrl(fileName);
+            uploadedUrls.push(publicUrl.publicUrl);
+        }
+        setAlbumImages((prev) => [...prev, ...uploadedUrls]);
+        setFichaForm((prev: any) => ({ ...prev, album_imagens: [...(prev.album_imagens || []), ...uploadedUrls] }));
+    } catch (err: any) {
+        alert("Erro ao subir imagens do álbum: " + err.message);
+    } finally {
+        setIsUploadingAlbum(false);
+    }
+  }
+
+  async function handleDeleteAlbumImage(imageUrl: string) {
+    const newAlbum = albumImages.filter(url => url !== imageUrl);
+    setAlbumImages(newAlbum);
+    setFichaForm((prev: any) => ({ ...prev, album_imagens: newAlbum }));
+  }
+
+  async function handleDeleteCoverImage() {
+    setImagePreview(null);
+    setFichaForm((prev: any) => ({ ...prev, imagem_url: null }));
   }
 
   async function handleAddRelation() {
@@ -924,24 +967,35 @@ function LoreAdminContent() {
                                 <span>{worlds.find(w => w.id === selectedFicha.world_id)?.nome}</span>
                             </div>
                         </div>
-                        <button onClick={() => { setFichaForm({...selectedFicha}); setFichaFormMode("edit"); if(selectedFicha.imagem_url) setImagePreview(selectedFicha.imagem_url); loadFichaDetails(selectedFicha.id); }} className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1 rounded text-xs font-bold border border-zinc-700">Editar</button>
+                        <button onClick={() => { 
+                            setFichaForm({...selectedFicha}); 
+                            setFichaFormMode("edit"); 
+                            if(selectedFicha.imagem_url) setImagePreview(selectedFicha.imagem_url);
+                            if(selectedFicha.album_imagens) setAlbumImages(selectedFicha.album_imagens);
+                            else setAlbumImages([]);
+                            loadFichaDetails(selectedFicha.id); 
+                        }} className="bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1 rounded text-xs font-bold border border-zinc-700">Editar</button>
                     </div>
                     <div className="space-y-8">
                         
                         {/* IMAGEM COM BOTÕES DE AÇÃO */}
                         {selectedFicha.imagem_url && (
-                            <div className="relative group rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30 text-center">
+                            <div className="relative group rounded-lg border border-zinc-800 overflow-hidden bg-zinc-900/30 text-center cursor-pointer" onClick={(e) => {
+                                if (!(e.target as HTMLElement).closest('button')) {
+                                    setViewingImage(selectedFicha.imagem_url);
+                                }
+                            }}>
                                 <img src={selectedFicha.imagem_url} alt="" className="max-h-96 inline-block opacity-90 shadow-2xl object-contain" />
                                 {/* Overlay com botões ao passar o mouse */}
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
                                     <button 
-                                        onClick={() => { setFichaForm({...selectedFicha}); setFichaFormMode("edit"); setImagePreview(selectedFicha.imagem_url); }} 
+                                        onClick={(e) => { e.stopPropagation(); setFichaForm({...selectedFicha}); setFichaFormMode("edit"); setImagePreview(selectedFicha.imagem_url); if(selectedFicha.album_imagens) setAlbumImages(selectedFicha.album_imagens); else setAlbumImages([]); }} 
                                         className="bg-white text-black text-xs font-bold px-4 py-2 rounded hover:bg-zinc-200"
                                     >
-                                        Editar Imagem
+                                        Trocar
                                     </button>
                                     <button 
-                                        onClick={() => handleDeleteImage(selectedFicha.id)} 
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteImage(selectedFicha.id); }} 
                                         className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded hover:bg-red-500"
                                     >
                                         Apagar
@@ -992,7 +1046,7 @@ function LoreAdminContent() {
 
       {/* MODAL FICHA */}
       {fichaFormMode !== "idle" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFichaFormMode('idle')}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => { setFichaFormMode('idle'); setImagePreview(null); setAlbumImages([]); }}>
             <form onSubmit={handleSaveFicha} onClick={(e) => e.stopPropagation()} className="bg-zinc-950 border border-zinc-800 p-6 rounded-lg w-full max-w-4xl shadow-xl max-h-[90vh] overflow-y-auto flex flex-col">
                 <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-2">
                     <div className="flex items-center gap-4">
@@ -1002,7 +1056,7 @@ function LoreAdminContent() {
                             {fichaFormMode === 'edit' && <button type="button" onClick={() => setFichaTab("relacoes")} className={`text-xs px-3 py-1 rounded ${fichaTab === 'relacoes' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Relações</button>}
                         </div>
                     </div>
-                    <button type="button" onClick={() => setFichaFormMode('idle')} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
+                    <button type="button" onClick={() => { setFichaFormMode('idle'); setImagePreview(null); setAlbumImages([]); }} className="text-zinc-500 hover:text-white text-2xl leading-none font-light">&times;</button>
                 </div>
                 
                 {fichaTab === 'dados' && (
@@ -1064,21 +1118,26 @@ function LoreAdminContent() {
                                 <div className="flex-1"><label className="text-[10px] uppercase text-zinc-500">Título</label><input className="w-full bg-black border border-zinc-800 rounded p-2 text-sm text-white" value={fichaForm.titulo || ""} onChange={e => setFichaForm({...fichaForm, titulo: e.target.value})} /></div>
                                 <div className="w-32">
                                     <label className="text-[10px] uppercase text-zinc-500 block mb-1">Capa</label>
-                                    <div className="relative group w-full h-24 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center cursor-pointer hover:bg-zinc-800 overflow-hidden">
+                                    <div className="relative group w-full h-24 bg-zinc-900 border border-zinc-800 rounded flex items-center justify-center overflow-hidden">
                                         {imagePreview ? (
                                             <>
-                                                <img src={imagePreview} alt="Preview" className="w-full h-full object-contain" />
-                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                                    <span className="text-[9px] text-white font-bold">Trocar</span>
+                                                <img src={imagePreview} alt="Preview" className="w-full h-full object-contain cursor-pointer" onClick={() => setViewingImage(imagePreview)} />
+                                                <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 transition-opacity">
+                                                    <label className="bg-white text-black text-[9px] font-bold px-2 py-1 rounded cursor-pointer hover:bg-zinc-200">
+                                                        Trocar
+                                                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
+                                                    </label>
+                                                    <button onClick={handleDeleteCoverImage} className="bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded hover:bg-red-500">
+                                                        Apagar
+                                                    </button>
                                                 </div>
                                             </>
                                         ) : (
-                                            <div className="text-center">
-                                                <span className="block text-2xl mb-1">📷</span>
-                                                <span className="text-[9px] text-zinc-400">{isUploadingImage ? "Enviando..." : "Subir"}</span>
-                                            </div>
+                                            <label className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-zinc-800">
+                                                <span className="text-[9px] text-zinc-400">{isUploadingImage ? "Enviando..." : "Subir Imagem"}</span>
+                                                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
+                                            </label>
                                         )}
-                                        <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleImageUpload} disabled={isUploadingImage} />
                                     </div>
                                 </div>
                             </div>
@@ -1131,6 +1190,27 @@ function LoreAdminContent() {
                                 </div>
                             )}
 
+                            {/* Álbum de Imagens */}
+                            <div>
+                                <label className="text-[10px] uppercase text-zinc-500 block mb-2">Álbum de Imagens</label>
+                                <div className="grid grid-cols-4 gap-3">
+                                    {albumImages.map((url, idx) => (
+                                        <div key={idx} className="relative group aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden">
+                                            <img src={url} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setViewingImage(url)} />
+                                            <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                <button onClick={() => handleDeleteAlbumImage(url)} className="bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded hover:bg-red-500">
+                                                    Apagar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <label className="aspect-square bg-zinc-900 border border-zinc-800 border-dashed rounded flex items-center justify-center cursor-pointer hover:bg-zinc-800 hover:border-zinc-700">
+                                        <span className="text-[9px] text-zinc-400">{isUploadingAlbum ? "Enviando..." : "+ Adicionar"}</span>
+                                        <input type="file" accept="image/*" multiple className="hidden" onChange={handleAlbumUpload} disabled={isUploadingAlbum} />
+                                    </label>
+                                </div>
+                            </div>
+
                             <div><label className="text-[10px] uppercase text-zinc-500">Tags</label><input className="w-full bg-black border border-zinc-800 rounded p-2 text-xs text-white" value={fichaForm.tags || ""} onChange={e => setFichaForm({...fichaForm, tags: e.target.value})} /></div>
                         </div>
                     </div>
@@ -1173,7 +1253,7 @@ function LoreAdminContent() {
                 )}
 
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-zinc-800">
-                    <button type="button" onClick={() => setFichaFormMode("idle")} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Cancelar</button>
+                    <button type="button" onClick={() => { setFichaFormMode('idle'); setImagePreview(null); setAlbumImages([]); }} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Cancelar</button>
                     <button type="submit" disabled={isSavingFicha} className="px-4 py-1.5 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-500 disabled:opacity-50">{isSavingFicha ? "Salvando..." : "Salvar Ficha"}</button>
                 </div>
             </form>
@@ -1362,6 +1442,24 @@ function LoreAdminContent() {
               <button type="button" onClick={() => setShowEditCategoriesModal(false)} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white">Fechar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal de Visualização de Imagem em Tela Cheia */}
+      {viewingImage && (
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center" onClick={() => setViewingImage(null)}>
+          <button 
+            onClick={() => setViewingImage(null)} 
+            className="absolute top-4 right-4 text-white text-2xl w-10 h-10 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/80 border border-zinc-700"
+          >
+            ×
+          </button>
+          <img 
+            src={viewingImage} 
+            alt="" 
+            className="max-w-[90vw] max-h-[90vh] object-contain" 
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
