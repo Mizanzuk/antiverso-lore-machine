@@ -604,7 +604,7 @@ export default function Page() {
         const { data: uniData, error: uniError } = await supabaseBrowser.from("universes").insert({ nome: newUniverseName.trim(), descricao: newUniverseDesc.trim() || null }).select().single();
         if (uniError || !uniData) { alert("Erro ao criar universo: " + (uniError?.message || "Erro desconhecido.")); return; }
         const rootId = newUniverseName.trim().toLowerCase().replace(/\s+/g, "_") + "_root_" + Date.now();
-        const { error: worldError } = await supabaseBrowser.from("worlds").insert({ id: rootId, nome: uniData.nome, universe_id: uniData.id, is_root: true, tipo: "meta_universo", ordem: 0 });
+        const { error: worldError } = await supabaseBrowser.from("worlds").insert({ id: rootId, nome: uniData.nome, universe_id: uniData.id, is_root: true, tipo: "meta_universo", ordem: 0, has_episodes: false });
         if (worldError) { alert("Erro ao criar Mundo Raiz. Verifique as permissões de RLS no Supabase. Erro: " + (worldError?.message || "Erro desconhecido.")); return; }
         setUniverses(prev => [...prev, uniData]);
         setSelectedUniverseId(uniData.id);
