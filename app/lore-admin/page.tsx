@@ -1005,6 +1005,20 @@ function LoreAdminContent() {
                             </div>
                         )}
 
+                        {/* Álbum de Imagens na Visualização */}
+                        {selectedFicha.album_imagens && selectedFicha.album_imagens.length > 0 && (
+                            <div>
+                                <h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-3">Álbum de Imagens</h3>
+                                <div className="grid grid-cols-4 gap-3">
+                                    {selectedFicha.album_imagens.map((url: string, idx: number) => (
+                                        <div key={idx} className="relative aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden cursor-pointer hover:border-zinc-600 transition-colors" onClick={() => setViewingImage(url)}>
+                                            <img src={url} alt="" className="w-full h-full object-cover" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {selectedFicha.aparece_em && (
                             <div className="p-3 rounded border border-zinc-800 bg-zinc-900/30">
                                 <h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-1">Aparece em:</h4>
@@ -1199,7 +1213,7 @@ function LoreAdminContent() {
                                         <div key={idx} className="relative group aspect-square bg-zinc-900 border border-zinc-800 rounded overflow-hidden">
                                             <img src={url} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setViewingImage(url)} />
                                             <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                                <button onClick={() => handleDeleteAlbumImage(url)} className="bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded hover:bg-red-500">
+                                                <button type="button" onClick={() => handleDeleteAlbumImage(url)} className="bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded hover:bg-red-500">
                                                     Apagar
                                                 </button>
                                             </div>
