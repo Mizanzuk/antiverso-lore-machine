@@ -107,9 +107,9 @@ As descrições das categorias são suas instruções principais. Siga-as ao pé
    - data_fim: data ISO 8601 se aplicável (string ou null)
    - granularidade_data: "dia", "mes", "ano", "decada", "seculo" ou "indefinido"
    - camada_temporal: "linha_principal", "flashback", "flashforward", "sonho_visao", "mundo_alternativo", "historico_antigo", "outro", "relato" ou "publicacao"
+   - relations: array de relações desta ficha com outras (OBRIGATÓRIO - extraia TODAS as relações mencionadas)
 
-
-4. **INSTRUÇÕES DE RELACIONAMENTO (PONTO MAIS IMPORTANTE):**
+3.5. **ATENÇÃO CRÍTICA - RELAÇÕES SÃO OBRIGATÓRIAS:**
 
 Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é OBRIGATÓRIO em TODAS as fichas.
 
@@ -143,22 +143,10 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
 1. TODA ficha DEVE ter o campo "relations" (mesmo que seja um array vazio [])
 2. Se uma ficha menciona outra entidade, CRIE uma relação
 3. Se um personagem interage com outro, CRIE relações entre eles
-4. Se um evento acontece em um local, CRIE relação "localizado_em" (evento -> local)
-5. Se um personagem participa de um evento, CRIE relação "participou_de" (personagem -> evento)
+4. Se um evento acontece em um local, CRIE relação "localizado_em"
+5. Se um personagem participa de um evento, CRIE relação "participou_de"
 
-**REGRAS SOBRE RELAÇÕES SIMÉTRICAS:**
-- Para relações simétricas (amigo_de, inimigo_de, casado_com, irmão_de, etc.), crie APENAS UMA DIREÇÃO
-- Exemplo CORRETO: {"source_titulo": "João", "target_titulo": "Pedro", "tipo_relacao": "amigo_de"}
-- Exemplo ERRADO: Criar tanto João->Pedro quanto Pedro->João (isso é duplicação!)
-
-**REGRAS SOBRE "localizado_em":**
-- Use "localizado_em" APENAS quando a ORIGEM é um lugar/evento e o DESTINO é outro lugar
-- Exemplo CORRETO: {"source_titulo": "Padaria", "target_titulo": "Bairro Centro", "tipo_relacao": "localizado_em"}
-- Exemplo CORRETO: {"source_titulo": "Reunião de 2025", "target_titulo": "Escola", "tipo_relacao": "localizado_em"}
-- Exemplo ERRADO: {"source_titulo": "Pedro", "target_titulo": "Escola", "tipo_relacao": "localizado_em"}
-- Para personagens visitando lugares, use: "visitou", "mora_em", "trabalha_em", "estudou_em"
-
-5. FORMATO DE RESPOSTA OBRIGATÓRIO:
+4. FORMATO DE RESPOSTA OBRIGATÓRIO:
 {
   "fichas": [
     { 
@@ -180,17 +168,17 @@ Para CADA ficha, você DEVE incluir o campo "relations" (array). Este campo é O
       "conteudo": "...", 
       "tags": [...],
       "relations": [
-        {"source_titulo": "Padaria da Esquina", "target_titulo": "Bairro Centro", "tipo_relacao": "localizado_em", "descricao": "Localizada no bairro"}
+        {"source_titulo": "Padaria da Esquina", "target_titulo": "Pedro", "tipo_relacao": "visitou", "descricao": "Pedro frequenta este local"}
       ],
       ...
     }
   ]
 }
 
-6. NUNCA retorne um array vazio de fichas.
-7. Use APENAS os slugs de categoria listados acima.
-8. Seja ULTRA-GENEROSO na extração.
-9. Siga as instruções específicas de cada categoria.
+5. NUNCA retorne um array vazio de fichas. Se houver QUALQUER menção a pessoas, lugares ou eventos, EXTRAIA FICHAS.
+6. Use APENAS os slugs de categoria listados acima.
+7. Seja ULTRA-GENEROSO na extração - prefira extrair demais do que de menos.
+8. Siga as instruções específicas de cada categoria descritas acima.
 
 **⚠️ ATENÇÃO FINAL SOBRE RELAÇÕES ⚠️**
 
@@ -293,7 +281,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { text, universeId } = body;
+        const { text, universeId, categories: requestedCategories } = body;
 
         if (!text || typeof text !== "string") {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Texto inválido" })}\n\n`));
@@ -319,11 +307,20 @@ export async function POST(req: NextRequest) {
 
         if (!catError && categories && categories.length > 0) {
           console.log(`[EXTRACT] ✅ ${categories.length} categorias carregadas do banco`);
-          allowedTypes = categories.map((c: any) => c.slug);
           
-          // Armazenar descrições
+          // Filtrar por categorias solicitadas se fornecidas
+          const allCategories = categories.map((c: any) => c.slug);
+          if (requestedCategories && Array.isArray(requestedCategories) && requestedCategories.length > 0) {
+            allowedTypes = allCategories.filter(slug => requestedCategories.includes(slug));
+            console.log(`[EXTRACT] 🎯 Filtro aplicado: ${allowedTypes.length}/${allCategories.length} categorias selecionadas`);
+          } else {
+            allowedTypes = allCategories;
+            console.log(`[EXTRACT] 🎯 Todas as ${allowedTypes.length} categorias serão extraídas`);
+          }
+          
+          // Armazenar descrições apenas das categorias permitidas
           categories.forEach((c: any) => {
-            if (c.description) {
+            if (allowedTypes.includes(c.slug) && c.description) {
               categoryDescriptions.set(c.slug, c.description);
             }
           });
