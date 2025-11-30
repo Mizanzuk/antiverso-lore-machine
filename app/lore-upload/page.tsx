@@ -84,6 +84,13 @@ export default function LoreUploadPage() {
   const [newWorldHasEpisodes, setNewWorldHasEpisodes] = useState(true);
   const [isCreatingWorld, setIsCreatingWorld] = useState(false);
 
+  const [showNewUniverseModal, setShowNewUniverseModal] = useState(false);
+  const [newUniverseName, setNewUniverseName] = useState("");
+  const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
+
+  const [existingEpisodes, setExistingEpisodes] = useState<string[]>([]);
+  const [showNewEpisodeInput, setShowNewEpisodeInput] = useState(false);
+
   const [isCheckingConsistency, setIsCheckingConsistency] = useState(false);
   const [consistencyReport, setConsistencyReport] = useState<string | null>(null);
 
@@ -148,6 +155,11 @@ export default function LoreUploadPage() {
           setWorlds([]);
           setSelectedWorldId("");
         }
+        
+        // Carregar episódios existentes do mundo selecionado
+        if (selectedWorldId) {
+          await fetchExistingEpisodes(selectedWorldId);
+        }
       } catch (err: any) {
         console.error("Erro ao carregar dados:", err);
         setError(err.message || "Erro ao carregar dados.");
@@ -159,10 +171,49 @@ export default function LoreUploadPage() {
     fetchWorldsAndTypes();
   }, [selectedUniverseId, userId]);
 
+  async function fetchExistingEpisodes(worldId: string) {
+    try {
+      const { data } = await supabaseBrowser
+        .from("fichas")
+        .select("episodio")
+        .eq("world_id", worldId)
+        .not("episodio", "is", null)
+        .order("episodio", { ascending: true });
+      
+      if (data) {
+        const episodes = Array.from(new Set(data.map(f => f.episodio).filter(Boolean)));
+        setExistingEpisodes(episodes);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar episódios:", err);
+    }
+  }
+
   function handleWorldChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value;
     if (value === "create_new") { setShowNewWorldModal(true); return; }
     setSelectedWorldId(value);
+    setUnitNumber("");
+    setShowNewEpisodeInput(false);
+    fetchExistingEpisodes(value);
+  }
+  
+  function handleUniverseChange(e: ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    if (value === "create_new_universe") { setShowNewUniverseModal(true); return; }
+    setSelectedUniverseId(value);
+    if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", value);
+  }
+  
+  function handleEpisodeChange(e: ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    if (value === "new_episode") {
+      setShowNewEpisodeInput(true);
+      setUnitNumber("");
+    } else {
+      setShowNewEpisodeInput(false);
+      setUnitNumber(value);
+    }
   }
 
   async function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
@@ -199,6 +250,36 @@ export default function LoreUploadPage() {
   }
 
   function handleCancelWorldModal() { setShowNewWorldModal(false); setNewWorldName(""); setNewWorldDescription(""); setNewWorldHasEpisodes(true); }
+
+  async function handleCreateUniverse() {
+    if (!newUniverseName.trim()) { setError("Dê um nome ao novo Universo."); return; }
+    if (!userId) { setError("Usuário não autenticado."); return; }
+    setIsCreatingUniverse(true);
+    setError(null);
+    try {
+      const { data: inserted, error: insertError } = await supabaseBrowser
+        .from("universes")
+        .insert({ nome: newUniverseName.trim() })
+        .select("id, nome")
+        .single();
+      if (insertError) throw insertError;
+      if (inserted) {
+        setUniverses(prev => [...prev, inserted]);
+        setSelectedUniverseId(inserted.id);
+        if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", inserted.id);
+        setShowNewUniverseModal(false);
+        setNewUniverseName("");
+        setSuccessMessage("Novo Universo criado com sucesso.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Erro ao criar Universo.");
+    } finally {
+      setIsCreatingUniverse(false);
+    }
+  }
+
+  function handleCancelUniverseModal() { setShowNewUniverseModal(false); setNewUniverseName(""); }
 
   // --- STREAMING EXTRACTION ---
   async function handleExtractFichas() {
@@ -427,9 +508,22 @@ export default function LoreUploadPage() {
           {successMessage && !error && <div className="rounded-md border border-emerald-500 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">{successMessage}</div>}
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={(e) => { setSelectedUniverseId(e.target.value); if (typeof window !== "undefined") localStorage.setItem("selectedUniverseId", e.target.value); }}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}</select></div>
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.nome ?? world.id}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
-            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label><input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder={worldHasEpisodes ? "Ex.: 6" : "N/A"} disabled={!worldHasEpisodes} /></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Universo</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedUniverseId} onChange={handleUniverseChange}>{universes.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}<option value="create_new_universe">+ Novo universo...</option></select></div>
+            <div className="space-y-1"><label className="text-xs uppercase tracking-wide text-zinc-400">Mundo de destino</label><select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={selectedWorldId} onChange={handleWorldChange}>{worlds.map((world) => <option key={world.id} value={world.id}>{world.is_root ? `[Raiz] ${world.nome ?? world.id}` : (world.nome ?? world.id)}</option>)}<option value="create_new">+ Novo mundo...</option></select></div>
+            <div className="space-y-1">
+              <label className="text-xs uppercase tracking-wide text-zinc-400">Episódio / Capítulo #</label>
+              {!worldHasEpisodes ? (
+                <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value="N/A" disabled />
+              ) : showNewEpisodeInput ? (
+                <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={(e) => setUnitNumber(e.target.value)} placeholder="Ex.: 6" autoFocus />
+              ) : (
+                <select className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={unitNumber} onChange={handleEpisodeChange}>
+                  <option value="">Selecione...</option>
+                  {existingEpisodes.map(ep => <option key={ep} value={ep}>{ep}</option>)}
+                  <option value="new_episode">+ Novo episódio/capítulo...</option>
+                </select>
+              )}
+            </div>
           </section>
 
           <section className="space-y-1">
@@ -496,13 +590,20 @@ export default function LoreUploadPage() {
             </section>
           )}
 
-          {/* BARRA DE PROGRESSO REAL */}
+          {/* BARRA DE PROGRESSO COM ETAPAS */}
           {isExtracting && (
-            <div className="space-y-2">
-                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
-                   <div className="bg-fuchsia-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+            <div className="space-y-3 p-4 bg-zinc-900/50 border border-zinc-800 rounded-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-zinc-300">Extração em andamento...</span>
+                  <span className="text-xs font-mono text-fuchsia-400">{extractProgress}%</span>
                 </div>
-                <p className="text-[10px] text-zinc-400 text-center animate-pulse">{extractStatus} ({extractProgress}%)</p>
+                <div className="w-full bg-zinc-800 rounded-full h-3 overflow-hidden">
+                   <div className="bg-gradient-to-r from-fuchsia-600 to-fuchsia-500 h-3 rounded-full transition-all duration-500" style={{ width: `${extractProgress}%` }}></div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-fuchsia-500 rounded-full animate-pulse"></div>
+                  <p className="text-xs text-zinc-400">{extractStatus}</p>
+                </div>
             </div>
           )}
 
@@ -563,6 +664,25 @@ export default function LoreUploadPage() {
           </section>
         </div>
       </div>
+
+      {showNewUniverseModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
+          <form onSubmit={e => { e.preventDefault(); handleCreateUniverse(); }} className="w-full max-w-md border border-zinc-800 rounded-lg p-4 bg-zinc-950/95 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-zinc-400">Novo Universo</div>
+              <button type="button" onClick={handleCancelUniverseModal} className="text-[11px] text-zinc-500 hover:text-zinc-200">fechar</button>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] text-zinc-500">Nome do Universo</label>
+              <input className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm" value={newUniverseName} onChange={(e) => setNewUniverseName(e.target.value)} placeholder="Ex: Antiverso" autoFocus />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={handleCancelUniverseModal} className="px-3 py-1.5 rounded border border-zinc-700 text-[11px] text-zinc-300 hover:bg-zinc-800/60">Cancelar</button>
+              <button type="submit" disabled={isCreatingUniverse} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-[11px] font-medium">{isCreatingUniverse ? "Criando..." : "Salvar"}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {showNewWorldModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70">
