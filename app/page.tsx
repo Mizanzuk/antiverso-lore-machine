@@ -202,9 +202,11 @@ export default function Page() {
   const [entities, setEntities] = useState<LoreEntity[]>([]);
   const [catalogTypes, setCatalogTypes] = useState<{id: string, label: string}[]>([]);
   
-  const [selectedWorldId, setSelectedWorldId] = useState<string>("all");
+  const [selectedWorldIds, setSelectedWorldIds] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<string>("all");
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [showWorldsFilter, setShowWorldsFilter] = useState(false);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -617,7 +619,7 @@ export default function Page() {
   }
 
   const filteredEntitiesAll = entities.filter((e) => {
-    if (selectedWorldId !== "all" && e.world_id !== selectedWorldId) return false;
+    if (selectedWorldIds.length > 0 && !selectedWorldIds.includes(e.world_id || "")) return false;
     if (selectedType !== "all" && e.tipo !== selectedType) return false;
     if (searchTerm.trim().length > 0) {
       const q = normalize(searchTerm);
@@ -929,12 +931,12 @@ export default function Page() {
                 <p className="text-xs text-gray-400 mb-1">
                   {filteredEntitiesAll.length} entrada
                   {filteredEntitiesAll.length === 1 ? "" : "s"} encontrada
-                  {selectedWorldId !== "all" && (
+                  {selectedWorldIds.length > 0 && (
                     <>
                       {" "}
-                      · Mundo:{" "}
+                      · Mundos:{" "}
                       <span className="text-gray-200">
-                        {getWorldName(selectedWorldId) ?? selectedWorldId}
+                        {selectedWorldIds.length} selecionado{selectedWorldIds.length > 1 ? 's' : ''}
                       </span>
                     </>
                   )}
@@ -961,7 +963,111 @@ export default function Page() {
                   )}
                 </p>
 
-                {/* FILTROS DE CATEGORIA */}
+                {/* CAMPO DE BUSCA */}
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    placeholder="Buscar por título, resumo, slug ou tags..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/15 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-white/30 transition"
+                  />
+                </div>
+
+                {/* FILTROS */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                  {/* Filtro de Mundos */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowWorldsFilter(!showWorldsFilter)}
+                      className="w-full px-3 py-2 bg-black/40 border border-white/15 rounded-md text-sm text-left flex items-center justify-between hover:border-white/30 transition"
+                    >
+                      <span className="text-gray-300">
+                        {selectedWorldIds.length === 0 ? 'Todos os mundos' : `${selectedWorldIds.length} mundo${selectedWorldIds.length > 1 ? 's' : ''}`}
+                      </span>
+                      <svg className={`w-4 h-4 text-gray-400 transition-transform ${showWorldsFilter ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    {showWorldsFilter && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-white/20 rounded-md shadow-xl max-h-64 overflow-y-auto z-10">
+                        <button
+                          onClick={() => { setSelectedWorldIds([]); setShowWorldsFilter(false); }}
+                          className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-white/10 transition-colors border-b border-white/10 font-semibold"
+                        >
+                          ✓ Todos os mundos
+                        </button>
+                        {worlds.map(world => (
+                          <label
+                            key={world.id}
+                            className="flex items-start gap-2 px-3 py-2 text-xs text-gray-300 hover:bg-white/10 transition-colors cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedWorldIds.includes(world.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedWorldIds(prev => [...prev, world.id]);
+                                } else {
+                                  setSelectedWorldIds(prev => prev.filter(id => id !== world.id));
+                                }
+                              }}
+                              className="mt-0.5"
+                            />
+                            <div className="flex-1">
+                              <div className="font-medium text-gray-200">{world.nome}</div>
+                              {world.descricao && (
+                                <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">{world.descricao}</div>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Filtro de Tipos */}
+                  <div>
+                    <select
+                      value={selectedType}
+                      onChange={(e) => setSelectedType(e.target.value)}
+                      className="w-full px-3 py-2 bg-black/40 border border-white/15 rounded-md text-sm text-gray-300 focus:outline-none focus:border-white/30 transition"
+                    >
+                      {catalogTypes.map(t => (
+                        <option key={t.id} value={t.id}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Filtro de Episódios */}
+                  <div>
+                    <select
+                      value={selectedEpisodeId}
+                      onChange={(e) => setSelectedEpisodeId(e.target.value)}
+                      className="w-full px-3 py-2 bg-black/40 border border-white/15 rounded-md text-sm text-gray-300 focus:outline-none focus:border-white/30 transition"
+                    >
+                      <option value="all">Todos os episódios</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Botão Limpar Filtros */}
+                {(selectedWorldIds.length > 0 || selectedType !== "all" || selectedEpisodeId !== "all" || searchTerm.trim().length > 0) && (
+                  <div className="mb-3">
+                    <button
+                      onClick={() => {
+                        setSelectedWorldIds([]);
+                        setSelectedType("all");
+                        setSelectedEpisodeId("all");
+                        setSearchTerm("");
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-200 underline transition"
+                    >
+                      Limpar filtros
+                    </button>
+                  </div>
+                )}
+
+                {/* FILTROS DE CATEGORIA (TAGS) */}
                 <div className="flex flex-wrap gap-2 mb-3">
                   {catalogTypes.map(t => (
                     <button
