@@ -6,9 +6,15 @@
 
 ## ✅ Tarefas Concluídas
 
+- **#9** - ✅ Menu de perfil com dropdown (Tema, Editar Perfil, Sair)
 - **#13** - ✅ API /api/worlds criada com CRUD completo
 - **#16** - ✅ Sistema de Mundo Raiz implementado (auto-create, proteção contra delete)
-- **#22** - ✅ Código já usa `lore_categories` corretamente (não precisa correção)
+- **#18** - ✅ Tipografia corrigida (removida fonte serifada)
+- **#20** - ✅ Seta dos dropdowns dentro do box (CSS global)
+- **#21** - ✅ Botões de categoria já tinham moldura
+- **#22** - ✅ Código já usa `lore_categories` corretamente
+- **#23** - ✅ Ícones Editar/Apagar nas fichas (hover)
+- **#25** - ✅ Checkboxes com cor rosa do tema (CSS global)
 
 ---
 

@@ -1035,7 +1035,7 @@ function LoreAdminContent() {
                             </div>
                         )}
 
-                        <div><h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-zinc-300 leading-loose whitespace-pre-wrap font-serif">{renderWikiText(selectedFicha.conteudo || selectedFicha.resumo)}</div></div>
+                        <div><h3 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Conteúdo</h3><div className="text-sm text-zinc-300 leading-loose whitespace-pre-wrap">{renderWikiText(selectedFicha.conteudo || selectedFicha.resumo)}</div></div>
                         <div className="grid grid-cols-2 gap-4 pt-6 border-t border-zinc-900">
                             <div><h4 className="text-[10px] uppercase font-bold text-zinc-500 mb-2">Conexões</h4>{(() => {
                                 // Deduplicação: remove relações bidirecionais duplicadas

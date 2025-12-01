@@ -185,6 +185,7 @@ export default function Page() {
   
   const [showEditUniModal, setShowEditUniModal] = useState(false);
   const [editUniForm, setEditUniForm] = useState({ id: "", nome: "", descricao: "" });
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -815,7 +816,40 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500"><div className="flex items-center justify-between gap-2"><p>Área protegida.</p><button onClick={handleLogout} className="px-2 py-1 rounded-full border border-white/20 text-[10px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors">Sair</button></div></div>
+        <div className="px-4 py-4 border-t border-white/10 text-xs text-gray-500">
+          <div className="relative">
+            <button 
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-md border border-white/20 bg-white/5 hover:bg-white/10 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-rose-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-bold">
+                  {email ? email[0].toUpperCase() : "U"}
+                </div>
+                <span className="text-[11px] text-gray-300 truncate max-w-[120px]">{email || "Usuário"}</span>
+              </div>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}` } fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            
+            {showProfileMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-zinc-900 border border-white/20 rounded-md shadow-xl overflow-hidden">
+                <button className="w-full text-left px-3 py-2 text-[11px] text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2" onClick={() => { alert('Funcionalidade em desenvolvimento'); setShowProfileMenu(false); }}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
+                  Tema
+                </button>
+                <button className="w-full text-left px-3 py-2 text-[11px] text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2" onClick={() => { alert('Funcionalidade em desenvolvimento'); setShowProfileMenu(false); }}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  Editar Perfil
+                </button>
+                <div className="border-t border-white/10" />
+                <button className="w-full text-left px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2" onClick={() => { handleLogout(); setShowProfileMenu(false); }}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                  Sair
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </aside>
 
       {/* Main */}
@@ -966,20 +1000,38 @@ export default function Page() {
                 {!loadingCatalog && pageEntities.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {pageEntities.map((entity) => (
-                      <button
+                      <div
                         key={entity.id}
+                        className="group relative text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition cursor-pointer"
                         onClick={() => handleCatalogClick(entity)}
-                        className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition"
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
                           <h3 className="font-semibold text-gray-5 truncate">
                             {entity.titulo}
                           </h3>
-                          {entity.tipo && (
-                            <span className="text-[10px] uppercase tracking-wide px-2 py-[2px] rounded-full border border-white/20 text-gray-200">
-                              {entity.tipo}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {entity.tipo && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-[2px] rounded-full border border-white/20 text-gray-200">
+                                {entity.tipo}
+                              </span>
+                            )}
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); window.location.href = `/lore-admin?ficha=${entity.id}`; }}
+                                className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 text-[10px]"
+                                title="Editar Ficha"
+                              >
+                                ✎
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); if (confirm(`Tem certeza que deseja apagar a ficha "${entity.titulo}"?`)) { /* TODO: implementar delete */ alert('Funcionalidade em desenvolvimento'); } }}
+                                className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-[10px]"
+                                title="Apagar Ficha"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
                         </div>
 
                         {entity.resumo && (
@@ -1016,7 +1068,7 @@ export default function Page() {
                             </span>
                           )}
                         </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
                 )}
