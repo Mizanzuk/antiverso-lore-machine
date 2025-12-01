@@ -16,6 +16,7 @@
 - **#23** - ✅ Ícones Editar/Apagar nas fichas (hover)
 - **#24** - ✅ Seleção múltipla de fichas (Exportar/Apagar)
 - **#25** - ✅ Checkboxes com cor rosa do tema (CSS global)
+- **#26** - ✅ Drag-and-drop para reordenação visual (temporária)
 
 ---
 

@@ -7,9 +7,14 @@ import {
   useRef,
   useState,
   useCallback,
+  useMemo,
 } from "react";
 import { clsx } from "clsx";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 type ChatMessage = {
   id: string;
@@ -209,6 +214,7 @@ export default function Page() {
   const [showWorldsFilter, setShowWorldsFilter] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFichaIds, setSelectedFichaIds] = useState<string[]>([]);
+  const [customOrder, setCustomOrder] = useState<string[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -216,6 +222,25 @@ export default function Page() {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const typingIntervalRef = useRef<number | null>(null);
+
+  // Sensores para drag-and-drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    
+    setCustomOrder((items) => {
+      const oldIndex = items.indexOf(active.id as string);
+      const newIndex = items.indexOf(over.id as string);
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  }
 
   // --- 1. AUTH ---
   useEffect(() => {
@@ -637,7 +662,26 @@ export default function Page() {
   const totalPages = Math.max(1, Math.ceil(filteredEntitiesAll.length / itemsPerPage));
   const safePage = currentPage > totalPages ? totalPages : Math.max(1, currentPage);
   const startIndex = (safePage - 1) * itemsPerPage;
-  const pageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
+  const basePageEntities = filteredEntitiesAll.slice(startIndex, startIndex + itemsPerPage);
+  
+  // Aplicar ordem customizada se existir
+  const pageEntities = useMemo(() => {
+    if (customOrder.length === 0) return basePageEntities;
+    const ordered = [...basePageEntities].sort((a, b) => {
+      const indexA = customOrder.indexOf(a.id);
+      const indexB = customOrder.indexOf(b.id);
+      if (indexA === -1 && indexB === -1) return 0;
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
+    return ordered;
+  }, [basePageEntities, customOrder]);
+  
+  // Atualizar customOrder quando pageEntities mudar (nova página, novos filtros)
+  useEffect(() => {
+    setCustomOrder(basePageEntities.map(e => e.id));
+  }, [basePageEntities.map(e => e.id).join(',')]);
 
   function getWorldName(worldId?: string | null): string | null {
     if (!worldId) return null;
@@ -1191,29 +1235,49 @@ export default function Page() {
                 )}
 
                 {!loadingCatalog && pageEntities.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {pageEntities.map((entity) => (
-                      <div
-                        key={entity.id}
-                        className={`group relative text-left rounded-xl border p-3 text-sm transition ${
-                          selectionMode
-                            ? selectedFichaIds.includes(entity.id)
-                              ? 'border-rose-500 bg-rose-500/10'
-                              : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'
-                            : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'
-                        }`}
-                        onClick={() => {
-                          if (selectionMode) {
-                            if (selectedFichaIds.includes(entity.id)) {
-                              setSelectedFichaIds(prev => prev.filter(id => id !== entity.id));
-                            } else {
-                              setSelectedFichaIds(prev => [...prev, entity.id]);
-                            }
-                          } else {
-                            handleCatalogClick(entity);
-                          }
-                        }}
-                      >
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext
+                      items={pageEntities.map(e => e.id)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {pageEntities.map((entity) => {
+                          const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entity.id });
+                          const style = {
+                            transform: CSS.Transform.toString(transform),
+                            transition,
+                            opacity: isDragging ? 0.5 : 1,
+                          };
+                          return (
+                            <div
+                              ref={setNodeRef}
+                              style={style}
+                              {...attributes}
+                              {...listeners}
+                              key={entity.id}
+                              className={`group relative text-left rounded-xl border p-3 text-sm transition ${
+                                selectionMode
+                                  ? selectedFichaIds.includes(entity.id)
+                                    ? 'border-rose-500 bg-rose-500/10'
+                                    : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'
+                                  : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-grab active:cursor-grabbing'
+                              } ${isDragging ? 'z-50 shadow-2xl' : ''}`}
+                              onClick={() => {
+                                if (selectionMode) {
+                                  if (selectedFichaIds.includes(entity.id)) {
+                                    setSelectedFichaIds(prev => prev.filter(id => id !== entity.id));
+                                  } else {
+                                    setSelectedFichaIds(prev => [...prev, entity.id]);
+                                  }
+                                } else {
+                                  handleCatalogClick(entity);
+                                }
+                              }}
+                            >
                         <div className="flex items-center justify-between gap-2 mb-1">
                           {selectionMode && (
                             <input
@@ -1288,9 +1352,12 @@ export default function Page() {
                             </span>
                           )}
                         </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    </SortableContext>
+                  </DndContext>
                 )}
 
                 <CatalogPagination />
