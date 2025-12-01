@@ -14,6 +14,7 @@
 - **#21** - ✅ Botões de categoria já tinham moldura
 - **#22** - ✅ Código já usa `lore_categories` corretamente
 - **#23** - ✅ Ícones Editar/Apagar nas fichas (hover)
+- **#24** - ✅ Seleção múltipla de fichas (Exportar/Apagar)
 - **#25** - ✅ Checkboxes com cor rosa do tema (CSS global)
 
 ---

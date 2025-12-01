@@ -207,6 +207,8 @@ export default function Page() {
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [showWorldsFilter, setShowWorldsFilter] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedFichaIds, setSelectedFichaIds] = useState<string[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -644,10 +646,46 @@ export default function Page() {
   }
 
   function handleCatalogClick(entity: LoreEntity) {
+    if (selectionMode) return; // Não navegar em modo de seleção
     const titulo = entity.titulo;
     const prompt = `Em modo consulta, sem inventar nada, me diga o que já está definido sobre ${titulo}.`;
     setInput(prompt);
     setViewMode("chat");
+  }
+
+  async function exportSelectedFichas() {
+    if (selectedFichaIds.length === 0) return;
+    const selectedEntities = entities.filter(e => selectedFichaIds.includes(e.id));
+    const exportData = selectedEntities.map(e => ({
+      titulo: e.titulo,
+      tipo: e.tipo,
+      resumo: e.resumo,
+      slug: e.slug,
+      world_id: e.world_id,
+      world_name: getWorldName(e.world_id),
+      tags: e.tags,
+      codes: e.codes,
+      ano_diegese: e.ano_diegese
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fichas_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert(`${selectedFichaIds.length} ficha${selectedFichaIds.length > 1 ? 's' : ''} exportada${selectedFichaIds.length > 1 ? 's' : ''}!`);
+  }
+
+  async function deleteSelectedFichas() {
+    if (selectedFichaIds.length === 0) return;
+    if (!confirm(`Tem certeza que deseja apagar ${selectedFichaIds.length} ficha${selectedFichaIds.length > 1 ? 's' : ''}?`)) return;
+    // TODO: Implementar API de delete
+    alert('Funcionalidade de deleção em desenvolvimento');
+    // Após implementar:
+    // setSelectedFichaIds([]);
+    // setSelectionMode(false);
+    // loadCatalog();
   }
 
   const CatalogPagination = () => {
@@ -1067,6 +1105,55 @@ export default function Page() {
                   </div>
                 )}
 
+                {/* Botões de Seleção Múltipla */}
+                <div className="flex items-center gap-2 mb-3">
+                  {!selectionMode ? (
+                    <button
+                      onClick={() => {
+                        setSelectionMode(true);
+                        setSelectedFichaIds([]);
+                      }}
+                      className="px-3 py-1.5 text-xs rounded-md border border-white/20 bg-white/5 hover:bg-white/10 text-gray-300 transition flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                      Selecionar fichas
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setSelectionMode(false);
+                          setSelectedFichaIds([]);
+                        }}
+                        className="px-3 py-1.5 text-xs rounded-md border border-white/20 bg-white/5 hover:bg-white/10 text-gray-300 transition"
+                      >
+                        Cancelar
+                      </button>
+                      <span className="text-xs text-gray-400">
+                        {selectedFichaIds.length} selecionada{selectedFichaIds.length !== 1 ? 's' : ''}
+                      </span>
+                      {selectedFichaIds.length > 0 && (
+                        <>
+                          <button
+                            onClick={exportSelectedFichas}
+                            className="px-3 py-1.5 text-xs rounded-md border border-emerald-500 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 transition flex items-center gap-1"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            Exportar
+                          </button>
+                          <button
+                            onClick={deleteSelectedFichas}
+                            className="px-3 py-1.5 text-xs rounded-md border border-red-500 bg-red-500/20 hover:bg-red-500/30 text-red-400 transition flex items-center gap-1"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Apagar
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 {/* FILTROS DE CATEGORIA (TAGS) */}
                 <div className="flex flex-wrap gap-2 mb-3">
                   {catalogTypes.map(t => (
@@ -1108,10 +1195,35 @@ export default function Page() {
                     {pageEntities.map((entity) => (
                       <div
                         key={entity.id}
-                        className="group relative text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 p-3 text-sm transition cursor-pointer"
-                        onClick={() => handleCatalogClick(entity)}
+                        className={`group relative text-left rounded-xl border p-3 text-sm transition ${
+                          selectionMode
+                            ? selectedFichaIds.includes(entity.id)
+                              ? 'border-rose-500 bg-rose-500/10'
+                              : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'
+                            : 'border-white/10 bg-white/5 hover:bg-white/10 cursor-pointer'
+                        }`}
+                        onClick={() => {
+                          if (selectionMode) {
+                            if (selectedFichaIds.includes(entity.id)) {
+                              setSelectedFichaIds(prev => prev.filter(id => id !== entity.id));
+                            } else {
+                              setSelectedFichaIds(prev => [...prev, entity.id]);
+                            }
+                          } else {
+                            handleCatalogClick(entity);
+                          }
+                        }}
                       >
                         <div className="flex items-center justify-between gap-2 mb-1">
+                          {selectionMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedFichaIds.includes(entity.id)}
+                              onChange={() => {}} // Controlado pelo onClick do div
+                              className="flex-shrink-0"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          )}
                           <h3 className="font-semibold text-gray-5 truncate">
                             {entity.titulo}
                           </h3>
@@ -1121,22 +1233,24 @@ export default function Page() {
                                 {entity.tipo}
                               </span>
                             )}
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); window.location.href = `/lore-admin?ficha=${entity.id}`; }}
-                                className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 text-[10px]"
-                                title="Editar Ficha"
-                              >
-                                ✎
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); if (confirm(`Tem certeza que deseja apagar a ficha "${entity.titulo}"?`)) { /* TODO: implementar delete */ alert('Funcionalidade em desenvolvimento'); } }}
-                                className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-[10px]"
-                                title="Apagar Ficha"
-                              >
-                                ×
-                              </button>
-                            </div>
+                            {!selectionMode && (
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); window.location.href = `/lore-admin?ficha=${entity.id}`; }}
+                                  className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 text-[10px]"
+                                  title="Editar Ficha"
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); if (confirm(`Tem certeza que deseja apagar a ficha "${entity.titulo}"?`)) { /* TODO: implementar delete */ alert('Funcionalidade em desenvolvimento'); } }}
+                                  className="p-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-500 hover:border-red-900 text-[10px]"
+                                  title="Apagar Ficha"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
 
